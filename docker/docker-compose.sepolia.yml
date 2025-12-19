@@ -1,0 +1,161 @@
+# Set Chain - Sepolia Testnet Docker Compose
+# Connects to real Sepolia L1 (no local L1 node)
+
+version: '3.8'
+
+services:
+  # =========================================================================
+  # op-geth - L2 Execution Client
+  # =========================================================================
+  op-geth:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
+    container_name: set-op-geth
+    command:
+      - --datadir=/data
+      - --networkid=84532001
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8547
+      - --http.api=eth,net,web3,debug,txpool,engine
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8548
+      - --ws.api=eth,net,web3,debug,txpool,engine
+      - --ws.origins=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/config/jwt.txt
+      - --authrpc.vhosts=*
+      - --rollup.disabletxpoolgossip=true
+      - --gcmode=archive
+      - --nodiscover
+      - --maxpeers=0
+      - --verbosity=3
+    volumes:
+      - op-geth-data:/data
+      - ../op-stack/sequencer/op-geth:/config:ro
+    ports:
+      - "8547:8547"
+      - "8548:8548"
+      - "8551:8551"
+    networks:
+      - set-chain
+    restart: unless-stopped
+
+  # =========================================================================
+  # op-node - L2 Consensus Client (connected to Sepolia)
+  # =========================================================================
+  op-node:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.9.4
+    container_name: set-op-node
+    command:
+      - op-node
+      - --l1=${L1_RPC_URL}
+      - --l1.beacon=${L1_BEACON_URL}
+      - --l2=http://op-geth:8551
+      - --l2.jwt-secret=/config/jwt.txt
+      - --rollup.config=/config/rollup.json
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=9545
+      - --p2p.disable
+      - --sequencer.enabled
+      - --sequencer.l1-confs=0
+      - --verifier.l1-confs=0
+      - --log.level=info
+    volumes:
+      - ../op-stack/sequencer/op-geth:/config:ro
+      - ../op-stack/sequencer/op-node:/rollup-config:ro
+    ports:
+      - "9545:9545"
+    networks:
+      - set-chain
+    depends_on:
+      - op-geth
+    environment:
+      - L1_RPC_URL=${L1_RPC_URL}
+      - L1_BEACON_URL=${L1_BEACON_URL}
+    restart: unless-stopped
+
+  # =========================================================================
+  # op-batcher - Batch Submitter (posts to Sepolia)
+  # =========================================================================
+  op-batcher:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:v1.9.4
+    container_name: set-op-batcher
+    command:
+      - op-batcher
+      - --l1-eth-rpc=${L1_RPC_URL}
+      - --l2-eth-rpc=http://op-geth:8547
+      - --rollup-rpc=http://op-node:9545
+      - --poll-interval=1s
+      - --sub-safety-margin=6
+      - --num-confirmations=1
+      - --safe-abort-nonce-too-low-count=3
+      - --private-key=${BATCHER_PRIVATE_KEY}
+      - --max-channel-duration=1
+      - --log.level=info
+    networks:
+      - set-chain
+    depends_on:
+      - op-node
+    environment:
+      - L1_RPC_URL=${L1_RPC_URL}
+      - BATCHER_PRIVATE_KEY=${BATCHER_PRIVATE_KEY}
+    restart: unless-stopped
+
+  # =========================================================================
+  # op-proposer - State Root Proposer (posts to Sepolia)
+  # =========================================================================
+  op-proposer:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-proposer:v1.9.4
+    container_name: set-op-proposer
+    command:
+      - op-proposer
+      - --l1-eth-rpc=${L1_RPC_URL}
+      - --rollup-rpc=http://op-node:9545
+      - --poll-interval=12s
+      - --private-key=${PROPOSER_PRIVATE_KEY}
+      - --l2oo-address=${L2_OUTPUT_ORACLE_ADDRESS}
+      - --log.level=info
+    networks:
+      - set-chain
+    depends_on:
+      - op-node
+    environment:
+      - L1_RPC_URL=${L1_RPC_URL}
+      - PROPOSER_PRIVATE_KEY=${PROPOSER_PRIVATE_KEY}
+      - L2_OUTPUT_ORACLE_ADDRESS=${L2_OUTPUT_ORACLE_ADDRESS}
+    restart: unless-stopped
+
+  # =========================================================================
+  # Set Chain Anchor Service
+  # =========================================================================
+  set-anchor:
+    build:
+      context: ../anchor
+      dockerfile: Dockerfile
+    container_name: set-anchor
+    environment:
+      - L2_RPC_URL=http://op-geth:8547
+      - SEQUENCER_API_URL=${SEQUENCER_API_URL}
+      - SET_REGISTRY_ADDRESS=${SET_REGISTRY_ADDRESS}
+      - SEQUENCER_PRIVATE_KEY=${SEQUENCER_PRIVATE_KEY}
+      - ANCHOR_INTERVAL_SECS=60
+      - MIN_EVENTS_FOR_ANCHOR=100
+      - RUST_LOG=info
+    networks:
+      - set-chain
+    depends_on:
+      - op-geth
+    restart: unless-stopped
+
+volumes:
+  op-geth-data:
+    name: set-op-geth-sepolia-data
+
+networks:
+  set-chain:
+    name: set-chain-sepolia-network
+    driver: bridge

@@ -1,0 +1,251 @@
+# Set Chain - Local Development Docker Compose
+# Runs a complete OP Stack L2 environment
+
+version: '3.8'
+
+services:
+  # =========================================================================
+  # L1 Local Node (for development only)
+  # In production, connect to real Sepolia/Mainnet
+  # =========================================================================
+  l1-geth:
+    image: ethereum/client-go:v1.14.11
+    container_name: set-l1-geth
+    command:
+      - --dev
+      - --dev.period=12
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3,debug,txpool
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3,debug,txpool
+      - --ws.origins=*
+    ports:
+      - "8545:8545"
+      - "8546:8546"
+    networks:
+      - set-chain
+    healthcheck:
+      test: ["CMD", "geth", "attach", "--exec", "eth.blockNumber", "http://localhost:8545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # op-geth - L2 Execution Client
+  # EVM-equivalent execution layer (forked from Ethereum Geth)
+  # =========================================================================
+  op-geth:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
+    container_name: set-op-geth
+    command:
+      - --datadir=/data
+      - --networkid=84532001
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8547
+      - --http.api=eth,net,web3,debug,txpool,engine
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8548
+      - --ws.api=eth,net,web3,debug,txpool,engine
+      - --ws.origins=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/config/jwt.txt
+      - --authrpc.vhosts=*
+      - --rollup.disabletxpoolgossip=true
+      - --gcmode=archive
+      - --nodiscover
+      - --maxpeers=0
+      - --verbosity=3
+    volumes:
+      - op-geth-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8547:8547"   # HTTP RPC
+      - "8548:8548"   # WebSocket
+      - "8551:8551"   # Engine API
+    networks:
+      - set-chain
+    depends_on:
+      l1-geth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8547"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # op-node - L2 Consensus Client
+  # Derives L2 blockchain from L1 events and sequencer data
+  # =========================================================================
+  op-node:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.9.4
+    container_name: set-op-node
+    command:
+      - op-node
+      - --l1=${L1_RPC_URL:-http://l1-geth:8545}
+      - --l1.beacon=${L1_BEACON_URL:-http://l1-geth:8545}
+      - --l2=http://op-geth:8551
+      - --l2.jwt-secret=/config/jwt.txt
+      - --rollup.config=/config/rollup.json
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=9545
+      - --p2p.disable
+      - --sequencer.enabled
+      - --sequencer.l1-confs=0
+      - --verifier.l1-confs=0
+      - --log.level=info
+    volumes:
+      - ./config:/config:ro
+    ports:
+      - "9545:9545"   # Rollup RPC
+    networks:
+      - set-chain
+    depends_on:
+      op-geth:
+        condition: service_healthy
+    environment:
+      - L1_RPC_URL=${L1_RPC_URL:-http://l1-geth:8545}
+      - L1_BEACON_URL=${L1_BEACON_URL:-http://l1-geth:8545}
+
+  # =========================================================================
+  # op-batcher - Batch Submitter
+  # Posts L2 transaction data to L1 for data availability
+  # =========================================================================
+  op-batcher:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:v1.9.4
+    container_name: set-op-batcher
+    command:
+      - op-batcher
+      - --l1-eth-rpc=${L1_RPC_URL:-http://l1-geth:8545}
+      - --l2-eth-rpc=http://op-geth:8547
+      - --rollup-rpc=http://op-node:9545
+      - --poll-interval=1s
+      - --sub-safety-margin=6
+      - --num-confirmations=1
+      - --safe-abort-nonce-too-low-count=3
+      - --private-key=${BATCHER_PRIVATE_KEY}
+      - --log.level=info
+    networks:
+      - set-chain
+    depends_on:
+      - op-node
+    environment:
+      - L1_RPC_URL=${L1_RPC_URL:-http://l1-geth:8545}
+      - BATCHER_PRIVATE_KEY=${BATCHER_PRIVATE_KEY}
+    profiles:
+      - full
+
+  # =========================================================================
+  # op-proposer - State Root Proposer
+  # Submits L2 state roots to L1 for withdrawals
+  # =========================================================================
+  op-proposer:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-proposer:v1.9.4
+    container_name: set-op-proposer
+    command:
+      - op-proposer
+      - --l1-eth-rpc=${L1_RPC_URL:-http://l1-geth:8545}
+      - --rollup-rpc=http://op-node:9545
+      - --poll-interval=12s
+      - --private-key=${PROPOSER_PRIVATE_KEY}
+      - --l2oo-address=${L2_OUTPUT_ORACLE_ADDRESS}
+      - --log.level=info
+    networks:
+      - set-chain
+    depends_on:
+      - op-node
+    environment:
+      - L1_RPC_URL=${L1_RPC_URL:-http://l1-geth:8545}
+      - PROPOSER_PRIVATE_KEY=${PROPOSER_PRIVATE_KEY}
+      - L2_OUTPUT_ORACLE_ADDRESS=${L2_OUTPUT_ORACLE_ADDRESS}
+    profiles:
+      - full
+
+  # =========================================================================
+  # Set Chain Anchor Service
+  # Anchors Merkle roots from stateset-sequencer to SetRegistry
+  # =========================================================================
+  set-anchor:
+    build:
+      context: ../anchor
+      dockerfile: Dockerfile
+    container_name: set-anchor
+    environment:
+      - L2_RPC_URL=http://op-geth:8547
+      - SEQUENCER_API_URL=${SEQUENCER_API_URL:-http://host.docker.internal:3000}
+      - SET_REGISTRY_ADDRESS=${SET_REGISTRY_ADDRESS}
+      - SEQUENCER_PRIVATE_KEY=${SEQUENCER_PRIVATE_KEY}
+      - ANCHOR_INTERVAL_SECS=60
+      - MIN_EVENTS_FOR_ANCHOR=100
+      - RUST_LOG=info
+    networks:
+      - set-chain
+    depends_on:
+      - op-geth
+    profiles:
+      - anchor
+
+  # =========================================================================
+  # Block Explorer (optional)
+  # =========================================================================
+  blockscout:
+    image: blockscout/blockscout:latest
+    container_name: set-blockscout
+    environment:
+      - ETHEREUM_JSONRPC_VARIANT=geth
+      - ETHEREUM_JSONRPC_HTTP_URL=http://op-geth:8547
+      - ETHEREUM_JSONRPC_WS_URL=ws://op-geth:8548
+      - DATABASE_URL=postgresql://blockscout:blockscout@blockscout-db:5432/blockscout
+      - ECTO_USE_SSL=false
+      - CHAIN_ID=84532001
+    ports:
+      - "4000:4000"
+    networks:
+      - set-chain
+    depends_on:
+      - op-geth
+      - blockscout-db
+    profiles:
+      - explorer
+
+  blockscout-db:
+    image: postgres:16
+    container_name: set-blockscout-db
+    environment:
+      - POSTGRES_USER=blockscout
+      - POSTGRES_PASSWORD=blockscout
+      - POSTGRES_DB=blockscout
+    volumes:
+      - blockscout-data:/var/lib/postgresql/data
+    networks:
+      - set-chain
+    profiles:
+      - explorer
+
+# =========================================================================
+# Volumes
+# =========================================================================
+volumes:
+  op-geth-data:
+    name: set-op-geth-data
+  blockscout-data:
+    name: set-blockscout-data
+
+# =========================================================================
+# Networks
+# =========================================================================
+networks:
+  set-chain:
+    name: set-chain-network
+    driver: bridge

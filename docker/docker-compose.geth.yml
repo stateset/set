@@ -1,0 +1,58 @@
+# Set Chain - op-geth Execution Client
+# Default OP Stack execution client (Go implementation)
+
+version: '3.8'
+
+services:
+  op-geth:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
+    container_name: set-op-geth
+    command:
+      - --datadir=/data
+      - --networkid=${L2_CHAIN_ID:-84532001}
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8547
+      - --http.api=eth,net,web3,debug,txpool,engine
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8548
+      - --ws.api=eth,net,web3,debug,txpool,engine
+      - --ws.origins=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/config/jwt.txt
+      - --authrpc.vhosts=*
+      - --rollup.disabletxpoolgossip=true
+      - --rollup.sequencerhttp=${SEQUENCER_HTTP:-}
+      - --gcmode=archive
+      - --syncmode=full
+      - --nodiscover
+      - --maxpeers=0
+      - --verbosity=3
+    volumes:
+      - op-geth-data:/data
+      - ../op-stack/sequencer/op-geth:/config:ro
+    ports:
+      - "8547:8547"   # HTTP RPC
+      - "8548:8548"   # WebSocket
+      - "8551:8551"   # Engine API (authenticated)
+    networks:
+      - set-chain
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8547"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  op-geth-data:
+    name: set-op-geth-data
+
+networks:
+  set-chain:
+    name: set-chain-network
+    driver: bridge

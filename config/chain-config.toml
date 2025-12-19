@@ -1,0 +1,80 @@
+# Set Chain Configuration
+# Commerce-focused L2 on the OP Stack
+
+[chain]
+name = "Set Chain"
+short_name = "SET"
+chain_id = 84532001                    # Unique L2 chain ID (Base Sepolia + 1)
+native_currency_name = "Ether"
+native_currency_symbol = "ETH"
+native_currency_decimals = 18
+
+# Chain description
+description = "Commerce-optimized L2 for verifiable transactions"
+
+[block]
+# 2-second blocks for fast commerce confirmations
+block_time = 2
+# 30M gas limit per block (standard OP Stack)
+gas_limit = 30000000
+# Maximum sequencer drift (10 minutes)
+max_sequencer_drift = 600
+# Sequencer window size (1 hour in blocks)
+seq_window_size = 3600
+# Channel timeout (5 minutes)
+channel_timeout = 300
+
+[gas]
+# Low fees optimized for commerce transactions
+# Base fee scalar (reduced for low fees)
+base_fee_scalar = 100
+# Blob base fee scalar
+blob_base_fee_scalar = 100
+# EIP-1559 denominator (lower = more stable fees)
+eip1559_denominator = 50
+# EIP-1559 elasticity
+eip1559_elasticity = 6
+# Canyon denominator (post-upgrade)
+eip1559_denominator_canyon = 250
+
+[sequencer]
+# Single sequencer for initial launch
+# Will be decentralized in future phases
+p2p_enabled = false
+# Confirmation depth for L1 blocks
+l1_confs = 0
+
+[l1]
+# Ethereum Sepolia as settlement layer
+chain_id = 11155111
+chain_name = "Sepolia"
+# Block time on L1 (for derivation)
+block_time = 12
+
+[l1.rpc]
+# Primary RPC endpoint (set via environment)
+url = "${L1_RPC_URL}"
+# Beacon endpoint for blob data
+beacon_url = "${L1_BEACON_URL}"
+
+[fees]
+# Fee vault recipients (set to admin for testnet)
+base_fee_vault_recipient = "${ADMIN_ADDRESS}"
+l1_fee_vault_recipient = "${ADMIN_ADDRESS}"
+sequencer_fee_vault_recipient = "${ADMIN_ADDRESS}"
+
+[commerce]
+# Commerce-specific optimizations
+# Minimum gas price for sponsored transactions
+min_gas_price = 1000000        # 0.001 gwei
+# Maximum sponsored gas per merchant per day
+max_sponsored_gas = 100000000000000000  # 0.1 ETH equivalent
+
+# Batch commitment settings for stateset-sequencer integration
+[commitment]
+# Minimum events before creating a batch commitment
+min_events_per_batch = 100
+# Maximum time between batch commitments (seconds)
+max_batch_interval = 300
+# Anchor commitments to L2 SetRegistry
+anchor_enabled = true

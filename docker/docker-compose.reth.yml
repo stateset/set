@@ -1,0 +1,59 @@
+# Set Chain - op-reth Execution Client
+# Reth's OP Stack execution client (Rust implementation by Paradigm)
+# Docs: https://reth.rs/run/optimism.html
+
+version: '3.8'
+
+services:
+  op-reth:
+    image: ghcr.io/paradigmxyz/op-reth:latest
+    container_name: set-op-reth
+    command:
+      - node
+      - --datadir=/data
+      - --chain=/config/genesis.json
+      - --rollup.sequencer-http=${SEQUENCER_HTTP:-}
+      - --rollup.disable-tx-pool-gossip
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8547
+      - --http.api=eth,net,web3,debug,txpool,engine
+      - --http.corsdomain=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8548
+      - --ws.api=eth,net,web3,debug,txpool,engine
+      - --ws.origins=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/config/jwt.txt
+      - --discovery.disable
+      - --max-peers=0
+      - --log.stdout.format=json
+      - -vvv
+    volumes:
+      - op-reth-data:/data
+      - ../op-stack/sequencer/op-geth:/config:ro
+    ports:
+      - "8547:8547"   # HTTP RPC
+      - "8548:8548"   # WebSocket
+      - "8551:8551"   # Engine API
+    networks:
+      - set-chain
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8547"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - RUST_LOG=info,reth=debug
+
+volumes:
+  op-reth-data:
+    name: set-op-reth-data
+
+networks:
+  set-chain:
+    name: set-chain-network
+    driver: bridge

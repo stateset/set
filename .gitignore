@@ -1,0 +1,118 @@
+# Set Chain .gitignore
+
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
+*.env
+!*.env.example
+.env.*
+!.env.*.example
+sepolia.env
+devnet.env
+
+# Private keys and secrets
+*.key
+*.pem
+jwt.txt
+p2p-node-key.txt
+**/jwt.txt
+**/p2p-node-key.txt
+
+# =============================================================================
+# Rust
+# =============================================================================
+/anchor/target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# =============================================================================
+# Solidity / Foundry
+# =============================================================================
+/contracts/out/
+/contracts/cache/
+/contracts/broadcast/
+/contracts/artifacts/
+/contracts/typechain/
+/contracts/node_modules/
+
+# =============================================================================
+# Node.js / Hardhat
+# =============================================================================
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# =============================================================================
+# OP Stack Generated Files
+# =============================================================================
+# Deployment state (contains addresses, keep in version control if desired)
+# op-stack/deployer/state.json
+
+# Genesis and rollup config (generated from state.json)
+op-stack/sequencer/op-geth/genesis.json
+op-stack/sequencer/op-node/rollup.json
+
+# Geth data directory
+op-stack/sequencer/op-geth/data/
+op-stack/sequencer/op-geth/geth/
+
+# Component environment files (contain keys)
+op-stack/batcher/.env
+op-stack/proposer/.env
+op-stack/challenger/.env
+
+# Processed intent file
+op-stack/deployer/intent.processed.toml
+
+# =============================================================================
+# Logs & PIDs
+# =============================================================================
+logs/
+*.log
+.pids/
+*.pid
+
+# =============================================================================
+# Docker
+# =============================================================================
+docker/config/
+!docker/config/.gitkeep
+
+# =============================================================================
+# IDE & Editor
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# Build Artifacts
+# =============================================================================
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# =============================================================================
+# Testing
+# =============================================================================
+coverage/
+.coverage
+*.lcov
+htmlcov/
+
+# =============================================================================
+# Misc
+# =============================================================================
+*.bak
+*.tmp
+*.temp
+.cache/

@@ -1,0 +1,82 @@
+# Set Chain - op-deployer Intent Configuration
+# Deploy OP Stack contracts to Ethereum Sepolia
+
+# Configuration type (standard with overrides)
+configType = "standard-overrides"
+
+# L1 chain (Sepolia testnet)
+l1ChainID = 11155111
+
+# Fund development accounts on L2
+fundDevAccounts = true
+
+# Disable interop for initial deployment
+useInterop = false
+
+# Contract versions (stable release)
+l1ContractsLocator = "tag://op-contracts/v1.8.0"
+l2ContractsLocator = "tag://op-contracts/v1.8.0"
+
+# Superchain roles (shared across all chains)
+[superchainRoles]
+# Admin who can upgrade contracts
+proxyAdminOwner = "${ADMIN_ADDRESS}"
+# Guardian who can pause the system
+guardian = "${ADMIN_ADDRESS}"
+# Protocol versions owner
+protocolVersionsOwner = "${ADMIN_ADDRESS}"
+
+# Set Chain L2 configuration
+[[chains]]
+# Unique chain ID for Set Chain
+id = "84532001"
+
+# Fee vault recipients
+baseFeeVaultRecipient = "${ADMIN_ADDRESS}"
+l1FeeVaultRecipient = "${ADMIN_ADDRESS}"
+sequencerFeeVaultRecipient = "${ADMIN_ADDRESS}"
+
+# EIP-1559 gas parameters (optimized for low fees)
+eip1559DenominatorCanyon = 250
+eip1559Denominator = 50
+eip1559Elasticity = 6
+
+# Gas limit per block
+systemConfigGasLimit = 30000000
+
+# L2 block time (2 seconds)
+l2BlockTime = 2
+
+# Sequencer window (3600 seconds = 1 hour)
+sequencerWindowSize = 3600
+
+# Channel timeout (300 seconds = 5 minutes)
+channelTimeout = 300
+
+# Max sequencer drift (600 seconds = 10 minutes)
+maxSequencerDrift = 600
+
+# Chain roles
+[chains.roles]
+# Proxy admin owner (can upgrade L2 contracts)
+proxyAdminOwner = "${ADMIN_ADDRESS}"
+
+# System config owner (can change chain parameters)
+systemConfigOwner = "${ADMIN_ADDRESS}"
+
+# Unsafe block signer (sequencer's signing key)
+unsafeBlockSigner = "${SEQUENCER_ADDRESS}"
+
+# Batcher address (submits batches to L1)
+batcher = "${BATCHER_ADDRESS}"
+
+# Proposer address (submits state roots to L1)
+proposer = "${PROPOSER_ADDRESS}"
+
+# Challenger address (can challenge invalid state roots)
+challenger = "${CHALLENGER_ADDRESS}"
+
+# Optional: Data availability layer
+# [chains.dataAvailability]
+# type = "ethereum"  # Use Ethereum for DA (default)
+# Alternative: "celestia", "eigenda", "avail"
