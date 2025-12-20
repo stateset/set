@@ -1,0 +1,698 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../commerce/SetPaymaster.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
+contract SetPaymasterTest is Test {
+    SetPaymaster public paymaster;
+    SetPaymaster public paymasterImpl;
+
+    address public owner = address(0x1);
+    address public treasury = address(0x2);
+    address public operator = address(0x3);
+    address public merchant = address(0x4);
+    address public unauthorized = address(0x5);
+
+    event TierCreated(uint256 indexed tierId, string name, uint256 maxPerTx, uint256 maxPerDay);
+    event TierUpdated(uint256 indexed tierId, uint256 maxPerTx, uint256 maxPerDay);
+    event MerchantSponsored(address indexed merchant, uint256 tierId);
+    event MerchantRevoked(address indexed merchant);
+    event GasSponsored(
+        address indexed merchant,
+        uint256 amount,
+        SetPaymaster.OperationType operationType
+    );
+    event Deposited(address indexed from, uint256 amount);
+    event Withdrawn(address indexed to, uint256 amount);
+    event OperatorUpdated(address indexed operator, bool authorized);
+
+    function setUp() public {
+        // Deploy implementation
+        paymasterImpl = new SetPaymaster();
+
+        // Deploy proxy
+        bytes memory initData = abi.encodeCall(
+            SetPaymaster.initialize,
+            (owner, treasury)
+        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(paymasterImpl), initData);
+        paymaster = SetPaymaster(payable(address(proxy)));
+
+        // Fund paymaster
+        vm.deal(address(paymaster), 10 ether);
+
+        // Set up operator
+        vm.prank(owner);
+        paymaster.setOperator(operator, true);
+    }
+
+    // =========================================================================
+    // Initialization Tests
+    // =========================================================================
+
+    function test_Initialize() public view {
+        assertEq(paymaster.owner(), owner);
+        assertEq(paymaster.treasury(), treasury);
+        assertEq(paymaster.minDeposit(), 0.01 ether);
+        assertEq(paymaster.nextTierId(), 3); // 3 default tiers created
+    }
+
+    function test_DefaultTiers() public view {
+        // Tier 0: Starter
+        (
+            string memory name0,
+            uint256 maxPerTx0,
+            uint256 maxPerDay0,
+            uint256 maxPerMonth0,
+            bool active0
+        ) = paymaster.tiers(0);
+        assertEq(name0, "Starter");
+        assertEq(maxPerTx0, 0.001 ether);
+        assertEq(maxPerDay0, 0.01 ether);
+        assertEq(maxPerMonth0, 0.1 ether);
+        assertTrue(active0);
+
+        // Tier 1: Growth
+        (
+            string memory name1,
+            uint256 maxPerTx1,
+            uint256 maxPerDay1,
+            uint256 maxPerMonth1,
+            bool active1
+        ) = paymaster.tiers(1);
+        assertEq(name1, "Growth");
+        assertEq(maxPerTx1, 0.005 ether);
+        assertEq(maxPerDay1, 0.05 ether);
+        assertEq(maxPerMonth1, 0.5 ether);
+        assertTrue(active1);
+
+        // Tier 2: Enterprise
+        (
+            string memory name2,
+            uint256 maxPerTx2,
+            uint256 maxPerDay2,
+            uint256 maxPerMonth2,
+            bool active2
+        ) = paymaster.tiers(2);
+        assertEq(name2, "Enterprise");
+        assertEq(maxPerTx2, 0.01 ether);
+        assertEq(maxPerDay2, 0.1 ether);
+        assertEq(maxPerMonth2, 1 ether);
+        assertTrue(active2);
+    }
+
+    function test_CannotReinitialize() public {
+        vm.expectRevert();
+        paymaster.initialize(owner, treasury);
+    }
+
+    // =========================================================================
+    // Tier Management Tests
+    // =========================================================================
+
+    function test_CreateTier() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit TierCreated(3, "Premium", 0.02 ether, 0.2 ether);
+
+        uint256 tierId = paymaster.createTier(
+            "Premium",
+            0.02 ether,
+            0.2 ether,
+            2 ether
+        );
+
+        assertEq(tierId, 3);
+        assertEq(paymaster.nextTierId(), 4);
+
+        (string memory name, uint256 maxPerTx, uint256 maxPerDay, , bool active) = paymaster.tiers(
+            3
+        );
+        assertEq(name, "Premium");
+        assertEq(maxPerTx, 0.02 ether);
+        assertEq(maxPerDay, 0.2 ether);
+        assertTrue(active);
+    }
+
+    function test_CreateTier_NotOwner() public {
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        paymaster.createTier("Premium", 0.02 ether, 0.2 ether, 2 ether);
+    }
+
+    function test_UpdateTier() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit TierUpdated(0, 0.002 ether, 0.02 ether);
+
+        paymaster.updateTier(0, 0.002 ether, 0.02 ether, 0.2 ether);
+
+        (, uint256 maxPerTx, uint256 maxPerDay, uint256 maxPerMonth, ) = paymaster.tiers(0);
+        assertEq(maxPerTx, 0.002 ether);
+        assertEq(maxPerDay, 0.02 ether);
+        assertEq(maxPerMonth, 0.2 ether);
+    }
+
+    // =========================================================================
+    // Operator Tests
+    // =========================================================================
+
+    function test_SetOperator() public {
+        address newOperator = address(0x10);
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit OperatorUpdated(newOperator, true);
+        paymaster.setOperator(newOperator, true);
+
+        assertTrue(paymaster.operators(newOperator));
+    }
+
+    function test_SetOperator_NotOwner() public {
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        paymaster.setOperator(address(0x10), true);
+    }
+
+    // =========================================================================
+    // Merchant Sponsorship Tests
+    // =========================================================================
+
+    function test_SponsorMerchant() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit MerchantSponsored(merchant, 1);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        (
+            bool active,
+            uint256 tierId,
+            uint256 spentToday,
+            uint256 spentThisMonth,
+            uint256 totalSponsored
+        ) = paymaster.getMerchantDetails(merchant);
+
+        assertTrue(active);
+        assertEq(tierId, 1);
+        assertEq(spentToday, 0);
+        assertEq(spentThisMonth, 0);
+        assertEq(totalSponsored, 0);
+    }
+
+    function test_SponsorMerchant_InvalidTier() public {
+        vm.prank(owner);
+        vm.expectRevert(SetPaymaster.InvalidTier.selector);
+        paymaster.sponsorMerchant(merchant, 999); // Non-existent tier
+    }
+
+    function test_RevokeMerchant() public {
+        vm.startPrank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        vm.expectEmit(true, false, false, false);
+        emit MerchantRevoked(merchant);
+        paymaster.revokeMerchant(merchant);
+        vm.stopPrank();
+
+        (bool active, , , , ) = paymaster.getMerchantDetails(merchant);
+        assertFalse(active);
+    }
+
+    // =========================================================================
+    // Can Sponsor Tests
+    // =========================================================================
+
+    function test_CanSponsor() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1); // Growth tier
+
+        (bool can, string memory reason) = paymaster.canSponsor(merchant, 0.001 ether);
+        assertTrue(can);
+        assertEq(reason, "");
+    }
+
+    function test_CanSponsor_NotSponsored() public view {
+        (bool can, string memory reason) = paymaster.canSponsor(merchant, 0.001 ether);
+        assertFalse(can);
+        assertEq(reason, "Not sponsored");
+    }
+
+    function test_CanSponsor_ExceedsTransactionLimit() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter tier: 0.001 ether max per tx
+
+        (bool can, string memory reason) = paymaster.canSponsor(merchant, 0.002 ether);
+        assertFalse(can);
+        assertEq(reason, "Exceeds transaction limit");
+    }
+
+    function test_CanSponsor_InsufficientBalance() public {
+        // Deploy new paymaster with no balance
+        SetPaymaster impl = new SetPaymaster();
+        bytes memory initData = abi.encodeCall(SetPaymaster.initialize, (owner, treasury));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
+        SetPaymaster emptyPaymaster = SetPaymaster(payable(address(proxy)));
+
+        vm.prank(owner);
+        emptyPaymaster.sponsorMerchant(merchant, 0);
+
+        (bool can, string memory reason) = emptyPaymaster.canSponsor(merchant, 0.0001 ether);
+        assertFalse(can);
+        assertEq(reason, "Insufficient paymaster balance");
+    }
+
+    // =========================================================================
+    // Execute Sponsorship Tests
+    // =========================================================================
+
+    function test_ExecuteSponsorship() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1); // Growth tier
+
+        uint256 merchantBalanceBefore = merchant.balance;
+        uint256 sponsorAmount = 0.001 ether;
+
+        vm.prank(operator);
+        vm.expectEmit(true, false, false, true);
+        emit GasSponsored(merchant, sponsorAmount, SetPaymaster.OperationType.ORDER_CREATE);
+        paymaster.executeSponsorship(
+            merchant,
+            sponsorAmount,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
+
+        assertEq(merchant.balance, merchantBalanceBefore + sponsorAmount);
+        assertEq(paymaster.totalGasSponsored(), sponsorAmount);
+
+        (, , uint256 spentToday, uint256 spentThisMonth, uint256 totalSponsored) = paymaster
+            .getMerchantDetails(merchant);
+        assertEq(spentToday, sponsorAmount);
+        assertEq(spentThisMonth, sponsorAmount);
+        assertEq(totalSponsored, sponsorAmount);
+    }
+
+    function test_ExecuteSponsorship_NotOperator() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        vm.prank(unauthorized);
+        vm.expectRevert(SetPaymaster.NotOperator.selector);
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+    }
+
+    function test_ExecuteSponsorship_NotSponsored() public {
+        vm.prank(operator);
+        vm.expectRevert(SetPaymaster.NotSponsored.selector);
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+    }
+
+    function test_ExecuteSponsorship_ExceedsTransactionLimit() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter: 0.001 ether max
+
+        vm.prank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.ExceedsTransactionLimit.selector,
+                0.002 ether,
+                0.001 ether
+            )
+        );
+        paymaster.executeSponsorship(merchant, 0.002 ether, SetPaymaster.OperationType.ORDER_CREATE);
+    }
+
+    function test_ExecuteSponsorship_ExceedsDailyLimit() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter: 0.01 ether daily limit
+
+        vm.startPrank(operator);
+
+        // Use up most of daily limit
+        for (uint256 i = 0; i < 9; i++) {
+            paymaster.executeSponsorship(
+                merchant,
+                0.001 ether,
+                SetPaymaster.OperationType.ORDER_CREATE
+            );
+        }
+
+        // Next should fail - only 0.001 ether remaining
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.ExceedsDailyLimit.selector,
+                0.002 ether,
+                0.001 ether
+            )
+        );
+        paymaster.executeSponsorship(merchant, 0.002 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        vm.stopPrank();
+    }
+
+    function test_ExecuteSponsorship_ExceedsMonthlyLimit() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter: 0.1 ether monthly limit
+
+        vm.startPrank(operator);
+
+        // Use up monthly limit over multiple "days"
+        for (uint256 day = 0; day < 10; day++) {
+            // Simulate day passing
+            vm.warp(block.timestamp + 1 days);
+
+            for (uint256 i = 0; i < 10; i++) {
+                paymaster.executeSponsorship(
+                    merchant,
+                    0.001 ether,
+                    SetPaymaster.OperationType.ORDER_CREATE
+                );
+            }
+        }
+
+        // Should now be at monthly limit (0.1 ether)
+        // Next day...
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectRevert(); // Monthly limit exceeded
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        vm.stopPrank();
+    }
+
+    function test_ExecuteSponsorship_InsufficientBalance() public {
+        // Create paymaster with limited balance
+        SetPaymaster impl = new SetPaymaster();
+        bytes memory initData = abi.encodeCall(SetPaymaster.initialize, (owner, treasury));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
+        SetPaymaster limitedPaymaster = SetPaymaster(payable(address(proxy)));
+
+        // Fund with small amount
+        vm.deal(address(limitedPaymaster), 0.0001 ether);
+
+        vm.startPrank(owner);
+        limitedPaymaster.setOperator(operator, true);
+        limitedPaymaster.sponsorMerchant(merchant, 1);
+        vm.stopPrank();
+
+        vm.prank(operator);
+        vm.expectRevert(SetPaymaster.InsufficientBalance.selector);
+        limitedPaymaster.executeSponsorship(
+            merchant,
+            0.001 ether,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
+    }
+
+    function test_ExecuteSponsorship_OwnerCanExecute() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        // Owner can execute without being an operator
+        vm.prank(owner);
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        assertEq(paymaster.totalGasSponsored(), 0.001 ether);
+    }
+
+    // =========================================================================
+    // Daily/Monthly Reset Tests
+    // =========================================================================
+
+    function test_DailyReset() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter
+
+        vm.startPrank(operator);
+
+        // Spend some gas
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        (, , uint256 spentToday1, , ) = paymaster.getMerchantDetails(merchant);
+        assertEq(spentToday1, 0.001 ether);
+
+        // Fast forward 1 day
+        vm.warp(block.timestamp + 1 days);
+
+        // Spend again - daily should have reset
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        (, , uint256 spentToday2, uint256 spentMonth, ) = paymaster.getMerchantDetails(merchant);
+        assertEq(spentToday2, 0.001 ether); // Reset to just this tx
+        assertEq(spentMonth, 0.002 ether); // Still accumulates monthly
+
+        vm.stopPrank();
+    }
+
+    function test_MonthlyReset() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 2); // Enterprise for higher limits
+
+        vm.startPrank(operator);
+
+        // Spend some gas
+        paymaster.executeSponsorship(merchant, 0.01 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        (, , , uint256 spentMonth1, ) = paymaster.getMerchantDetails(merchant);
+        assertEq(spentMonth1, 0.01 ether);
+
+        // Fast forward 30 days
+        vm.warp(block.timestamp + 30 days);
+
+        // Spend again - monthly should have reset
+        paymaster.executeSponsorship(merchant, 0.01 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        (, , , uint256 spentMonth2, uint256 total) = paymaster.getMerchantDetails(merchant);
+        assertEq(spentMonth2, 0.01 ether); // Reset to just this tx
+        assertEq(total, 0.02 ether); // Total still accumulates
+
+        vm.stopPrank();
+    }
+
+    // =========================================================================
+    // Refund Tests
+    // =========================================================================
+
+    function test_RefundUnusedGas() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        vm.startPrank(operator);
+
+        // Execute sponsorship
+        paymaster.executeSponsorship(merchant, 0.005 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        // Refund some
+        paymaster.refundUnusedGas(merchant, 0.002 ether);
+
+        vm.stopPrank();
+
+        (, , uint256 spentToday, uint256 spentMonth, uint256 total) = paymaster.getMerchantDetails(
+            merchant
+        );
+        assertEq(spentToday, 0.003 ether);
+        assertEq(spentMonth, 0.003 ether);
+        assertEq(total, 0.003 ether);
+        assertEq(paymaster.totalGasSponsored(), 0.003 ether);
+    }
+
+    function test_RefundUnusedGas_MoreThanSpent() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        vm.startPrank(operator);
+
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        // Refund more than spent - should clamp to 0
+        paymaster.refundUnusedGas(merchant, 0.01 ether);
+
+        vm.stopPrank();
+
+        (, , uint256 spentToday, uint256 spentMonth, ) = paymaster.getMerchantDetails(merchant);
+        assertEq(spentToday, 0);
+        assertEq(spentMonth, 0);
+    }
+
+    // =========================================================================
+    // Deposit/Withdraw Tests
+    // =========================================================================
+
+    function test_Deposit() public {
+        uint256 balanceBefore = paymaster.balance();
+
+        vm.deal(address(this), 1 ether);
+        vm.expectEmit(true, false, false, true);
+        emit Deposited(address(this), 0.1 ether);
+        paymaster.deposit{value: 0.1 ether}();
+
+        assertEq(paymaster.balance(), balanceBefore + 0.1 ether);
+    }
+
+    function test_Deposit_BelowMinimum() public {
+        vm.deal(address(this), 1 ether);
+        vm.expectRevert("Below minimum deposit");
+        paymaster.deposit{value: 0.001 ether}();
+    }
+
+    function test_Deposit_ViaReceive() public {
+        uint256 balanceBefore = paymaster.balance();
+
+        vm.deal(address(this), 1 ether);
+        vm.expectEmit(true, false, false, true);
+        emit Deposited(address(this), 0.5 ether);
+        (bool success, ) = address(paymaster).call{value: 0.5 ether}("");
+        assertTrue(success);
+
+        assertEq(paymaster.balance(), balanceBefore + 0.5 ether);
+    }
+
+    function test_Withdraw() public {
+        uint256 treasuryBalanceBefore = treasury.balance;
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit Withdrawn(treasury, 1 ether);
+        paymaster.withdraw(1 ether);
+
+        assertEq(treasury.balance, treasuryBalanceBefore + 1 ether);
+    }
+
+    function test_Withdraw_NotOwner() public {
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        paymaster.withdraw(1 ether);
+    }
+
+    function test_Withdraw_InsufficientBalance() public {
+        vm.prank(owner);
+        vm.expectRevert("Insufficient balance");
+        paymaster.withdraw(100 ether);
+    }
+
+    // =========================================================================
+    // View Functions Tests
+    // =========================================================================
+
+    function test_GetRemainingDailyAllowance() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter: 0.01 ether daily
+
+        assertEq(paymaster.getRemainingDailyAllowance(merchant), 0.01 ether);
+
+        vm.prank(operator);
+        paymaster.executeSponsorship(merchant, 0.003 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        assertEq(paymaster.getRemainingDailyAllowance(merchant), 0.007 ether);
+    }
+
+    function test_GetRemainingDailyAllowance_NotSponsored() public view {
+        assertEq(paymaster.getRemainingDailyAllowance(merchant), 0);
+    }
+
+    function test_GetRemainingDailyAllowance_Exhausted() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 0); // Starter: 0.01 ether daily
+
+        vm.startPrank(operator);
+        for (uint256 i = 0; i < 10; i++) {
+            paymaster.executeSponsorship(
+                merchant,
+                0.001 ether,
+                SetPaymaster.OperationType.ORDER_CREATE
+            );
+        }
+        vm.stopPrank();
+
+        assertEq(paymaster.getRemainingDailyAllowance(merchant), 0);
+    }
+
+    // =========================================================================
+    // Treasury Management Tests
+    // =========================================================================
+
+    function test_SetTreasury() public {
+        address newTreasury = address(0x99);
+
+        vm.prank(owner);
+        paymaster.setTreasury(newTreasury);
+
+        assertEq(paymaster.treasury(), newTreasury);
+    }
+
+    function test_SetTreasury_NotOwner() public {
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        paymaster.setTreasury(address(0x99));
+    }
+
+    // =========================================================================
+    // Fuzz Tests
+    // =========================================================================
+
+    function testFuzz_ExecuteSponsorship(uint256 amount) public {
+        // Bound to valid range for Enterprise tier
+        amount = bound(amount, 1 wei, 0.01 ether);
+
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 2); // Enterprise tier
+
+        uint256 merchantBalanceBefore = merchant.balance;
+
+        vm.prank(operator);
+        paymaster.executeSponsorship(
+            merchant,
+            amount,
+            SetPaymaster.OperationType.PAYMENT_PROCESS
+        );
+
+        assertEq(merchant.balance, merchantBalanceBefore + amount);
+        assertEq(paymaster.totalGasSponsored(), amount);
+    }
+
+    function testFuzz_CreateTier(
+        uint256 maxPerTx,
+        uint256 maxPerDay,
+        uint256 maxPerMonth
+    ) public {
+        vm.assume(maxPerTx > 0 && maxPerDay > 0 && maxPerMonth > 0);
+
+        vm.prank(owner);
+        uint256 tierId = paymaster.createTier("Fuzz", maxPerTx, maxPerDay, maxPerMonth);
+
+        (, uint256 storedMaxPerTx, uint256 storedMaxPerDay, uint256 storedMaxPerMonth, ) = paymaster
+            .tiers(tierId);
+
+        assertEq(storedMaxPerTx, maxPerTx);
+        assertEq(storedMaxPerDay, maxPerDay);
+        assertEq(storedMaxPerMonth, maxPerMonth);
+    }
+
+    // =========================================================================
+    // All Operation Types Test
+    // =========================================================================
+
+    function test_AllOperationTypes() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 2); // Enterprise
+
+        SetPaymaster.OperationType[7] memory ops = [
+            SetPaymaster.OperationType.ORDER_CREATE,
+            SetPaymaster.OperationType.ORDER_UPDATE,
+            SetPaymaster.OperationType.PAYMENT_PROCESS,
+            SetPaymaster.OperationType.INVENTORY_UPDATE,
+            SetPaymaster.OperationType.RETURN_PROCESS,
+            SetPaymaster.OperationType.COMMITMENT_ANCHOR,
+            SetPaymaster.OperationType.OTHER
+        ];
+
+        vm.startPrank(operator);
+        for (uint256 i = 0; i < ops.length; i++) {
+            paymaster.executeSponsorship(merchant, 0.001 ether, ops[i]);
+        }
+        vm.stopPrank();
+
+        assertEq(paymaster.totalGasSponsored(), 0.007 ether);
+    }
+}

@@ -31,10 +31,15 @@ Cargo.lock
 # =============================================================================
 /contracts/out/
 /contracts/cache/
+/contracts/cache_forge/
 /contracts/broadcast/
 /contracts/artifacts/
 /contracts/typechain/
 /contracts/node_modules/
+
+# Foundry lib dependencies not managed as submodules
+# Note: forge-std and openzeppelin-contracts are submodules (see .gitmodules)
+/contracts/lib/openzeppelin-contracts-upgradeable/
 
 # =============================================================================
 # Node.js / Hardhat
@@ -110,9 +115,29 @@ coverage/
 htmlcov/
 
 # =============================================================================
+# Large Binary & Generated Files
+# =============================================================================
+*.pdf
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# =============================================================================
+# Anchor / Chain Data
+# =============================================================================
+# Anchor database and state files
+anchor/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# =============================================================================
 # Misc
 # =============================================================================
 *.bak
 *.tmp
 *.temp
 .cache/
+*.orig

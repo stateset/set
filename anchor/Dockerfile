@@ -33,12 +33,23 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/target/release/set-anchor /app/set-anchor
 
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN useradd -r -s /bin/false anchor
 USER anchor
 
 # Environment variables
 ENV RUST_LOG=info,set_anchor=debug
+ENV HEALTH_PORT=9090
+
+# Expose health endpoint port
+EXPOSE 9090
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:9090/health || exit 1
 
 # Run the service
 ENTRYPOINT ["/app/set-anchor"]

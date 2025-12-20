@@ -5,9 +5,11 @@
 
 pub mod client;
 pub mod config;
+pub mod health;
 pub mod service;
 pub mod types;
 
 pub use config::AnchorConfig;
+pub use health::{HealthServer, HealthState};
 pub use service::AnchorService;
 pub use types::*;

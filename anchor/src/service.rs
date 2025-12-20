@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     client::{create_provider, RegistryClient, SequencerApiClient},
     config::AnchorConfig,
+    health::HealthState,
     types::{AnchorNotification, AnchorResult, AnchorStats, BatchCommitment},
 };
 
@@ -20,6 +21,7 @@ pub struct AnchorService {
     config: AnchorConfig,
     sequencer_client: SequencerApiClient,
     stats: Arc<RwLock<AnchorStats>>,
+    health_state: Option<Arc<HealthState>>,
 }
 
 impl AnchorService {
@@ -31,7 +33,25 @@ impl AnchorService {
             config,
             sequencer_client,
             stats: Arc::new(RwLock::new(AnchorStats::default())),
+            health_state: None,
         }
+    }
+
+    /// Create anchor service with health state for monitoring
+    pub fn with_health_state(config: AnchorConfig, health_state: Arc<HealthState>) -> Self {
+        let sequencer_client = SequencerApiClient::new(&config.sequencer_api_url);
+
+        Self {
+            config,
+            sequencer_client,
+            stats: health_state.stats.clone(),
+            health_state: Some(health_state),
+        }
+    }
+
+    /// Get shared stats reference (for health server)
+    pub fn stats_ref(&self) -> Arc<RwLock<AnchorStats>> {
+        Arc::clone(&self.stats)
     }
 
     /// Run the anchor service loop
@@ -72,10 +92,21 @@ impl AnchorService {
             "Sequencer authorization verified"
         );
 
+        // Mark as ready and L2 healthy
+        if let Some(ref health) = self.health_state {
+            health.set_ready(true).await;
+            health.mark_l2_healthy().await;
+        }
+
         // Main loop
         loop {
             match self.anchor_pending(&registry).await {
                 Ok(results) => {
+                    // Mark L2 as healthy on successful cycle
+                    if let Some(ref health) = self.health_state {
+                        health.mark_l2_healthy().await;
+                    }
+
                     let successful = results.iter().filter(|r| r.success).count();
                     let failed = results.iter().filter(|r| !r.success).count();
 
@@ -103,7 +134,13 @@ impl AnchorService {
     ) -> Result<Vec<AnchorResult>> {
         // Fetch pending commitments from sequencer
         let commitments = match self.sequencer_client.get_pending_commitments().await {
-            Ok(c) => c,
+            Ok(c) => {
+                // Mark sequencer as healthy on successful fetch
+                if let Some(ref health) = self.health_state {
+                    health.mark_sequencer_healthy().await;
+                }
+                c
+            }
             Err(e) => {
                 debug!(error = %e, "Failed to fetch pending commitments");
                 return Ok(vec![]);

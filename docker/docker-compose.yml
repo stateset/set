@@ -188,11 +188,21 @@ services:
       - SEQUENCER_PRIVATE_KEY=${SEQUENCER_PRIVATE_KEY}
       - ANCHOR_INTERVAL_SECS=60
       - MIN_EVENTS_FOR_ANCHOR=100
+      - HEALTH_PORT=9090
       - RUST_LOG=info
+    ports:
+      - "9090:9090"   # Health/metrics endpoint
     networks:
       - set-chain
     depends_on:
-      - op-geth
+      op-geth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     profiles:
       - anchor
 

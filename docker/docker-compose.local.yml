@@ -1,0 +1,81 @@
+# Set Chain - Simple Local Development
+# Runs a standalone L2 execution client for testing
+
+version: '3.8'
+
+services:
+  # =========================================================================
+  # op-geth Initialization (runs once)
+  # =========================================================================
+  op-geth-init:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
+    container_name: set-op-geth-init
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /data/geth/chaindata/CURRENT ]; then
+          echo "Initializing op-geth with genesis..."
+          geth init --datadir=/data --state.scheme=hash /config/genesis.json
+          echo "Initialization complete"
+        else
+          echo "Already initialized, skipping"
+        fi
+    volumes:
+      - op-geth-data:/data
+      - ./config:/config:ro
+
+  # =========================================================================
+  # op-geth - L2 Execution Client
+  # =========================================================================
+  op-geth:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
+    container_name: set-op-geth
+    command:
+      - --datadir=/data
+      - --networkid=${L2_CHAIN_ID:-84532001}
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8547
+      - --http.api=eth,net,web3,debug,txpool,engine
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8548
+      - --ws.api=eth,net,web3,debug,txpool,engine
+      - --ws.origins=*
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/config/jwt.txt
+      - --authrpc.vhosts=*
+      - --nodiscover
+      - --maxpeers=0
+      - --syncmode=full
+      - --gcmode=archive
+      - --verbosity=3
+      - --rollup.sequencerhttp=
+      - --rollup.disabletxpoolgossip=true
+    volumes:
+      - op-geth-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8547:8547"   # HTTP RPC
+      - "8548:8548"   # WebSocket
+      - "8551:8551"   # Engine API
+    depends_on:
+      op-geth-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8547"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  op-geth-data:
+    name: set-op-geth-data
+
+networks:
+  default:
+    name: set-chain-network

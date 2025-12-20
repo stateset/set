@@ -38,9 +38,28 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# HTTP server for health endpoints
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
 [build-dependencies]
 alloy-sol-macro = "0.9"
+
+[dev-dependencies]
+# Testing utilities
+tokio-test = "0.4"
+wiremock = "0.6"
+tempfile = "3"
+once_cell = "1"
+serial_test = "3"
+
+# Alloy node bindings for local testing
+alloy-node-bindings = "0.9"
 
 [[bin]]
 name = "set-anchor"
 path = "src/main.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

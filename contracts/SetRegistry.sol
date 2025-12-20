@@ -393,7 +393,7 @@ contract SetRegistry is
         bytes32 batchId = keccak256(abi.encodePacked(_startSequence, _endSequence, block.timestamp));
 
         // Use default tenant/store (zeros)
-        commitBatch(
+        this.commitBatch(
             batchId,
             bytes32(0),
             bytes32(0),

@@ -38,6 +38,14 @@ pub struct AnchorConfig {
     /// Gas price limit in gwei (0 = auto)
     #[serde(default)]
     pub max_gas_price_gwei: u64,
+
+    /// Health server port
+    #[serde(default = "default_health_port")]
+    pub health_port: u16,
+}
+
+fn default_health_port() -> u16 {
+    9090
 }
 
 fn default_l2_rpc() -> String {
@@ -96,6 +104,10 @@ impl AnchorConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0),
+            health_port: std::env::var("HEALTH_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_health_port),
         })
     }
 }

@@ -261,13 +261,13 @@ contract SetPaymaster is
      * @notice Check if a merchant can be sponsored for an amount
      * @param _merchant Merchant address
      * @param _amount Gas amount requested
-     * @return canSponsor Whether sponsorship is possible
+     * @return sponsorable Whether sponsorship is possible
      * @return reason Reason if cannot sponsor
      */
     function canSponsor(
         address _merchant,
         uint256 _amount
-    ) external view returns (bool canSponsor, string memory reason) {
+    ) external view returns (bool sponsorable, string memory reason) {
         MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
 
         if (!sponsorship.active) {

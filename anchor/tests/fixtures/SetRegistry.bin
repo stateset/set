@@ -1,0 +1,9 @@
+# SetRegistry Bytecode Placeholder
+#
+# To run integration tests with the real contract:
+# 1. cd ../contracts
+# 2. forge build
+# 3. cp out/SetRegistry.sol/SetRegistry.json ../anchor/tests/fixtures/
+# 4. Extract bytecode: jq -r '.bytecode.object' SetRegistry.json > SetRegistry.bin
+#
+# For now, tests that require this will be skipped.
