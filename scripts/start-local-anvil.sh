@@ -15,10 +15,55 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Set Chain Configuration
-CHAIN_ID=84532001
-BLOCK_TIME=2
-GAS_LIMIT=30000000
+# Set Chain Configuration (kept in sync with config/chain-config.toml)
+CONFIG_FILE="$ROOT_DIR/config/chain-config.toml"
+CHAIN_ID_DEFAULT=84532001
+BLOCK_TIME_DEFAULT=2
+GAS_LIMIT_DEFAULT=30000000
+
+read_toml_value() {
+    local section="$1"
+    local key="$2"
+
+    if [ ! -f "$CONFIG_FILE" ]; then
+        return 0
+    fi
+
+    awk -v section="$section" -v key="$key" '
+        $0 ~ "^[[:space:]]*\\[" {
+            in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
+        }
+        in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            split($0, parts, "=")
+            val = parts[2]
+            sub(/#.*/, "", val)
+            gsub(/[[:space:]]+/, "", val)
+            gsub(/\"/, "", val)
+            print val
+            exit
+        }
+    ' "$CONFIG_FILE"
+}
+
+CHAIN_ID="$CHAIN_ID_DEFAULT"
+BLOCK_TIME="$BLOCK_TIME_DEFAULT"
+GAS_LIMIT="$GAS_LIMIT_DEFAULT"
+
+config_chain_id="$(read_toml_value chain chain_id)"
+config_block_time="$(read_toml_value block block_time)"
+config_gas_limit="$(read_toml_value block gas_limit)"
+
+if [ -n "$config_chain_id" ]; then
+    CHAIN_ID="$config_chain_id"
+fi
+
+if [ -n "$config_block_time" ]; then
+    BLOCK_TIME="$config_block_time"
+fi
+
+if [ -n "$config_gas_limit" ]; then
+    GAS_LIMIT="$config_gas_limit"
+fi
 
 # Test accounts (same as Foundry/Hardhat default)
 # Mnemonic: "test test test test test test test test test test test junk"
@@ -39,6 +84,9 @@ fi
 
 echo ""
 echo "Configuration:"
+if [ -f "$CONFIG_FILE" ]; then
+    echo "  Config File: $CONFIG_FILE"
+fi
 echo "  Chain ID:     $CHAIN_ID"
 echo "  Block Time:   ${BLOCK_TIME}s"
 echo "  Gas Limit:    $GAS_LIMIT"

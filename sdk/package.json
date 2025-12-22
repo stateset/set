@@ -1,0 +1,17 @@
+{
+  "name": "@setchain/sdk",
+  "version": "0.1.0",
+  "description": "Set Chain SDK for SetRegistry and SetPaymaster",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "ethers": "^6.12.0"
+  }
+}

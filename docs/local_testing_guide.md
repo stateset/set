@@ -8,6 +8,12 @@ This guide covers how to run and test the Set Chain L2 locally using Anvil (Foun
 - curl and jq for command-line interactions
 
 Foundry tools (forge, anvil, cast) run via Docker to avoid GLIBC compatibility issues.
+Use the `ghcr.io/foundry-rs/foundry:nightly-2024-05-20` image to match the
+pinned toolchain.
+
+## Toolchain Versions
+
+Pinned tool versions for reproducible builds live in `docs/toolchain.md`.
 
 ## Quick Start
 
@@ -18,7 +24,10 @@ Foundry tools (forge, anvil, cast) run via Docker to avoid GLIBC compatibility i
 # 2. In another terminal, deploy contracts
 ./scripts/dev.sh deploy
 
-# 3. Check status
+# 3. (Optional) Validate config
+./scripts/dev.sh validate
+
+# 4. Check status
 ./scripts/dev.sh status
 ```
 
@@ -31,6 +40,9 @@ Start Anvil with Set Chain configuration:
 # Or directly:
 ./scripts/start-local-anvil.sh
 ```
+
+The script reads chain parameters from `config/chain-config.toml` to keep the
+local devnet in sync with the repository defaults.
 
 This starts Anvil with:
 - **Chain ID:** 84532001
@@ -60,6 +72,9 @@ This deploys:
 | SetPaymaster (proxy) | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` |
 | SetPaymaster (impl) | `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0` |
 
+These addresses are deterministic on a fresh Anvil instance; redeploying will
+produce new addresses.
+
 ## Test Accounts
 
 Anvil provides pre-funded accounts for testing:
@@ -86,9 +101,21 @@ The `dev.sh` script provides convenient commands:
 ./scripts/dev.sh deploy      # Deploy all contracts
 ./scripts/dev.sh test        # Run Foundry tests
 ./scripts/dev.sh status      # Check node status
+./scripts/dev.sh validate    # Validate config vs live node
+./scripts/dev.sh smoke       # Deploy + commit batch + verify multiproof
+./scripts/dev.sh anchor-start # Run anchor service with mock sequencer
+./scripts/dev.sh anchor-smoke # Anchor service smoke test
+./scripts/dev.sh reset       # Reset devnet and restart Anvil
 ./scripts/dev.sh accounts    # Show test accounts
 ./scripts/dev.sh fund <addr> # Send 100 ETH to address
 ./scripts/dev.sh console     # Open cast shell
+```
+
+Smoke overrides (optional):
+
+```bash
+EVENT_LEAF_0=0x... EVENT_LEAF_1=0x... TENANT_ID=0x... STORE_ID=0x... \
+NEW_STATE_ROOT=0x... ./scripts/dev.sh smoke
 ```
 
 ## Interacting with Contracts
@@ -163,9 +190,37 @@ docker run --rm -v $(pwd)/contracts:/app -w /app \
   forge test -vvv
 ```
 
+## Resetting the Devnet
+
+To wipe local artifacts and restart Anvil cleanly:
+
+```bash
+./scripts/dev.sh reset
+```
+
+To skip the confirmation prompt:
+
+```bash
+./scripts/dev.sh reset --force
+```
+
+To reset without restarting:
+
+```bash
+./scripts/reset-devnet.sh --no-start
+```
+
 ## Environment Variables
 
-Create a `.env` file for custom configuration:
+For local devnet, start from `config/local.env.example`:
+
+```bash
+cp config/local.env.example config/local.env
+# Then source it when needed:
+source config/local.env
+```
+
+Create a `.env` file for custom configuration (optional):
 
 ```bash
 # .env
@@ -180,11 +235,20 @@ TREASURY_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 To connect the anchor service to the local node:
 
 ```bash
-# In anchor service config
-SET_REGISTRY_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
-L2_RPC_URL=http://localhost:8545
-SEQUENCER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+# Run anchor service against local devnet (includes mock sequencer)
+./scripts/dev.sh anchor-start
+
+# Smoke test the anchor service
+./scripts/dev.sh anchor-smoke
 ```
+
+Environment variables are loaded from `config/local.env` when present. The mock
+sequencer listens on `http://localhost:3001` by default.
+
+`anchor-smoke` starts a mock sequencer, runs the anchor service, and waits for
+the on-chain commitment to be recorded.
+
+The mock sequencer requires `python3` (or `python`) to be available locally.
 
 ## Troubleshooting
 

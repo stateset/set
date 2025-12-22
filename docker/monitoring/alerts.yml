@@ -1,0 +1,20 @@
+groups:
+  - name: set-anchor
+    rules:
+      - alert: SetAnchorDown
+        expr: set_anchor_ready == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Anchor service not ready"
+          description: "Anchor service readiness has been 0 for more than 1 minute."
+
+      - alert: SetAnchorSuccessRateLow
+        expr: set_anchor_success_rate < 0.98
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Anchor success rate below target"
+          description: "Anchor success rate is below 0.98 for 15 minutes."

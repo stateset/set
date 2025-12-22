@@ -1,0 +1,61 @@
+name: Devnet Smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  devnet-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FOUNDRY_VERSION: nightly-2024-05-20
+      RUST_TOOLCHAIN: 1.78.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq pkg-config libssl-dev
+
+      - name: Start Anvil
+        run: ./scripts/start-local-anvil.sh > /tmp/anvil.log 2>&1 &
+
+      - name: Wait for RPC
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8545 -X POST \
+              -H "Content-Type: application/json" \
+              -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Anvil failed to start"
+          tail -n 200 /tmp/anvil.log || true
+          exit 1
+
+      - name: Validate config
+        run: ./scripts/dev.sh validate
+
+      - name: Contract tests
+        run: ./scripts/dev.sh test
+
+      - name: Smoke test
+        run: ./scripts/dev.sh smoke
+
+      - name: Anchor smoke test
+        run: ./scripts/dev.sh anchor-smoke

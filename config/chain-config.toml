@@ -41,7 +41,7 @@ eip1559_denominator_canyon = 250
 # Single sequencer for initial launch
 # Will be decentralized in future phases
 p2p_enabled = false
-# Confirmation depth for L1 blocks
+# Confirmation depth for L1 blocks (devnet only; use >=1 for shared networks)
 l1_confs = 0
 
 [l1]

@@ -7,7 +7,7 @@ configType = "standard-overrides"
 # L1 chain (Sepolia testnet)
 l1ChainID = 11155111
 
-# Fund development accounts on L2
+# Fund development accounts on L2 (dev/test only; disable for shared networks)
 fundDevAccounts = true
 
 # Disable interop for initial deployment
