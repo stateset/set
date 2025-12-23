@@ -328,6 +328,22 @@ contract ThresholdKeyRegistryTest is Test {
         registry.submitDealing(dealingHash);
     }
 
+    function test_SubmitDealing_RevertsNotRegisteredForDKG() public {
+        _registerKeypers(3);
+
+        vm.prank(owner);
+        registry.startDKG();
+
+        vm.prank(keyper1);
+        registry.registerForDKG();
+        vm.prank(keyper2);
+        registry.registerForDKG(); // Advance to dealing phase
+
+        vm.prank(keyper3);
+        vm.expectRevert(ThresholdKeyRegistry.NotRegisteredForDKG.selector);
+        registry.submitDealing(keccak256("dealing_unregistered"));
+    }
+
     function test_FinalizeDKG() public {
         _startDKGAndRegister();
 

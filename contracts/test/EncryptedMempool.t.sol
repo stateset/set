@@ -23,9 +23,13 @@ contract EncryptedMempoolTest is Test {
     address payable public targetContract;
 
     // Test keypers
-    address public keyper1 = address(0x10);
-    address public keyper2 = address(0x20);
-    address public keyper3 = address(0x30);
+    uint256 private keyper1Pk = 0xA11CE;
+    uint256 private keyper2Pk = 0xB0B;
+    uint256 private keyper3Pk = 0xC0FFEE;
+
+    address public keyper1;
+    address public keyper2;
+    address public keyper3;
 
     // Valid 48-byte BLS public key (placeholder)
     bytes public validPubKey = hex"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
@@ -33,12 +37,13 @@ contract EncryptedMempoolTest is Test {
     // Sample encrypted payload
     bytes public samplePayload = hex"deadbeefcafebabe";
 
-    // Valid decryption proof (96 bytes for BLS signature)
-    bytes public validProof = new bytes(96);
-
     function setUp() public {
         // Deploy target contract for execution tests
         targetContract = payable(address(new TestTarget()));
+
+        keyper1 = vm.addr(keyper1Pk);
+        keyper2 = vm.addr(keyper2Pk);
+        keyper3 = vm.addr(keyper3Pk);
 
         vm.startPrank(owner);
 
@@ -101,6 +106,7 @@ contract EncryptedMempoolTest is Test {
         assertEq(etx.epoch, 2);
         assertEq(etx.gasLimit, gasLimit);
         assertEq(etx.maxFeePerGas, maxFeePerGas);
+        assertEq(etx.valueDeposit, 0);
         assertEq(uint256(etx.status), uint256(EncryptedMempool.EncryptedTxStatus.Pending));
         assertEq(mempool.totalSubmitted(), 1);
     }
@@ -177,21 +183,25 @@ contract EncryptedMempoolTest is Test {
 
         vm.startPrank(user1);
 
-        bytes32 txId1 = mempool.submitEncryptedTx{value: 0.1 ether}(
+        uint256 gasLimit = 100000;
+        uint256 maxFeePerGas = 1 gwei;
+        uint256 requiredFee = gasLimit * maxFeePerGas;
+
+        bytes32 txId1 = mempool.submitEncryptedTx{value: requiredFee}(
             hex"11111111",
             2,
-            100000,
-            1 gwei
+            gasLimit,
+            maxFeePerGas
         );
 
         // Need different block to get different txId
         vm.roll(block.number + 1);
 
-        bytes32 txId2 = mempool.submitEncryptedTx{value: 0.1 ether}(
+        bytes32 txId2 = mempool.submitEncryptedTx{value: requiredFee}(
             hex"22222222",
             2,
-            100000,
-            1 gwei
+            gasLimit,
+            maxFeePerGas
         );
 
         vm.stopPrank();
@@ -293,17 +303,27 @@ contract EncryptedMempoolTest is Test {
 
     function test_SubmitDecryption() public {
         bytes32 txId = _submitAndOrderTx(user1);
+        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId);
+        bytes memory data = abi.encodeCall(TestTarget.setValue, (42));
+        bytes memory proof = _buildProof(
+            etx.payloadHash,
+            targetContract,
+            data,
+            0,
+            etx.epoch,
+            _defaultSignerKeys()
+        );
 
         vm.prank(sequencer);
         mempool.submitDecryption(
             txId,
             targetContract,
-            abi.encodeCall(TestTarget.setValue, (42)),
+            data,
             0,
-            validProof
+            proof
         );
 
-        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId);
+        etx = mempool.getEncryptedTx(txId);
         assertEq(uint256(etx.status), uint256(EncryptedMempool.EncryptedTxStatus.Decrypted));
 
         EncryptedMempool.DecryptedTx memory dtx = mempool.getDecryptedTx(txId);
@@ -313,15 +333,24 @@ contract EncryptedMempoolTest is Test {
 
     function test_SubmitDecryption_RevertsTxNotOrdered() public {
         bytes32 txId = _submitEncryptedTx(user1);
+        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId);
+        bytes memory proof = _buildProof(
+            etx.payloadHash,
+            targetContract,
+            bytes(""),
+            0,
+            etx.epoch,
+            _defaultSignerKeys()
+        );
 
         vm.prank(sequencer);
         vm.expectRevert(EncryptedMempool.TxNotOrdered.selector);
         mempool.submitDecryption(
             txId,
             targetContract,
-            "",
+            bytes(""),
             0,
-            validProof
+            proof
         );
     }
 
@@ -335,9 +364,34 @@ contract EncryptedMempoolTest is Test {
         mempool.submitDecryption(
             txId,
             targetContract,
-            "",
+            bytes(""),
             0,
             shortProof
+        );
+    }
+
+    function test_SubmitDecryption_RevertsValueExceedsDeposit() public {
+        bytes32 txId = _submitEncryptedTxWithDeposit(user1, 1 ether);
+
+        bytes32[] memory txIds = new bytes32[](1);
+        txIds[0] = txId;
+
+        vm.prank(sequencer);
+        mempool.commitOrdering(
+            keccak256(abi.encodePacked("batch", txId)),
+            txIds,
+            keccak256(abi.encodePacked(txIds)),
+            "sig"
+        );
+
+        vm.prank(sequencer);
+        vm.expectRevert(EncryptedMempool.ValueExceedsDeposit.selector);
+        mempool.submitDecryption(
+            txId,
+            targetContract,
+            bytes(""),
+            2 ether,
+            bytes("")
         );
     }
 
@@ -365,15 +419,25 @@ contract EncryptedMempoolTest is Test {
 
     function test_ExecuteDecryptedTx_FailedExecution() public {
         bytes32 txId = _submitAndOrderTx(user1);
+        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId);
+        bytes memory data = abi.encodeCall(TestTarget.revertingCall, ());
+        bytes memory proof = _buildProof(
+            etx.payloadHash,
+            targetContract,
+            data,
+            0,
+            etx.epoch,
+            _defaultSignerKeys()
+        );
 
         // Submit decryption that will fail (call to revert)
         vm.prank(sequencer);
         mempool.submitDecryption(
             txId,
             targetContract,
-            abi.encodeCall(TestTarget.revertingCall, ()),
+            data,
             0,
-            validProof
+            proof
         );
 
         mempool.executeDecryptedTx(txId);
@@ -544,10 +608,28 @@ contract EncryptedMempoolTest is Test {
 
         vm.roll(block.number + 1); // Ensure unique txId
 
+        uint256 gasDeposit = 100000 * 1 gwei;
+
         vm.prank(user);
-        return mempool.submitEncryptedTx{value: 0.1 ether}(
+        return mempool.submitEncryptedTx{value: gasDeposit}(
             samplePayload,
             2, // Current epoch after DKG
+            100000,
+            1 gwei
+        );
+    }
+
+    function _submitEncryptedTxWithDeposit(address user, uint256 valueDeposit) internal returns (bytes32) {
+        vm.deal(user, 10 ether);
+
+        vm.roll(block.number + 1);
+
+        uint256 gasDeposit = 100000 * 1 gwei;
+
+        vm.prank(user);
+        return mempool.submitEncryptedTx{value: gasDeposit + valueDeposit}(
+            samplePayload,
+            2,
             100000,
             1 gwei
         );
@@ -573,16 +655,65 @@ contract EncryptedMempoolTest is Test {
     function _submitOrderAndDecrypt(address user) internal returns (bytes32) {
         bytes32 txId = _submitAndOrderTx(user);
 
+        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId);
+        bytes memory data = abi.encodeCall(TestTarget.setValue, (42));
+        bytes memory proof = _buildProof(
+            etx.payloadHash,
+            targetContract,
+            data,
+            0,
+            etx.epoch,
+            _defaultSignerKeys()
+        );
+
         vm.prank(sequencer);
         mempool.submitDecryption(
             txId,
             targetContract,
-            abi.encodeCall(TestTarget.setValue, (42)),
+            data,
             0,
-            validProof
+            proof
         );
 
         return txId;
+    }
+
+    function _buildProof(
+        bytes32 payloadHash,
+        address to,
+        bytes memory data,
+        uint256 value,
+        uint256 epoch,
+        uint256[] memory signerKeys
+    ) internal returns (bytes memory) {
+        bytes32 commitment = keccak256(abi.encodePacked(payloadHash, to, data, value));
+        (bytes memory signatures, address[] memory signers) = _buildSignatures(commitment, signerKeys);
+        return abi.encode(signatures, commitment, epoch, signers);
+    }
+
+    function _buildSignatures(
+        bytes32 commitment,
+        uint256[] memory signerKeys
+    ) internal returns (bytes memory signatures, address[] memory signers) {
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", commitment)
+        );
+
+        signatures = new bytes(0);
+        signers = new address[](signerKeys.length);
+
+        for (uint256 i = 0; i < signerKeys.length; i++) {
+            signers[i] = vm.addr(signerKeys[i]);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKeys[i], digest);
+            bytes memory sig = bytes.concat(r, s, bytes1(v));
+            signatures = bytes.concat(signatures, sig);
+        }
+    }
+
+    function _defaultSignerKeys() internal view returns (uint256[] memory keys) {
+        keys = new uint256[](2);
+        keys[0] = keyper1Pk;
+        keys[1] = keyper2Pk;
     }
 }
 

@@ -69,14 +69,15 @@ sol!(
 /// Client for SetRegistry contract interactions
 pub struct RegistryClient<P> {
     contract: SetRegistry::SetRegistryInstance<(), P>,
+    provider: P,
     chain_id: u64,
 }
 
 impl<P: Provider + Clone> RegistryClient<P> {
     /// Create a new registry client
     pub fn new(address: Address, provider: P, chain_id: u64) -> Self {
-        let contract = SetRegistry::new(address, provider);
-        Self { contract, chain_id }
+        let contract = SetRegistry::new(address, provider.clone());
+        Self { contract, provider, chain_id }
     }
 
     /// Check if an address is authorized as a sequencer
@@ -145,6 +146,11 @@ impl<P: Provider + Clone> RegistryClient<P> {
     /// Get chain ID
     pub fn chain_id(&self) -> u64 {
         self.chain_id
+    }
+
+    /// Get current gas price from provider
+    pub async fn gas_price(&self) -> Result<U256> {
+        Ok(self.provider.get_gas_price().await?)
     }
 }
 

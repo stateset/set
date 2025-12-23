@@ -5,6 +5,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./ThresholdKeyRegistry.sol";
 
 /**
@@ -59,6 +60,7 @@ contract EncryptedMempool is
         uint256 epoch;              // Encryption epoch
         uint256 gasLimit;           // Gas limit for execution
         uint256 maxFeePerGas;       // Max fee willing to pay
+        uint256 valueDeposit;       // ETH deposit to cover decrypted value
         uint256 submittedAt;        // Block when submitted
         uint256 orderPosition;      // Position in ordering (set by sequencer)
         EncryptedTxStatus status;   // Current status
@@ -186,6 +188,7 @@ contract EncryptedMempool is
     error InvalidSignature();
     error DecryptionFailed();
     error InsufficientFee();
+    error ValueExceedsDeposit();
     error ExecutionFailed();
 
     // =========================================================================
@@ -259,10 +262,11 @@ contract EncryptedMempool is
         }
 
         // Calculate minimum fee
-        uint256 minFee = _gasLimit * _maxFeePerGas;
-        if (msg.value < minFee) {
+        uint256 gasDeposit = _gasLimit * _maxFeePerGas;
+        if (msg.value < gasDeposit) {
             revert InsufficientFee();
         }
+        uint256 valueDeposit = msg.value - gasDeposit;
 
         // Generate unique ID
         bytes32 payloadHash = keccak256(_encryptedPayload);
@@ -286,6 +290,7 @@ contract EncryptedMempool is
             epoch: _epoch,
             gasLimit: _gasLimit,
             maxFeePerGas: _maxFeePerGas,
+            valueDeposit: valueDeposit,
             submittedAt: block.number,
             orderPosition: 0,
             status: EncryptedTxStatus.Pending
@@ -319,7 +324,7 @@ contract EncryptedMempool is
         etx.status = EncryptedTxStatus.Expired;
 
         // Refund prepaid fee
-        uint256 refund = etx.gasLimit * etx.maxFeePerGas;
+        uint256 refund = (etx.gasLimit * etx.maxFeePerGas) + etx.valueDeposit;
         (bool success, ) = msg.sender.call{value: refund}("");
         require(success, "Refund failed");
 
@@ -385,6 +390,7 @@ contract EncryptedMempool is
 
         if (etx.sender == address(0)) revert TxNotFound();
         if (etx.status != EncryptedTxStatus.Ordered) revert TxNotOrdered();
+        if (_value > etx.valueDeposit) revert ValueExceedsDeposit();
 
         // Verify decryption proof
         // In production, this would verify threshold signature
@@ -422,10 +428,15 @@ contract EncryptedMempool is
         dtx.executed = true;
 
         // Execute the transaction
+        uint256 gasStart = gasleft();
         (bool success, bytes memory returnData) = dtx.to.call{
             value: dtx.value,
             gas: etx.gasLimit
         }(dtx.data);
+        uint256 gasUsed = gasStart - gasleft();
+        if (gasUsed > etx.gasLimit) {
+            gasUsed = etx.gasLimit;
+        }
 
         dtx.success = success;
         etx.status = success ? EncryptedTxStatus.Executed : EncryptedTxStatus.Failed;
@@ -437,8 +448,9 @@ contract EncryptedMempool is
         }
 
         // Refund unused gas to sender
-        uint256 gasUsed = etx.gasLimit; // Simplified; real impl would track actual gas
-        uint256 refund = (etx.gasLimit - gasUsed) * etx.maxFeePerGas;
+        uint256 gasRefund = (etx.gasLimit - gasUsed) * etx.maxFeePerGas;
+        uint256 valueRefund = success ? (etx.valueDeposit - dtx.value) : etx.valueDeposit;
+        uint256 refund = gasRefund + valueRefund;
         if (refund > 0) {
             (bool refundSuccess, ) = etx.sender.call{value: refund}("");
             // Don't revert on refund failure
@@ -463,7 +475,7 @@ contract EncryptedMempool is
                     totalExpired++;
 
                     // Refund prepaid fee
-                    uint256 refund = etx.gasLimit * etx.maxFeePerGas;
+                    uint256 refund = (etx.gasLimit * etx.maxFeePerGas) + etx.valueDeposit;
                     (bool success, ) = etx.sender.call{value: refund}("");
 
                     emit TxExpired(_txIds[i]);
@@ -565,14 +577,14 @@ contract EncryptedMempool is
      * @param _to Decrypted target address
      * @param _data Decrypted calldata
      * @param _value Decrypted ETH value
-     * @param _proof Decryption proof (threshold BLS signature over commitment)
+     * @param _proof Decryption proof (threshold ECDSA signatures over commitment)
      * @return valid True if proof is valid and binds to the encrypted payload
      *
      * Proof structure (ABI-encoded):
-     * - bytes signature: BLS threshold signature (96 bytes)
+     * - bytes signature: Concatenated 65-byte ECDSA signatures from keypers
      * - bytes32 decryptionCommitment: Hash binding decrypted data to encrypted payload
      * - uint256 epoch: Epoch the key belongs to
-     * - address[] signers: Keypers who contributed to the threshold signature
+     * - address[] signers: Keypers who signed (order must match signatures)
      *
      * The decryptionCommitment must equal:
      * keccak256(abi.encodePacked(payloadHash, to, data, value))
@@ -589,8 +601,8 @@ contract EncryptedMempool is
         uint256 _value,
         bytes calldata _proof
     ) internal view returns (bool) {
-        // Minimum proof size: 96 (BLS sig) + 32 (commitment) + 32 (epoch) + 32 (signers array offset)
-        if (_proof.length < 192) {
+        // Minimum proof size: dynamic signature + commitment + epoch + signers
+        if (_proof.length < 320) {
             return false;
         }
 
@@ -602,8 +614,7 @@ contract EncryptedMempool is
             address[] memory signers
         ) = abi.decode(_proof, (bytes, bytes32, uint256, address[]));
 
-        // BLS signature must be 96 bytes
-        if (signature.length != 96) {
+        if (signature.length == 0) {
             return false;
         }
 
@@ -647,12 +658,12 @@ contract EncryptedMempool is
     }
 
     /**
-     * @dev Verify a BLS threshold signature from keypers
-     * @param _signature The aggregated BLS signature
+     * @dev Verify threshold ECDSA signatures from keypers
+     * @param _signature Concatenated 65-byte ECDSA signatures
      * @param _message The message that was signed (decryption commitment)
      * @param _epoch The epoch for the threshold key
-     * @param _signers The keypers who contributed signature shares
-     * @return valid True if the threshold signature is valid
+     * @param _signers The keypers who contributed signatures
+     * @return valid True if the threshold signatures are valid
      */
     function _verifyThresholdSignature(
         bytes memory _signature,
@@ -668,8 +679,32 @@ contract EncryptedMempool is
             return false;
         }
 
-        // Verify all signers are valid keypers
+        // Signature must be a concatenation of 65-byte ECDSA signatures
+        if (_signature.length == 0 || _signature.length % 65 != 0) {
+            return false;
+        }
+        if (_signature.length / 65 != _signers.length) {
+            return false;
+        }
+
+        bytes32 messageHash = ECDSA.toEthSignedMessageHash(_message);
+
+        // Verify all signers are valid keypers and signatures match
         for (uint256 i = 0; i < _signers.length; i++) {
+            bytes memory sig = new bytes(65);
+            for (uint256 j = 0; j < 65; j++) {
+                sig[j] = _signature[i * 65 + j];
+            }
+
+            address recovered = ECDSA.recover(messageHash, sig);
+            if (recovered != _signers[i]) {
+                return false;
+            }
+
+            if (!keyRegistry.isKeyperActive(recovered)) {
+                return false;
+            }
+
             // Check for duplicates (prevent signature replay)
             for (uint256 j = i + 1; j < _signers.length; j++) {
                 if (_signers[i] == _signers[j]) {
@@ -678,23 +713,8 @@ contract EncryptedMempool is
             }
         }
 
-        // In a full implementation, this would:
-        // 1. Reconstruct the aggregated public key from signers' public keys
-        // 2. Verify the BLS signature using bn128 precompiles (EIP-196, EIP-197)
-        // 3. Check that signature verifies against the message and aggregated key
-        //
-        // For now, we verify the structural requirements and trust the proof format
-        // The actual BLS verification requires either:
-        // - EIP-2537 (BLS precompile) which is not yet available on most chains
-        // - A custom BLS verification library (expensive in gas)
-        //
-        // Security note: In production, implement full BLS verification or use
-        // a trusted verifier contract/oracle.
-
-        // Verify signature format (G1 point: 2 * 48 bytes)
-        if (_signature.length != 96) {
-            return false;
-        }
+        // Signatures are verified against the decryption commitment using
+        // the active keyper set from the registry.
 
         // Verify message is not empty
         if (_message == bytes32(0)) {

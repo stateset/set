@@ -4,16 +4,41 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../mev/ForcedInclusion.sol";
 
+contract MockL2OutputOracle {
+    mapping(uint256 => bytes32) public outputRoots;
+
+    function setL2Output(uint256 blockNumber, bytes32 outputRoot) external {
+        outputRoots[blockNumber] = outputRoot;
+    }
+
+    function getL2Output(uint256 _l2BlockNumber) external view returns (bytes32) {
+        return outputRoots[_l2BlockNumber];
+    }
+}
+
+contract MockTxRootOracle {
+    mapping(uint256 => bytes32) public txRoots;
+
+    function setTxRoot(uint256 blockNumber, bytes32 txRoot) external {
+        txRoots[blockNumber] = txRoot;
+    }
+
+    function getTxRoot(uint256 blockNumber) external view returns (bytes32) {
+        return txRoots[blockNumber];
+    }
+}
+
 /**
  * @title ForcedInclusionTest
  * @notice Tests for L1 censorship resistance mechanism
  */
 contract ForcedInclusionTest is Test {
     ForcedInclusion public forcedInclusion;
+    MockL2OutputOracle public outputOracle;
+    MockTxRootOracle public txRootOracle;
 
     address public owner = address(0x1);
     address public user = address(0x2);
-    address public l2OutputOracle = address(0x3);
     address public optimismPortal = address(0x4);
 
     // Test data
@@ -24,11 +49,17 @@ contract ForcedInclusionTest is Test {
     function setUp() public {
         vm.deal(user, 10 ether);
 
+        outputOracle = new MockL2OutputOracle();
+        txRootOracle = new MockTxRootOracle();
+
         forcedInclusion = new ForcedInclusion(
             owner,
-            l2OutputOracle,
+            address(outputOracle),
             optimismPortal
         );
+
+        vm.prank(owner);
+        forcedInclusion.setTxRootOracle(address(txRootOracle));
     }
 
     // =========================================================================
@@ -37,7 +68,7 @@ contract ForcedInclusionTest is Test {
 
     function test_Initialization() public view {
         assertEq(forcedInclusion.owner(), owner);
-        assertEq(forcedInclusion.l2OutputOracle(), l2OutputOracle);
+        assertEq(forcedInclusion.l2OutputOracle(), address(outputOracle));
         assertEq(forcedInclusion.optimismPortal(), optimismPortal);
     }
 
@@ -153,7 +184,7 @@ contract ForcedInclusionTest is Test {
         uint256 userBalanceBefore = user.balance;
 
         // Confirm inclusion with proof
-        bytes memory proof = abi.encodePacked(bytes32(uint256(1)));
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
         forcedInclusion.confirmInclusion(txId, 100, proof);
 
         // Verify bond returned
@@ -168,7 +199,7 @@ contract ForcedInclusionTest is Test {
     }
 
     function test_ConfirmInclusion_RevertsNotFound() public {
-        bytes memory proof = abi.encodePacked(bytes32(uint256(1)));
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
 
         vm.expectRevert(ForcedInclusion.TransactionNotFound.selector);
         forcedInclusion.confirmInclusion(bytes32(uint256(999)), 100, proof);
@@ -182,7 +213,7 @@ contract ForcedInclusionTest is Test {
             gasLimit
         );
 
-        bytes memory proof = abi.encodePacked(bytes32(uint256(1)));
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
         forcedInclusion.confirmInclusion(txId, 100, proof);
 
         // Try again
@@ -302,7 +333,7 @@ contract ForcedInclusionTest is Test {
         assertEq(pending[1], txId2);
 
         // Confirm one
-        bytes memory proof = abi.encodePacked(bytes32(uint256(1)));
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
         forcedInclusion.confirmInclusion(txId1, 100, proof);
 
         pending = forcedInclusion.getUserPendingTxs(user);
@@ -321,7 +352,7 @@ contract ForcedInclusionTest is Test {
         assertTrue(forcedInclusion.isPending(txId));
 
         // Confirm
-        bytes memory proof = abi.encodePacked(bytes32(uint256(1)));
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
         forcedInclusion.confirmInclusion(txId, 100, proof);
 
         assertFalse(forcedInclusion.isPending(txId));
@@ -372,5 +403,26 @@ contract ForcedInclusionTest is Test {
         vm.prank(user);
         vm.expectRevert();
         forcedInclusion.setOptimismPortal(address(0x888));
+
+        vm.prank(user);
+        vm.expectRevert();
+        forcedInclusion.setTxRootOracle(address(0x777));
+    }
+
+    function _buildProof(
+        address sender,
+        address txTarget,
+        bytes memory data,
+        uint256 gasLimit_,
+        uint256 l2BlockNumber
+    ) internal returns (bytes memory) {
+        bytes32 outputRoot = keccak256(abi.encodePacked("output", l2BlockNumber));
+        outputOracle.setL2Output(l2BlockNumber, outputRoot);
+
+        bytes32 txHash = keccak256(abi.encodePacked(sender, txTarget, data, gasLimit_));
+        txRootOracle.setTxRoot(l2BlockNumber, txHash);
+
+        bytes32[] memory proof = new bytes32[](0);
+        return abi.encode(outputRoot, txHash, proof, uint256(0));
     }
 }

@@ -368,12 +368,14 @@ Submit an encrypted transaction.
 
 **Requirements:**
 - `msg.value >= gasLimit * maxFeePerGas`
+- Any excess `msg.value` is reserved as `valueDeposit` to cover decrypted call value
 - Valid epoch key must exist
 
 ##### `getEncryptedTx`
 ```solidity
 function getEncryptedTx(bytes32 txId) external view returns (EncryptedTx memory)
 ```
+Note: `EncryptedTx` includes a `valueDeposit` field reserved for the decrypted call value.
 
 ##### `getDecryptedTx`
 ```solidity
@@ -470,6 +472,9 @@ function confirmInclusion(
 ) external
 ```
 Confirm transaction was included, return bond.
+
+Note: `confirmInclusion` requires a tx root oracle to be configured via
+`setTxRootOracle(address)` by the owner.
 
 ##### `claimExpired`
 ```solidity

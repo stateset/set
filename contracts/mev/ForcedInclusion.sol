@@ -20,6 +20,14 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  */
 contract ForcedInclusion is Ownable, ReentrancyGuard {
     // =========================================================================
+    // Interfaces
+    // =========================================================================
+
+    interface ITxRootOracle {
+        function getTxRoot(uint256 l2BlockNumber) external view returns (bytes32);
+    }
+
+    // =========================================================================
     // Constants
     // =========================================================================
 
@@ -73,6 +81,9 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
     /// @notice OptimismPortal contract for cross-domain messages
     address public optimismPortal;
 
+    /// @notice Oracle for L2 transactions root by block number
+    address public txRootOracle;
+
     /// @notice Statistics
     Stats public stats;
 
@@ -108,6 +119,8 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
         address indexed sender,
         uint256 amount
     );
+
+    event TxRootOracleUpdated(address indexed oldOracle, address indexed newOracle);
 
     // =========================================================================
     // Errors
@@ -152,6 +165,15 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
      */
     function setOptimismPortal(address _optimismPortal) external onlyOwner {
         optimismPortal = _optimismPortal;
+    }
+
+    /**
+     * @notice Update tx root oracle address
+     * @param _txRootOracle New oracle address
+     */
+    function setTxRootOracle(address _txRootOracle) external onlyOwner {
+        emit TxRootOracleUpdated(txRootOracle, _txRootOracle);
+        txRootOracle = _txRootOracle;
     }
 
     // =========================================================================
@@ -373,35 +395,38 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
      * @dev Verify inclusion of a forced transaction in L2
      * @param _txId Transaction ID
      * @param _l2BlockNumber L2 block number
-     * @param _proof Inclusion proof (ABI-encoded: outputRoot, storageProof[], accountProof[])
+     * @param _proof Inclusion proof (ABI-encoded: outputRoot, txRoot, storageProof[], txIndex)
      * @return valid True if proof is valid
      *
      * Proof structure:
      * - bytes32 outputRoot: The L2 output root from L2OutputOracle
+     * - bytes32 txRoot: Transactions root for the L2 block
      * - bytes32[] storageProof: Merkle proof for transaction in block's tx trie
-     * - bytes32[] accountProof: Merkle proof for the account state
+     * - uint256 txIndex: Leaf index in the tx trie
      *
      * Security assumptions (documented in docs/mev-protection.md):
      * - L2OutputOracle is trusted and correctly posts L2 state roots
      * - The proof verifies against a finalized (not disputed) output root
      * - Transaction hash includes sender, target, data, gasLimit to prevent spoofing
+     * - Tx root oracle is trusted to provide the correct txRoot for finalized blocks
      */
     function _verifyInclusion(
         bytes32 _txId,
         uint256 _l2BlockNumber,
         bytes calldata _proof
     ) internal view returns (bool valid) {
-        // Minimum proof size: 32 (outputRoot) + 32 (at least one proof element)
-        if (_proof.length < 64) {
+        // Minimum proof size: outputRoot + txRoot + offsets
+        if (_proof.length < 128) {
             return false;
         }
 
         // Decode the proof components
         (
             bytes32 claimedOutputRoot,
+            bytes32 txRoot,
             bytes32[] memory storageProof,
             uint256 txIndex
-        ) = abi.decode(_proof, (bytes32, bytes32[], uint256));
+        ) = abi.decode(_proof, (bytes32, bytes32, bytes32[], uint256));
 
         // Verify output root against L2OutputOracle
         if (l2OutputOracle == address(0)) {
@@ -425,6 +450,15 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
             return false;
         }
 
+        // Verify transactions root against oracle
+        if (txRootOracle == address(0)) {
+            return false;
+        }
+        bytes32 oracleTxRoot = ITxRootOracle(txRootOracle).getTxRoot(_l2BlockNumber);
+        if (oracleTxRoot != txRoot || txRoot == bytes32(0)) {
+            return false;
+        }
+
         // Reconstruct the expected transaction hash from stored data
         ForcedTx storage forcedTx = forcedTransactions[_txId];
         bytes32 expectedTxHash = keccak256(abi.encodePacked(
@@ -438,38 +472,7 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
         // The leaf is the transaction hash, and we verify it's in the transactions trie
         bytes32 computedRoot = _computeMerkleRoot(expectedTxHash, storageProof, txIndex);
 
-        // The computed root should be derivable from the output root
-        // Output root typically commits to: stateRoot, transactionsRoot, receiptsRoot
-        // We verify the transactions root component
-        // For simplicity, we check if the computed root is committed in the output
-        // In a full implementation, this would extract the transactionsRoot from outputRoot
-        bytes32 expectedTxRoot = keccak256(abi.encodePacked(claimedOutputRoot, "transactions"));
-
-        return computedRoot == expectedTxRoot || _verifyOutputRootContainsTx(claimedOutputRoot, computedRoot);
-    }
-
-    /**
-     * @dev Verify that an output root commits to a transactions root
-     * @param _outputRoot The L2 output root
-     * @param _txRoot The computed transactions root
-     * @return valid True if the output root commits to this transactions root
-     */
-    function _verifyOutputRootContainsTx(
-        bytes32 _outputRoot,
-        bytes32 _txRoot
-    ) internal pure returns (bool valid) {
-        // The OP Stack output root is computed as:
-        // keccak256(abi.encodePacked(version, stateRoot, messagePasserStorageRoot, blockHash))
-        //
-        // For forced inclusion verification, we need to verify the transaction
-        // was included in the block identified by blockHash.
-        //
-        // This is a simplified check - in production, the proof would include
-        // the block header which contains the transactions root.
-        //
-        // For now, we require the proof to demonstrate the relationship
-        // between outputRoot and txRoot through the proof structure itself.
-        return _outputRoot != bytes32(0) && _txRoot != bytes32(0);
+        return computedRoot == txRoot;
     }
 
     /**

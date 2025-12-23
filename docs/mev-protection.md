@@ -177,7 +177,7 @@ to extract value from price movement.
 **Implementation Options:**
 - **Shutter Network**: Production-ready threshold encryption
 - **Flashbots SUAVE**: MEV-aware block building (in development)
-- **Custom implementation**: Using BLS threshold signatures
+- **Custom implementation**: BLS-based encryption keys with ECDSA attestations
 
 ### Option 2: Commit-Reveal Scheme
 
@@ -503,6 +503,10 @@ contract EncryptedMempool {
 }
 ```
 
+Note: `submitEncryptedTx` treats any `msg.value` above `gasLimit * maxFeePerGas`
+as a `valueDeposit` reserved to cover the decrypted call value. Unused value is
+refunded to the sender after execution or expiry.
+
 Transaction lifecycle:
 1. **Pending** - User submits encrypted tx
 2. **Ordered** - Sequencer commits to ordering
@@ -799,6 +803,7 @@ The `confirmInclusion` function verifies that a forced transaction was included 
 // ABI-encoded proof
 (
     bytes32 claimedOutputRoot,   // Must match L2OutputOracle
+    bytes32 txRoot,              // Transactions root for the L2 block
     bytes32[] storageProof,      // Merkle proof path
     uint256 txIndex              // Index in transaction trie
 )
@@ -810,7 +815,7 @@ The `submitDecryption` function verifies that decrypted data correctly correspon
 
 **Assumptions:**
 1. **Decryption commitment binding**: The proof must include a commitment that binds the decrypted data (to, data, value) to the original encrypted payload hash. This prevents the sequencer from substituting different transaction data.
-2. **Threshold signature validity**: The keypers' BLS threshold signature attests to the correct decryption. The threshold (t-of-n) ensures no single keyper can forge a decryption proof.
+2. **Threshold signature validity**: Keypers provide ECDSA signatures over the decryption commitment. The threshold (t-of-n) ensures no single keyper can forge a decryption proof.
 3. **Epoch key validity**: The decryption must use the key from the correct epoch. Proofs from invalid or revoked epochs are rejected.
 4. **No duplicate signers**: The proof must not contain duplicate keyper addresses to prevent signature replay.
 
@@ -818,7 +823,7 @@ The `submitDecryption` function verifies that decrypted data correctly correspon
 ```solidity
 // ABI-encoded proof
 (
-    bytes signature,            // 96-byte BLS threshold signature
+    bytes signature,            // Concatenated 65-byte ECDSA signatures
     bytes32 decryptionCommitment, // keccak256(payloadHash, to, data, value)
     uint256 epoch,              // Must match tx.epoch
     address[] signers           // Keypers who signed (>= threshold, no duplicates)

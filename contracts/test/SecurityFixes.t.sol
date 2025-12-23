@@ -47,6 +47,22 @@ contract MockL2OutputOracle {
 }
 
 /**
+ * @title MockTxRootOracle
+ * @notice Mock oracle for L2 transactions root
+ */
+contract MockTxRootOracle {
+    mapping(uint256 => bytes32) public txRoots;
+
+    function setTxRoot(uint256 blockNumber, bytes32 txRoot) external {
+        txRoots[blockNumber] = txRoot;
+    }
+
+    function getTxRoot(uint256 blockNumber) external view returns (bytes32) {
+        return txRoots[blockNumber];
+    }
+}
+
+/**
  * @title SecurityFixesTest
  * @notice Tests for security-critical fixes
  */
@@ -57,6 +73,7 @@ contract SecurityFixesTest is Test {
 
     ForcedInclusion public forcedInclusion;
     MockL2OutputOracle public mockOracle;
+    MockTxRootOracle public txRootOracle;
 
     address public owner = address(0x1);
     address public user = address(0x2);
@@ -66,12 +83,16 @@ contract SecurityFixesTest is Test {
         vm.deal(user, 10 ether);
 
         mockOracle = new MockL2OutputOracle();
+        txRootOracle = new MockTxRootOracle();
 
         forcedInclusion = new ForcedInclusion(
             owner,
             address(mockOracle),
             address(0x4)
         );
+
+        vm.prank(owner);
+        forcedInclusion.setTxRootOracle(address(txRootOracle));
     }
 
     function test_ForcedInclusion_RejectsEmptyProof() public {
@@ -95,7 +116,7 @@ contract SecurityFixesTest is Test {
             100_000
         );
 
-        // Proof less than 64 bytes should fail
+        // Proof smaller than the minimum encoding should fail
         bytes memory shortProof = abi.encodePacked(bytes32(uint256(1)));
         vm.expectRevert(ForcedInclusion.InvalidInclusionProof.selector);
         forcedInclusion.confirmInclusion(txId, 100, shortProof);
@@ -110,9 +131,16 @@ contract SecurityFixesTest is Test {
         );
 
         // Create a valid-looking proof but oracle has no output
+        bytes32 txRoot = keccak256(abi.encodePacked(
+            user,
+            target,
+            abi.encodeWithSignature("test()"),
+            uint256(100_000)
+        ));
+        txRootOracle.setTxRoot(100, txRoot);
         bytes32[] memory storageProof = new bytes32[](1);
         storageProof[0] = bytes32(uint256(1));
-        bytes memory proof = abi.encode(bytes32(uint256(123)), storageProof, uint256(0));
+        bytes memory proof = abi.encode(bytes32(uint256(123)), txRoot, storageProof, uint256(0));
 
         vm.expectRevert(ForcedInclusion.InvalidInclusionProof.selector);
         forcedInclusion.confirmInclusion(txId, 100, proof);
@@ -126,15 +154,22 @@ contract SecurityFixesTest is Test {
             100_000
         );
 
-        // Set oracle output
+        // Set oracle output and tx root
         bytes32 oracleRoot = keccak256("oracle_root");
         mockOracle.setL2Output(100, oracleRoot);
+        bytes32 txRoot = keccak256(abi.encodePacked(
+            user,
+            target,
+            abi.encodeWithSignature("test()"),
+            uint256(100_000)
+        ));
+        txRootOracle.setTxRoot(100, txRoot);
 
         // Create proof with different claimed root
         bytes32 claimedRoot = keccak256("different_root");
         bytes32[] memory storageProof = new bytes32[](1);
         storageProof[0] = bytes32(uint256(1));
-        bytes memory proof = abi.encode(claimedRoot, storageProof, uint256(0));
+        bytes memory proof = abi.encode(claimedRoot, txRoot, storageProof, uint256(0));
 
         vm.expectRevert(ForcedInclusion.InvalidInclusionProof.selector);
         forcedInclusion.confirmInclusion(txId, 100, proof);
@@ -502,12 +537,17 @@ contract EncryptedMempoolSecurityTest is Test {
     address public owner = address(0x1);
     address public sequencer = address(0x2);
     address public user = address(0x3);
-    address public keyper1 = address(0x10);
-    address public keyper2 = address(0x20);
+    uint256 private keyper1Pk = 0xA11CE;
+    uint256 private keyper2Pk = 0xB0B;
+    address public keyper1;
+    address public keyper2;
 
     bytes public validPubKey = hex"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
 
     function setUp() public {
+        keyper1 = vm.addr(keyper1Pk);
+        keyper2 = vm.addr(keyper2Pk);
+
         vm.deal(user, 10 ether);
         vm.deal(keyper1, 2 ether);
         vm.deal(keyper2, 2 ether);
@@ -576,7 +616,7 @@ contract EncryptedMempoolSecurityTest is Test {
         bytes memory shortProof = abi.encodePacked(bytes32(uint256(1)));
         vm.prank(sequencer);
         vm.expectRevert(EncryptedMempool.DecryptionFailed.selector);
-        mempool.submitDecryption(txId, address(0x100), "", 0, shortProof);
+        mempool.submitDecryption(txId, address(0x100), bytes(""), 0, shortProof);
     }
 
     function test_SubmitDecryption_RejectsWrongCommitment() public {
@@ -597,17 +637,16 @@ contract EncryptedMempoolSecurityTest is Test {
         mempool.commitOrdering(keccak256("batch"), txIds, keccak256("root"), "sig");
 
         // Create proof with wrong commitment (doesn't match payload hash + decrypted data)
-        bytes memory signature = new bytes(96);
         bytes32 wrongCommitment = keccak256("wrong_commitment");
-        address[] memory signers = new address[](2);
-        signers[0] = keyper1;
-        signers[1] = keyper2;
-
-        bytes memory proof = abi.encode(signature, wrongCommitment, uint256(2), signers);
+        (bytes memory signatures, address[] memory signers) = _buildSignatures(
+            wrongCommitment,
+            _defaultSignerKeys()
+        );
+        bytes memory proof = abi.encode(signatures, wrongCommitment, uint256(2), signers);
 
         vm.prank(sequencer);
         vm.expectRevert(EncryptedMempool.DecryptionFailed.selector);
-        mempool.submitDecryption(txId, address(0x100), "", 0, proof);
+        mempool.submitDecryption(txId, address(0x100), bytes(""), 0, proof);
     }
 
     function test_SubmitDecryption_RejectsWrongEpoch() public {
@@ -628,19 +667,19 @@ contract EncryptedMempoolSecurityTest is Test {
         mempool.commitOrdering(keccak256("batch"), txIds, keccak256("root"), "sig");
 
         // Create proof with wrong epoch
-        bytes memory signature = new bytes(96);
         bytes32 payloadHash = keccak256(payload);
-        bytes32 correctCommitment = keccak256(abi.encodePacked(payloadHash, address(0x100), "", uint256(0)));
-        address[] memory signers = new address[](2);
-        signers[0] = keyper1;
-        signers[1] = keyper2;
+        bytes32 correctCommitment = keccak256(abi.encodePacked(payloadHash, address(0x100), bytes(""), uint256(0)));
+        (bytes memory signatures, address[] memory signers) = _buildSignatures(
+            correctCommitment,
+            _defaultSignerKeys()
+        );
 
         // Use epoch 1 instead of 2
-        bytes memory proof = abi.encode(signature, correctCommitment, uint256(1), signers);
+        bytes memory proof = abi.encode(signatures, correctCommitment, uint256(1), signers);
 
         vm.prank(sequencer);
         vm.expectRevert(EncryptedMempool.DecryptionFailed.selector);
-        mempool.submitDecryption(txId, address(0x100), "", 0, proof);
+        mempool.submitDecryption(txId, address(0x100), bytes(""), 0, proof);
     }
 
     function test_SubmitDecryption_RejectsDuplicateSigners() public {
@@ -661,17 +700,45 @@ contract EncryptedMempoolSecurityTest is Test {
         mempool.commitOrdering(keccak256("batch"), txIds, keccak256("root"), "sig");
 
         // Create proof with duplicate signers
-        bytes memory signature = new bytes(96);
         bytes32 payloadHash = keccak256(payload);
-        bytes32 correctCommitment = keccak256(abi.encodePacked(payloadHash, address(0x100), "", uint256(0)));
-        address[] memory signers = new address[](2);
-        signers[0] = keyper1;
-        signers[1] = keyper1; // Duplicate!
+        bytes32 correctCommitment = keccak256(abi.encodePacked(payloadHash, address(0x100), bytes(""), uint256(0)));
+        uint256[] memory signerKeys = new uint256[](2);
+        signerKeys[0] = keyper1Pk;
+        signerKeys[1] = keyper1Pk; // Duplicate keyper
+        (bytes memory signatures, address[] memory signers) = _buildSignatures(
+            correctCommitment,
+            signerKeys
+        );
 
-        bytes memory proof = abi.encode(signature, correctCommitment, uint256(2), signers);
+        bytes memory proof = abi.encode(signatures, correctCommitment, uint256(2), signers);
 
         vm.prank(sequencer);
         vm.expectRevert(EncryptedMempool.DecryptionFailed.selector);
-        mempool.submitDecryption(txId, address(0x100), "", 0, proof);
+        mempool.submitDecryption(txId, address(0x100), bytes(""), 0, proof);
+    }
+
+    function _buildSignatures(
+        bytes32 commitment,
+        uint256[] memory signerKeys
+    ) internal returns (bytes memory signatures, address[] memory signers) {
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", commitment)
+        );
+
+        signatures = new bytes(0);
+        signers = new address[](signerKeys.length);
+
+        for (uint256 i = 0; i < signerKeys.length; i++) {
+            signers[i] = vm.addr(signerKeys[i]);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKeys[i], digest);
+            bytes memory sig = bytes.concat(r, s, bytes1(v));
+            signatures = bytes.concat(signatures, sig);
+        }
+    }
+
+    function _defaultSignerKeys() internal view returns (uint256[] memory keys) {
+        keys = new uint256[](2);
+        keys[0] = keyper1Pk;
+        keys[1] = keyper2Pk;
     }
 }

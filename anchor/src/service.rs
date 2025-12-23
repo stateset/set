@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::{primitives::Address, providers::Provider};
+use alloy::{primitives::{Address, U256}, providers::Provider};
 use anyhow::Result;
 use chrono::Utc;
 use tokio::sync::RwLock;
@@ -132,6 +132,21 @@ impl AnchorService {
         &self,
         registry: &RegistryClient<P>,
     ) -> Result<Vec<AnchorResult>> {
+        if self.config.max_gas_price_gwei > 0 {
+            let gas_price = registry.gas_price().await?;
+            let max_gas_price = U256::from(self.config.max_gas_price_gwei)
+                * U256::from(1_000_000_000u64);
+
+            if gas_price > max_gas_price {
+                warn!(
+                    gas_price = %gas_price,
+                    max_gas_price = %max_gas_price,
+                    "Skipping anchor cycle: gas price above configured maximum"
+                );
+                return Ok(vec![]);
+            }
+        }
+
         // Fetch pending commitments from sequencer
         let commitments = match self.sequencer_client.get_pending_commitments().await {
             Ok(c) => {

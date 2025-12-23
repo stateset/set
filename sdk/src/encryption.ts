@@ -39,6 +39,7 @@ export interface EncryptedTransaction {
   epoch: bigint;
   gasLimit: bigint;
   maxFeePerGas: bigint;
+  valueDeposit: bigint;
   submittedAt: bigint;
   orderPosition: bigint;
   status: EncryptedTxStatus;
@@ -73,6 +74,7 @@ export interface TransactionParams {
 export interface SubmitOptions {
   gasLimit?: bigint;
   maxFeePerGas?: bigint;
+  valueDeposit?: bigint;
 }
 
 export interface MempoolStats {
@@ -175,6 +177,7 @@ export const encryptedMempoolAbi = [
           { name: "epoch", type: "uint256" },
           { name: "gasLimit", type: "uint256" },
           { name: "maxFeePerGas", type: "uint256" },
+          { name: "valueDeposit", type: "uint256" },
           { name: "submittedAt", type: "uint256" },
           { name: "orderPosition", type: "uint256" },
           { name: "status", type: "uint8" }
@@ -392,9 +395,14 @@ export class EncryptedMempoolClient {
     // Set defaults
     const gasLimit = options.gasLimit ?? 200000n;
     const maxFeePerGas = options.maxFeePerGas ?? 1000000000n; // 1 gwei
+    const valueDeposit = options.valueDeposit ?? txParams.value;
+
+    if (valueDeposit < txParams.value) {
+      throw new Error("valueDeposit must be >= txParams.value");
+    }
 
     // Calculate required fee
-    const requiredFee = gasLimit * maxFeePerGas;
+    const requiredFee = gasLimit * maxFeePerGas + valueDeposit;
 
     // Submit encrypted transaction
     const tx = await this.contract.submitEncryptedTx(
@@ -440,6 +448,7 @@ export class EncryptedMempoolClient {
       epoch: etx.epoch,
       gasLimit: etx.gasLimit,
       maxFeePerGas: etx.maxFeePerGas,
+      valueDeposit: etx.valueDeposit,
       submittedAt: etx.submittedAt,
       orderPosition: etx.orderPosition,
       status: etx.status as EncryptedTxStatus

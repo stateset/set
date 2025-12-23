@@ -233,6 +233,11 @@ impl HealthServer {
         Self { state, port }
     }
 
+    /// Create a health server with an existing shared state
+    pub fn with_state(state: Arc<HealthState>, port: u16) -> Self {
+        Self { state, port }
+    }
+
     /// Get shared state for updates from anchor service
     pub fn state(&self) -> Arc<HealthState> {
         Arc::clone(&self.state)

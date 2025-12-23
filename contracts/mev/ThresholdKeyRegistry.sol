@@ -159,6 +159,7 @@ contract ThresholdKeyRegistry is
     error DKGDeadlineNotPassed();
     error AlreadySubmittedDealing();
     error AlreadyRegisteredForDKG();
+    error NotRegisteredForDKG();
     error EpochNotActive();
     error EpochAlreadyExists();
     error KeyRevoked();
@@ -365,6 +366,8 @@ contract ThresholdKeyRegistry is
     function submitDealing(bytes32 _dealingHash) external {
         if (dkgState.phase != 2) revert DKGPhaseIncorrect();
         if (block.number > dkgState.phaseDeadline) revert DKGDeadlinePassed();
+        if (!dkgState.hasRegistered[msg.sender]) revert NotRegisteredForDKG();
+        if (!keypers[msg.sender].active) revert KeyperNotRegistered();
         if (dkgState.dealings[msg.sender] != bytes32(0)) {
             revert AlreadySubmittedDealing();
         }
@@ -518,6 +521,15 @@ contract ThresholdKeyRegistry is
         }
 
         return activeKeypers;
+    }
+
+    /**
+     * @notice Check if a keyper is currently active
+     * @param keyper Keyper address
+     * @return active True if active
+     */
+    function isKeyperActive(address keyper) external view returns (bool active) {
+        return keypers[keyper].active;
     }
 
     /**

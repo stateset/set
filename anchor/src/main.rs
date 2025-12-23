@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let service = AnchorService::with_health_state(config.clone(), Arc::clone(&health_state));
 
     // Create health server
-    let health_server = HealthServer::new(config.clone(), Arc::clone(&stats), config.health_port);
+    let health_server = HealthServer::with_state(Arc::clone(&health_state), config.health_port);
 
     // Run both services concurrently
     tokio::select! {
