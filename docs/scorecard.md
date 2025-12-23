@@ -38,6 +38,11 @@ A 10/10 decentralization score requires:
   - Documentation with checklist
   - **← Complete exercise on Sepolia and record results**
 - [x] Transparent governance and upgrade policy (`docs/security.md`)
+- [x] MEV protection strategy (`docs/mev-protection.md`)
+  - SequencerAttestation contract: `contracts/mev/SequencerAttestation.sol`
+  - ForcedInclusion L1 contract: `contracts/mev/ForcedInclusion.sol`
+  - MEV monitoring alerts: `docker/monitoring/alerts.yml`
+  - Tests: `contracts/test/SequencerAttestation.t.sol`, `contracts/test/ForcedInclusion.t.sol`
 
 ### Reliability and Operations (10/10)
 A 10/10 reliability score requires:
@@ -54,6 +59,10 @@ A 10/10 devx score requires:
 - [x] Reproducible builds and pinned tool versions (`docs/toolchain.md`)
 - [x] CI for contracts, anchor, and devnet flows (`.github/workflows`)
 - [x] Example integrations for merchants or apps (`docs/integration-example.md`)
+- [x] Comprehensive SDK with error handling (`sdk/src/errors.ts`, `sdk/src/utils/`)
+- [x] SDK documentation and examples (`sdk/README.md`)
+- [x] API reference documentation (`docs/api-reference.md`)
+- [x] Glossary of terms (`docs/glossary.md`)
 
 ### Ecosystem and Adoption (9/10)
 A 10/10 ecosystem score requires:
@@ -66,6 +75,8 @@ A 10/10 ecosystem score requires:
   - OP Stack Standard Bridge contracts
   - Bridge UI options documented
 - [x] Public docs and SDKs (`docs/`, `sdk/`)
+  - Stablecoin SDK: `sdk/src/stablecoin/`
+  - Stablecoin docs: `docs/stablecoin.md`
 - [ ] Testnet and mainnet operational history **← Deploy to Sepolia**
   - Template ready: `docs/operations-history.md`
   - Deployment script: `scripts/deploy-sepolia.sh`
@@ -78,10 +89,38 @@ A 10/10 ecosystem score requires:
 | SetRegistry | `contracts/SetRegistry.sol` |
 | SetPaymaster | `contracts/commerce/SetPaymaster.sol` |
 | SetTimelock | `contracts/governance/SetTimelock.sol` |
+| SequencerAttestation | `contracts/mev/SequencerAttestation.sol` |
+| ForcedInclusion | `contracts/mev/ForcedInclusion.sol` |
+| ThresholdKeyRegistry | `contracts/mev/ThresholdKeyRegistry.sol` |
+| EncryptedMempool | `contracts/mev/EncryptedMempool.sol` |
+| TokenRegistry | `contracts/stablecoin/TokenRegistry.sol` |
+| NAVOracle | `contracts/stablecoin/NAVOracle.sol` |
+| ssUSD | `contracts/stablecoin/ssUSD.sol` |
+| wssUSD | `contracts/stablecoin/wssUSD.sol` |
+| TreasuryVault | `contracts/stablecoin/TreasuryVault.sol` |
 | Unit Tests | `contracts/test/SetRegistry.t.sol`, `contracts/test/SetPaymaster.t.sol` |
 | Timelock Tests | `contracts/test/SetTimelock.t.sol` |
+| MEV Phase 1 Tests | `contracts/test/SequencerAttestation.t.sol`, `contracts/test/ForcedInclusion.t.sol` |
+| MEV Phase 2 Tests | `contracts/test/ThresholdKeyRegistry.t.sol`, `contracts/test/EncryptedMempool.t.sol` |
+| Stablecoin Tests | `contracts/test/stablecoin/StablecoinIntegration.t.sol` |
 | Invariant Tests | `contracts/test/SetRegistry.invariants.t.sol` |
 | Deploy Scripts | `contracts/script/Deploy.s.sol`, `contracts/script/DeployGovernance.s.sol` |
+| Stablecoin Deploy | `contracts/script/stablecoin/DeployStablecoin.s.sol` |
+| Integration Tests | `contracts/test/Integration.t.sol` |
+
+### SDK
+| Artifact | Path |
+|----------|------|
+| Main Exports | `sdk/src/index.ts` |
+| Error Handling | `sdk/src/errors.ts` |
+| Configuration | `sdk/src/config.ts` |
+| Validation Utils | `sdk/src/utils/validation.ts` |
+| Formatting Utils | `sdk/src/utils/formatting.ts` |
+| Gas Utils | `sdk/src/utils/gas.ts` |
+| Retry Utils | `sdk/src/utils/retry.ts` |
+| Event Utils | `sdk/src/utils/events.ts` |
+| Stablecoin Client | `sdk/src/stablecoin/StablecoinClient.ts` |
+| MEV Protection | `sdk/src/encryption.ts` |
 
 ### Infrastructure
 | Artifact | Path |
@@ -89,6 +128,7 @@ A 10/10 ecosystem score requires:
 | Main Docker Compose | `docker/docker-compose.yml` |
 | Explorer Stack | `docker/docker-compose.explorer.yml` |
 | Monitoring Stack | `docker/docker-compose.monitoring.yml` |
+| Keyper Network | `docker/docker-compose.keypers.yml` |
 | Sepolia Config | `docker/docker-compose.sepolia.yml` |
 
 ### Scripts
@@ -111,12 +151,16 @@ A 10/10 ecosystem score requires:
 | `docs/scorecard.md` | This file |
 | `docs/threat-model.md` | Security assumptions |
 | `docs/governance-evidence.md` | Multisig + timelock setup |
+| `docs/mev-protection.md` | MEV protection strategy |
 | `docs/fault-proof-exercise.md` | Dispute testing procedures |
 | `docs/operations-history.md` | Deployment records |
 | `docs/explorer.md` | Block explorer setup |
 | `docs/bridge.md` | Bridge usage guide |
 | `docs/runbook.md` | Operations handbook |
 | `docs/monitoring.md` | SLOs and alerting |
+| `docs/stablecoin.md` | ssUSD stablecoin system |
+| `docs/glossary.md` | Terms and definitions |
+| `docs/api-reference.md` | Contract and SDK API reference |
 
 ## Final Steps to 10/10
 

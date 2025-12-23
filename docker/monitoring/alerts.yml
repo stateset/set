@@ -18,3 +18,110 @@ groups:
         annotations:
           summary: "Anchor success rate below target"
           description: "Anchor success rate is below 0.98 for 15 minutes."
+
+  - name: mev-protection
+    rules:
+      # Ordering fairness alerts
+      - alert: HighOutOfOrderRate
+        expr: rate(sequencer_ordering_violations_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High transaction out-of-order rate"
+          description: "More than 1% of transactions are being reordered. Possible MEV extraction."
+
+      - alert: OrderingAttestationMissing
+        expr: time() - sequencer_last_attestation_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sequencer attestation missing"
+          description: "No ordering attestation received in the last 5 minutes."
+
+      # MEV attack detection
+      - alert: SandwichAttackDetected
+        expr: increase(mev_sandwich_attacks_total[1h]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sandwich attack detected"
+          description: "A sandwich attack pattern was detected on Set Chain."
+
+      - alert: FrontrunningDetected
+        expr: increase(mev_frontrun_attempts_total[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Frontrunning activity detected"
+          description: "Multiple frontrunning attempts detected in the last hour."
+
+      # Forced inclusion alerts
+      - alert: ForcedInclusionPending
+        expr: forced_inclusion_pending_count > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Many forced inclusions pending"
+          description: "More than 10 forced inclusion requests pending. Possible sequencer censorship."
+
+      - alert: ForcedInclusionExpiring
+        expr: forced_inclusion_expiring_soon > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Forced inclusion about to expire"
+          description: "A forced inclusion request is about to expire without inclusion."
+
+      # Encryption health (Phase 2)
+      - alert: ThresholdEncryptionLatencyHigh
+        expr: histogram_quantile(0.99, rate(encryption_latency_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Encryption latency too high"
+          description: "99th percentile encryption latency exceeds 500ms."
+
+      - alert: DecryptionFailureRate
+        expr: rate(decryption_failures_total[5m]) / rate(decryption_attempts_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High decryption failure rate"
+          description: "More than 1% of decryption attempts are failing."
+
+  - name: sequencer-health
+    rules:
+      - alert: SequencerBlockProductionSlow
+        expr: rate(sequencer_blocks_produced_total[5m]) < 0.4
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Block production below target"
+          description: "Sequencer producing fewer than 24 blocks/minute (target: 30 for 2s blocks)."
+
+      - alert: SequencerMemoryHigh
+        expr: sequencer_memory_usage_bytes / sequencer_memory_limit_bytes > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sequencer memory usage high"
+          description: "Sequencer memory usage exceeds 90% of limit."
+
+      - alert: L1SubmissionBacklog
+        expr: sequencer_l1_submission_backlog > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "L1 submission backlog growing"
+          description: "More than 100 batches waiting for L1 submission."

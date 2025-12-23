@@ -1,0 +1,229 @@
+# Set Chain Keyper Network - Threshold Decryption Service
+# Part of MEV Protection Phase 2
+#
+# This stack runs keyper nodes that participate in threshold decryption
+# for MEV-protected transactions. Each keyper holds a share of the
+# threshold decryption key and contributes to decrypting transactions
+# after ordering is committed.
+#
+# Usage:
+#   docker compose -f docker-compose.keypers.yml up -d
+#
+# For development (3 keypers):
+#   docker compose -f docker-compose.keypers.yml --profile dev up -d
+#
+# Environment variables:
+#   - KEYPER_PRIVATE_KEY: Keyper's private key for signing
+#   - KEYPER_BLS_KEY: BLS private key for threshold operations
+#   - L2_RPC_URL: Set Chain RPC endpoint
+#   - KEY_REGISTRY_ADDRESS: ThresholdKeyRegistry contract address
+#   - ENCRYPTED_MEMPOOL_ADDRESS: EncryptedMempool contract address
+
+version: "3.8"
+
+x-keyper-common: &keyper-common
+  image: setchain/keyper:latest
+  restart: unless-stopped
+  networks:
+    - keyper-network
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 10s
+
+services:
+  # =========================================================================
+  # Keyper Nodes
+  # =========================================================================
+
+  keyper-1:
+    <<: *keyper-common
+    container_name: set-keyper-1
+    environment:
+      - KEYPER_ID=1
+      - KEYPER_PRIVATE_KEY=${KEYPER_1_PRIVATE_KEY}
+      - KEYPER_BLS_KEY=${KEYPER_1_BLS_KEY}
+      - L2_RPC_URL=${L2_RPC_URL:-http://op-geth:8545}
+      - KEY_REGISTRY_ADDRESS=${KEY_REGISTRY_ADDRESS}
+      - ENCRYPTED_MEMPOOL_ADDRESS=${ENCRYPTED_MEMPOOL_ADDRESS}
+      - P2P_PORT=30303
+      - RPC_PORT=8080
+      - METRICS_PORT=9090
+      - LOG_LEVEL=info
+      - KEYPER_STAKE=${KEYPER_STAKE:-1000000000000000000}
+    ports:
+      - "30303:30303/tcp"
+      - "30303:30303/udp"
+      - "8081:8080"
+      - "9091:9090"
+    volumes:
+      - keyper-1-data:/data
+      - ./keyper-config/keyper-1:/config:ro
+
+  keyper-2:
+    <<: *keyper-common
+    container_name: set-keyper-2
+    profiles: ["dev", "production"]
+    environment:
+      - KEYPER_ID=2
+      - KEYPER_PRIVATE_KEY=${KEYPER_2_PRIVATE_KEY}
+      - KEYPER_BLS_KEY=${KEYPER_2_BLS_KEY}
+      - L2_RPC_URL=${L2_RPC_URL:-http://op-geth:8545}
+      - KEY_REGISTRY_ADDRESS=${KEY_REGISTRY_ADDRESS}
+      - ENCRYPTED_MEMPOOL_ADDRESS=${ENCRYPTED_MEMPOOL_ADDRESS}
+      - P2P_PORT=30304
+      - RPC_PORT=8080
+      - METRICS_PORT=9090
+      - LOG_LEVEL=info
+      - BOOTSTRAP_NODES=/ip4/keyper-1/tcp/30303
+    ports:
+      - "30304:30304/tcp"
+      - "30304:30304/udp"
+      - "8082:8080"
+      - "9092:9090"
+    volumes:
+      - keyper-2-data:/data
+      - ./keyper-config/keyper-2:/config:ro
+    depends_on:
+      keyper-1:
+        condition: service_healthy
+
+  keyper-3:
+    <<: *keyper-common
+    container_name: set-keyper-3
+    profiles: ["dev", "production"]
+    environment:
+      - KEYPER_ID=3
+      - KEYPER_PRIVATE_KEY=${KEYPER_3_PRIVATE_KEY}
+      - KEYPER_BLS_KEY=${KEYPER_3_BLS_KEY}
+      - L2_RPC_URL=${L2_RPC_URL:-http://op-geth:8545}
+      - KEY_REGISTRY_ADDRESS=${KEY_REGISTRY_ADDRESS}
+      - ENCRYPTED_MEMPOOL_ADDRESS=${ENCRYPTED_MEMPOOL_ADDRESS}
+      - P2P_PORT=30305
+      - RPC_PORT=8080
+      - METRICS_PORT=9090
+      - LOG_LEVEL=info
+      - BOOTSTRAP_NODES=/ip4/keyper-1/tcp/30303,/ip4/keyper-2/tcp/30304
+    ports:
+      - "30305:30305/tcp"
+      - "30305:30305/udp"
+      - "8083:8080"
+      - "9093:9090"
+    volumes:
+      - keyper-3-data:/data
+      - ./keyper-config/keyper-3:/config:ro
+    depends_on:
+      keyper-1:
+        condition: service_healthy
+      keyper-2:
+        condition: service_healthy
+
+  # =========================================================================
+  # Coordinator Service
+  # =========================================================================
+
+  keyper-coordinator:
+    image: setchain/keyper-coordinator:latest
+    container_name: set-keyper-coordinator
+    restart: unless-stopped
+    networks:
+      - keyper-network
+    environment:
+      - L2_RPC_URL=${L2_RPC_URL:-http://op-geth:8545}
+      - KEY_REGISTRY_ADDRESS=${KEY_REGISTRY_ADDRESS}
+      - ENCRYPTED_MEMPOOL_ADDRESS=${ENCRYPTED_MEMPOOL_ADDRESS}
+      - KEYPER_ENDPOINTS=http://keyper-1:8080,http://keyper-2:8080,http://keyper-3:8080
+      - THRESHOLD=${THRESHOLD:-2}
+      - METRICS_PORT=9094
+      - LOG_LEVEL=info
+    ports:
+      - "8090:8080"
+      - "9094:9094"
+    volumes:
+      - coordinator-data:/data
+    depends_on:
+      keyper-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =========================================================================
+  # DKG Ceremony Service
+  # =========================================================================
+
+  dkg-service:
+    image: setchain/dkg-service:latest
+    container_name: set-dkg-service
+    restart: unless-stopped
+    profiles: ["dkg"]
+    networks:
+      - keyper-network
+    environment:
+      - L2_RPC_URL=${L2_RPC_URL:-http://op-geth:8545}
+      - ADMIN_PRIVATE_KEY=${ADMIN_PRIVATE_KEY}
+      - KEY_REGISTRY_ADDRESS=${KEY_REGISTRY_ADDRESS}
+      - KEYPER_ENDPOINTS=http://keyper-1:8080,http://keyper-2:8080,http://keyper-3:8080
+      - THRESHOLD=${THRESHOLD:-2}
+      - LOG_LEVEL=info
+    ports:
+      - "8095:8080"
+    depends_on:
+      keyper-coordinator:
+        condition: service_healthy
+
+  # =========================================================================
+  # Monitoring
+  # =========================================================================
+
+  keyper-prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: set-keyper-prometheus
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    networks:
+      - keyper-network
+    ports:
+      - "9095:9090"
+    volumes:
+      - ./monitoring/keyper-prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - keyper-prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+
+  keyper-grafana:
+    image: grafana/grafana:10.1.0
+    container_name: set-keyper-grafana
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    networks:
+      - keyper-network
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/keyper-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - keyper-grafana-data:/var/lib/grafana
+    depends_on:
+      - keyper-prometheus
+
+networks:
+  keyper-network:
+    name: set-keyper-network
+    driver: bridge
+
+volumes:
+  keyper-1-data:
+  keyper-2-data:
+  keyper-3-data:
+  coordinator-data:
+  keyper-prometheus-data:
+  keyper-grafana-data:

@@ -1,5 +1,20 @@
 import { Contract, JsonRpcProvider, Wallet } from "ethers";
 
+// Re-export errors
+export * from "./errors";
+
+// Re-export configuration
+export * from "./config";
+
+// Re-export utilities
+export * from "./utils";
+
+// Re-export encryption module
+export * from "./encryption";
+
+// Re-export stablecoin module
+export * as stablecoin from "./stablecoin";
+
 export const setRegistryAbi = [
   {
     type: "function",

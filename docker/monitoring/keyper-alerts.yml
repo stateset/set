@@ -1,0 +1,128 @@
+# Prometheus alerts for Set Chain Keyper Network
+groups:
+  - name: keyper-health
+    rules:
+      - alert: KeyperDown
+        expr: up{job="keypers"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyper {{ $labels.keyper_id }} is down"
+          description: "Keyper node {{ $labels.keyper_id }} has been unreachable for more than 1 minute."
+
+      - alert: KeyperNotParticipating
+        expr: keyper_dkg_participation == 0 and keyper_registered == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyper {{ $labels.keyper_id }} not participating in DKG"
+          description: "Keyper {{ $labels.keyper_id }} is registered but not participating in DKG ceremonies."
+
+      - alert: KeyperHighLatency
+        expr: histogram_quantile(0.99, rate(keyper_decryption_latency_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyper {{ $labels.keyper_id }} has high decryption latency"
+          description: "99th percentile decryption latency exceeds 1 second."
+
+  - name: decryption-health
+    rules:
+      - alert: DecryptionSharesMissing
+        expr: keyper_decryption_shares_available < keyper_threshold_required
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Insufficient decryption shares available"
+          description: "Only {{ $value }} shares available, but {{ $labels.threshold }} required for decryption."
+
+      - alert: DecryptionQueueBacklog
+        expr: keyper_pending_decryptions > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Decryption queue backlog growing"
+          description: "{{ $value }} transactions waiting for decryption."
+
+      - alert: DecryptionFailureRate
+        expr: rate(keyper_decryption_failures_total[5m]) / rate(keyper_decryption_attempts_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High decryption failure rate"
+          description: "More than 5% of decryption attempts are failing."
+
+  - name: dkg-ceremonies
+    rules:
+      - alert: DKGStalled
+        expr: dkg_phase > 0 and (time() - dkg_phase_start_time) > 1800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DKG ceremony stalled"
+          description: "DKG ceremony in phase {{ $labels.phase }} for more than 30 minutes."
+
+      - alert: DKGParticipationLow
+        expr: dkg_participants < dkg_required_threshold
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low DKG participation"
+          description: "Only {{ $value }} keypers participating, need {{ $labels.threshold }}."
+
+      - alert: EpochKeyExpiringSoon
+        expr: (epoch_key_expires_at - time()) < 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Epoch key expiring soon"
+          description: "Current epoch key expires in less than 24 hours. Start new DKG ceremony."
+
+  - name: coordinator-health
+    rules:
+      - alert: CoordinatorDown
+        expr: up{job="coordinator"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyper coordinator is down"
+          description: "The keyper coordinator service is unreachable."
+
+      - alert: CoordinatorConnectionIssues
+        expr: coordinator_connected_keypers < coordinator_expected_keypers * 0.5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Coordinator has connection issues"
+          description: "Less than 50% of expected keypers connected to coordinator."
+
+  - name: p2p-network
+    rules:
+      - alert: P2PPeerCountLow
+        expr: keyper_p2p_peer_count < 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyper {{ $labels.keyper_id }} has few P2P peers"
+          description: "Keyper {{ $labels.keyper_id }} connected to only {{ $value }} peers."
+
+      - alert: P2PMessageDeliveryFailure
+        expr: rate(keyper_p2p_message_failures_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P2P message delivery issues"
+          description: "High rate of P2P message delivery failures."

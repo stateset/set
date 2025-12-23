@@ -1,0 +1,141 @@
+# Set Chain Keyper Node Configuration
+# Copy this file to keyper-1/config.toml, keyper-2/config.toml, etc.
+
+[node]
+# Unique keyper ID (1-21)
+id = 1
+
+# Log level: debug, info, warn, error
+log_level = "info"
+
+# Data directory for persistent storage
+data_dir = "/data"
+
+[network]
+# P2P listen address
+p2p_listen = "0.0.0.0:30303"
+
+# RPC listen address
+rpc_listen = "0.0.0.0:8080"
+
+# Metrics listen address
+metrics_listen = "0.0.0.0:9090"
+
+# Bootstrap nodes (comma-separated multiaddrs)
+# Leave empty for first keyper, set for others
+bootstrap_nodes = []
+
+# Maximum number of P2P peers
+max_peers = 50
+
+# Dial timeout in seconds
+dial_timeout = 10
+
+[chain]
+# Set Chain L2 RPC endpoint
+l2_rpc_url = "http://op-geth:8545"
+
+# ThresholdKeyRegistry contract address
+key_registry_address = ""
+
+# EncryptedMempool contract address
+encrypted_mempool_address = ""
+
+# Block confirmations to wait
+confirmations = 1
+
+# RPC request timeout in seconds
+rpc_timeout = 30
+
+[keys]
+# Keyper's Ethereum private key (for on-chain transactions)
+# SECURITY: In production, use environment variable or secret manager
+# private_key = "" # Set via KEYPER_PRIVATE_KEY env var
+
+# Keyper's BLS private key (for threshold operations)
+# SECURITY: In production, use environment variable or secret manager
+# bls_key = "" # Set via KEYPER_BLS_KEY env var
+
+# Key file path (alternative to inline keys)
+keyfile = "/config/keyfile.json"
+
+# Password for encrypted keyfile
+# keyfile_password = "" # Set via KEYPER_KEYFILE_PASSWORD env var
+
+[staking]
+# Stake amount in wei (1 ETH = 1e18)
+stake_amount = "1000000000000000000"
+
+# Auto-stake on registration
+auto_stake = true
+
+# Minimum stake threshold to remain active
+min_stake = "500000000000000000"
+
+[dkg]
+# DKG participation mode: auto, manual
+participation_mode = "auto"
+
+# Maximum time to wait for DKG phase in seconds
+phase_timeout = 600
+
+# Retry interval for failed dealings in seconds
+retry_interval = 30
+
+# Maximum retries for dealing submission
+max_retries = 3
+
+[decryption]
+# Number of worker threads for decryption
+workers = 4
+
+# Maximum pending decryption requests
+max_pending = 1000
+
+# Request timeout in seconds
+timeout = 30
+
+# Batch size for decryption processing
+batch_size = 10
+
+[security]
+# Enable TLS for P2P connections
+tls_enabled = false
+
+# TLS certificate file
+# tls_cert = "/config/tls/cert.pem"
+
+# TLS key file
+# tls_key = "/config/tls/key.pem"
+
+# Allowed origins for RPC (comma-separated)
+cors_origins = ["*"]
+
+# Rate limit: requests per second
+rate_limit = 100
+
+[metrics]
+# Enable Prometheus metrics
+enabled = true
+
+# Metrics prefix
+prefix = "keyper"
+
+# Include detailed histograms
+detailed_histograms = true
+
+[logging]
+# Log format: json, text
+format = "json"
+
+# Log file path (empty for stdout)
+file = ""
+
+# Maximum log file size in MB
+max_size = 100
+
+# Maximum number of log file backups
+max_backups = 5
+
+# Maximum age of log files in days
+max_age = 30

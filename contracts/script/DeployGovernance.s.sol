@@ -129,7 +129,7 @@ contract DeployGovernanceScript is Script {
             console.log("");
             console.log("Renouncing admin role on timelock...");
             timelockContract.renounceRole(timelockContract.DEFAULT_ADMIN_ROLE(), deployer);
-            console.log("  Admin renounced: ", timelockContract.isAdminRenounced());
+            console.log("  Admin renounced: ", !timelockContract.hasAdminRole(deployer));
         }
 
         vm.stopBroadcast();

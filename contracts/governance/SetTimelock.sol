@@ -57,9 +57,11 @@ contract SetTimelock is TimelockController {
     }
 
     /**
-     * @notice Helper to check if admin is renounced (no one has admin role)
+     * @notice Helper to check if a specific address has renounced admin
+     * @param account The address to check
+     * @dev Since AccessControl doesn't enumerate members, check specific addresses
      */
-    function isAdminRenounced() external view returns (bool) {
-        return getRoleMemberCount(DEFAULT_ADMIN_ROLE) == 0;
+    function hasAdminRole(address account) external view returns (bool) {
+        return hasRole(DEFAULT_ADMIN_ROLE, account);
     }
 }

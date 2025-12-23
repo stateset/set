@@ -118,12 +118,12 @@ contract SetTimelockTest is Test {
     }
 
     function test_RenounceAdmin() public {
-        assertFalse(timelock.isAdminRenounced());
+        assertTrue(timelock.hasAdminRole(deployer));
 
         vm.prank(deployer);
         timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), deployer);
 
-        assertTrue(timelock.isAdminRenounced());
+        assertFalse(timelock.hasAdminRole(deployer));
     }
 
     function test_CancelOperation() public {
@@ -175,9 +175,9 @@ contract SetTimelockTest is Test {
         assertFalse(registry.strictModeEnabled());
     }
 
-    function test_MinDelayConstants() public pure {
-        assertEq(SetTimelock(address(0)).MAINNET_MIN_DELAY(), 24 hours);
-        assertEq(SetTimelock(address(0)).TESTNET_MIN_DELAY(), 1 hours);
-        assertEq(SetTimelock(address(0)).DEVNET_MIN_DELAY(), 5 minutes);
+    function test_MinDelayConstants() public view {
+        assertEq(SetTimelock(payable(address(0))).MAINNET_MIN_DELAY(), 24 hours);
+        assertEq(SetTimelock(payable(address(0))).TESTNET_MIN_DELAY(), 1 hours);
+        assertEq(SetTimelock(payable(address(0))).DEVNET_MIN_DELAY(), 5 minutes);
     }
 }

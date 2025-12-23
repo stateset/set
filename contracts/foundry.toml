@@ -17,8 +17,15 @@ remappings = [
 # Solidity compiler settings
 solc_version = "0.8.20"
 optimizer = true
-optimizer_runs = 200
-via_ir = false
+optimizer_runs = 100
+via_ir = true
+
+[profile.default.optimizer_details]
+yul = true
+
+[profile.default.optimizer_details.yul_details]
+stack_allocation = true
+optimizer_steps = "dhfoDgvulfnTUtnIf"
 
 # EVM settings
 evm_version = "cancun"
@@ -29,7 +36,7 @@ fuzz = { runs = 256, max_test_rejects = 65536 }
 invariant = { runs = 256, depth = 15 }
 
 # Gas reporting
-gas_reports = ["SetRegistry", "SetPaymaster"]
+gas_reports = ["SetRegistry", "SetPaymaster", "SetTimelock", "SequencerAttestation", "ForcedInclusion"]
 
 # Formatter
 [fmt]

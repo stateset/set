@@ -1,0 +1,38 @@
+# Prometheus configuration for Set Chain Keyper Network
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - /etc/prometheus/keyper-alerts.yml
+
+scrape_configs:
+  # Keyper nodes
+  - job_name: 'keypers'
+    static_configs:
+      - targets:
+          - 'keyper-1:9090'
+          - 'keyper-2:9090'
+          - 'keyper-3:9090'
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: 'keyper-(\d+):.*'
+        target_label: keyper_id
+        replacement: '$1'
+
+  # Coordinator
+  - job_name: 'coordinator'
+    static_configs:
+      - targets:
+          - 'keyper-coordinator:9094'
+
+  # DKG Service (when running)
+  - job_name: 'dkg'
+    static_configs:
+      - targets:
+          - 'dkg-service:8080'
