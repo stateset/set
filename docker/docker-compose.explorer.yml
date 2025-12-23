@@ -1,0 +1,217 @@
+# Set Chain - Blockscout Explorer Stack
+# Complete block explorer with contract verification and API
+#
+# Usage:
+#   docker compose -f docker/docker-compose.explorer.yml up -d
+#
+# Access:
+#   - Frontend: http://localhost:3000
+#   - API: http://localhost:4000/api
+#   - GraphQL: http://localhost:4000/graphiql
+
+version: '3.8'
+
+services:
+  # =========================================================================
+  # Blockscout Backend (Indexer + API)
+  # =========================================================================
+  blockscout-backend:
+    image: blockscout/blockscout:latest
+    container_name: set-blockscout-backend
+    restart: unless-stopped
+    command: sh -c "bin/blockscout eval \"Elixir.Explorer.ReleaseTasks.create_and_migrate()\" && bin/blockscout start"
+    environment:
+      # Network configuration
+      ETHEREUM_JSONRPC_VARIANT: geth
+      ETHEREUM_JSONRPC_HTTP_URL: ${L2_RPC_URL:-http://host.docker.internal:8547}
+      ETHEREUM_JSONRPC_WS_URL: ${L2_WS_URL:-ws://host.docker.internal:8548}
+      ETHEREUM_JSONRPC_TRACE_URL: ${L2_RPC_URL:-http://host.docker.internal:8547}
+
+      # Chain settings
+      CHAIN_ID: "84532001"
+      NETWORK: "Set Chain"
+      SUBNETWORK: "Set Chain L2"
+      COIN: "ETH"
+      COIN_NAME: "Ether"
+
+      # Database
+      DATABASE_URL: postgresql://blockscout:blockscout@blockscout-db:5432/blockscout
+      ECTO_USE_SSL: "false"
+
+      # API settings
+      API_V2_ENABLED: "true"
+      PORT: 4000
+      POOL_SIZE: 80
+      POOL_SIZE_API: 10
+
+      # Indexer settings
+      INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: "false"
+      INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: "false"
+      INDEXER_DISABLE_BLOCK_REWARD_FETCHER: "true"
+      BLOCK_TRANSFORMER: base
+      INDEXER_MEMORY_LIMIT: 3gb
+      FETCH_REWARDS_WAY: manual
+
+      # Contract verification
+      MICROSERVICE_SC_VERIFIER_ENABLED: "true"
+      MICROSERVICE_SC_VERIFIER_URL: http://smart-contract-verifier:8050
+      MICROSERVICE_SC_VERIFIER_TYPE: sc_verifier
+
+      # Sourcify
+      SOURCIFY_INTEGRATION_ENABLED: "true"
+      SOURCIFY_SERVER_URL: https://sourcify.dev/server
+      SOURCIFY_REPO_URL: https://repo.sourcify.dev/contracts
+
+      # UI/API paths
+      BLOCKSCOUT_HOST: localhost
+      BLOCKSCOUT_PROTOCOL: http
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-RMgI4C1HSkxsEjdhtGMfwAHfyT6CKWXOgzCboJflfSm4jeAlic52io05KB6mqzc5}
+
+      # Optimism-specific
+      CHAIN_TYPE: optimism
+      INDEXER_OPTIMISM_L1_RPC: ${L1_RPC_URL:-http://host.docker.internal:8545}
+
+      # Feature flags
+      APPS_MENU: "true"
+      STATS_ENABLED: "true"
+      SHOW_PRICE_CHART: "false"
+      SHOW_TENDERLY_LINK: "false"
+
+    ports:
+      - "4000:4000"
+    depends_on:
+      blockscout-db:
+        condition: service_healthy
+      smart-contract-verifier:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - explorer
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =========================================================================
+  # Blockscout Frontend (Next.js)
+  # =========================================================================
+  blockscout-frontend:
+    image: ghcr.io/blockscout/frontend:latest
+    container_name: set-blockscout-frontend
+    restart: unless-stopped
+    environment:
+      # API connection
+      NEXT_PUBLIC_API_HOST: localhost
+      NEXT_PUBLIC_API_PORT: 4000
+      NEXT_PUBLIC_API_PROTOCOL: http
+      NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL: ws
+
+      # Network info
+      NEXT_PUBLIC_NETWORK_NAME: "Set Chain"
+      NEXT_PUBLIC_NETWORK_SHORT_NAME: "SET"
+      NEXT_PUBLIC_NETWORK_ID: "84532001"
+      NEXT_PUBLIC_NETWORK_CURRENCY_NAME: "Ether"
+      NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL: "ETH"
+      NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS: "18"
+      NEXT_PUBLIC_NETWORK_RPC_URL: ${L2_RPC_URL:-http://localhost:8547}
+
+      # L2 specific
+      NEXT_PUBLIC_ROLLUP_TYPE: optimistic
+      NEXT_PUBLIC_ROLLUP_L1_BASE_URL: ${L1_EXPLORER_URL:-https://sepolia.etherscan.io}
+      NEXT_PUBLIC_ROLLUP_L2_WITHDRAWAL_URL: ${L2_BRIDGE_URL:-}
+
+      # UI settings
+      NEXT_PUBLIC_HOMEPAGE_CHARTS: '["daily_txs"]'
+      NEXT_PUBLIC_IS_TESTNET: "true"
+      NEXT_PUBLIC_VISUALIZE_API_HOST: http://visualizer:8081
+      NEXT_PUBLIC_CONTRACT_CODE_IDES: '[{"title":"Remix IDE","url":"https://remix.ethereum.org/?address={hash}","icon_url":"https://remix.ethereum.org/favicon.ico"}]'
+
+      # Disable external services
+      NEXT_PUBLIC_HAS_BEACON_CHAIN: "false"
+      NEXT_PUBLIC_AD_BANNER_PROVIDER: "none"
+      NEXT_PUBLIC_AD_TEXT_PROVIDER: "none"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - blockscout-backend
+    networks:
+      - explorer
+
+  # =========================================================================
+  # Smart Contract Verifier
+  # =========================================================================
+  smart-contract-verifier:
+    image: ghcr.io/blockscout/smart-contract-verifier:latest
+    container_name: set-smart-contract-verifier
+    restart: unless-stopped
+    environment:
+      SMART_CONTRACT_VERIFIER__SERVER__HTTP__ADDR: 0.0.0.0:8050
+      SMART_CONTRACT_VERIFIER__SOLIDITY__ENABLED: "true"
+      SMART_CONTRACT_VERIFIER__SOLIDITY__COMPILERS_DIR: /tmp/solidity-compilers
+      SMART_CONTRACT_VERIFIER__SOLIDITY__REFRESH_VERSIONS_SCHEDULE: 0 0 * * * * *
+      SMART_CONTRACT_VERIFIER__VYPER__ENABLED: "true"
+      SMART_CONTRACT_VERIFIER__VYPER__COMPILERS_DIR: /tmp/vyper-compilers
+      SMART_CONTRACT_VERIFIER__SOURCIFY__ENABLED: "true"
+    ports:
+      - "8050:8050"
+    networks:
+      - explorer
+
+  # =========================================================================
+  # Visualizer Service (for contract diagrams)
+  # =========================================================================
+  visualizer:
+    image: ghcr.io/blockscout/visualizer:latest
+    container_name: set-visualizer
+    restart: unless-stopped
+    environment:
+      VISUALIZER__SERVER__HTTP__ADDR: 0.0.0.0:8081
+    ports:
+      - "8081:8081"
+    networks:
+      - explorer
+
+  # =========================================================================
+  # PostgreSQL Database
+  # =========================================================================
+  blockscout-db:
+    image: postgres:16-alpine
+    container_name: set-blockscout-db
+    restart: unless-stopped
+    command: postgres -c 'max_connections=200'
+    environment:
+      POSTGRES_USER: blockscout
+      POSTGRES_PASSWORD: blockscout
+      POSTGRES_DB: blockscout
+    volumes:
+      - blockscout-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blockscout -d blockscout"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - explorer
+
+  # =========================================================================
+  # Redis (for caching)
+  # =========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: set-blockscout-redis
+    restart: unless-stopped
+    command: redis-server --save 20 1 --loglevel warning
+    volumes:
+      - blockscout-redis-data:/data
+    networks:
+      - explorer
+
+volumes:
+  blockscout-db-data:
+    name: set-blockscout-db-data
+  blockscout-redis-data:
+    name: set-blockscout-redis-data
+
+networks:
+  explorer:
+    name: set-explorer-network
+    driver: bridge
