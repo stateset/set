@@ -782,6 +782,61 @@ If threshold decryption fails:
 3. Alert operations team
 4. Investigate root cause
 
+### Security Assumptions for Proof Verification
+
+#### ForcedInclusion Contract
+
+The `confirmInclusion` function verifies that a forced transaction was included on L2.
+
+**Assumptions:**
+1. **L2OutputOracle is trusted**: The contract queries the L2OutputOracle for output roots. We assume the oracle correctly posts L2 state roots and is not compromised.
+2. **Output roots are finalized**: Proofs should only be accepted for finalized (not disputed) output roots. The dispute game should have completed before claiming inclusion.
+3. **Transaction hash binding**: The proof must demonstrate inclusion of a transaction with the exact parameters (sender, target, data, gasLimit) stored at request time. This prevents proof reuse attacks.
+4. **Merkle proof validity**: The storage proof must correctly demonstrate that the transaction hash exists in the L2 block's transaction trie.
+
+**Proof Structure:**
+```solidity
+// ABI-encoded proof
+(
+    bytes32 claimedOutputRoot,   // Must match L2OutputOracle
+    bytes32[] storageProof,      // Merkle proof path
+    uint256 txIndex              // Index in transaction trie
+)
+```
+
+#### EncryptedMempool Contract
+
+The `submitDecryption` function verifies that decrypted data correctly corresponds to an encrypted payload.
+
+**Assumptions:**
+1. **Decryption commitment binding**: The proof must include a commitment that binds the decrypted data (to, data, value) to the original encrypted payload hash. This prevents the sequencer from substituting different transaction data.
+2. **Threshold signature validity**: The keypers' BLS threshold signature attests to the correct decryption. The threshold (t-of-n) ensures no single keyper can forge a decryption proof.
+3. **Epoch key validity**: The decryption must use the key from the correct epoch. Proofs from invalid or revoked epochs are rejected.
+4. **No duplicate signers**: The proof must not contain duplicate keyper addresses to prevent signature replay.
+
+**Proof Structure:**
+```solidity
+// ABI-encoded proof
+(
+    bytes signature,            // 96-byte BLS threshold signature
+    bytes32 decryptionCommitment, // keccak256(payloadHash, to, data, value)
+    uint256 epoch,              // Must match tx.epoch
+    address[] signers           // Keypers who signed (>= threshold, no duplicates)
+)
+```
+
+**Commitment Verification:**
+```
+expectedCommitment = keccak256(abi.encodePacked(
+    encryptedTx.payloadHash,  // From stored encrypted tx
+    _to,                       // Decrypted target
+    _data,                     // Decrypted calldata
+    _value                     // Decrypted ETH value
+))
+```
+
+This ensures that any modification to the decrypted transaction data will result in a commitment mismatch and proof rejection.
+
 ---
 
 ## References

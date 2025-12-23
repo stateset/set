@@ -627,28 +627,110 @@ contract SetRegistry is
     ) internal override onlyOwner {}
 
     // =========================================================================
-    // Legacy Compatibility
+    // Legacy Compatibility (DEPRECATED)
     // =========================================================================
 
+    /// @notice Whether legacy functions are enabled (disabled by default for security)
+    bool public legacyFunctionsEnabled;
+
+    /// @notice Error for disabled legacy functions
+    error LegacyFunctionsDisabled();
+
     /**
-     * @notice Legacy function for backward compatibility
+     * @notice Enable or disable legacy functions
+     * @param _enabled Whether to enable legacy functions
+     *
+     * SECURITY: Legacy functions are disabled by default. Only enable
+     * if you have systems that depend on the old interface and have
+     * verified they cannot be exploited.
+     */
+    function setLegacyFunctionsEnabled(bool _enabled) external onlyOwner {
+        legacyFunctionsEnabled = _enabled;
+    }
+
+    /**
+     * @notice Legacy function for backward compatibility (DEPRECATED)
      * @dev Maps to new commitBatch function with default tenant/store
+     *
+     * SECURITY FIX: This function is disabled by default.
+     * The original implementation had a bug where it called this.commitBatch()
+     * which would fail authorization since msg.sender becomes the contract itself.
+     *
+     * If enabled, this function now properly passes through the authorization
+     * check by using the original msg.sender.
+     *
+     * WARNING: Using default tenant/store (bytes32(0)) bypasses tenant isolation.
+     * Only enable if you understand the security implications.
      */
     function registerBatchRoot(
         uint256 _startSequence,
         uint256 _endSequence,
         bytes32 _root
-    ) external {
-        // Generate a batch ID from sequence range
-        bytes32 batchId = keccak256(abi.encodePacked(_startSequence, _endSequence, block.timestamp));
+    ) external nonReentrant {
+        // SECURITY FIX: Disabled by default
+        if (!legacyFunctionsEnabled) revert LegacyFunctionsDisabled();
 
-        // Use default tenant/store (zeros)
-        this.commitBatch(
+        // Authorization check (same as commitBatch)
+        if (!authorizedSequencers[msg.sender]) {
+            revert NotAuthorizedSequencer();
+        }
+
+        // Basic validation
+        if (_endSequence < _startSequence) {
+            revert InvalidSequenceRange();
+        }
+        if (_root == bytes32(0)) {
+            revert EmptyEventsRoot();
+        }
+
+        // Generate a batch ID from sequence range
+        bytes32 batchId = keccak256(abi.encodePacked(_startSequence, _endSequence, block.timestamp, msg.sender));
+
+        if (commitments[batchId].timestamp != 0) {
+            revert BatchAlreadyCommitted();
+        }
+
+        // Use default tenant/store (zeros) - WARNING: bypasses tenant isolation
+        bytes32 tenantStoreKey = keccak256(abi.encodePacked(bytes32(0), bytes32(0)));
+
+        // State chain verification (if strict mode enabled)
+        if (strictModeEnabled) {
+            bytes32 lastBatchId = latestCommitment[tenantStoreKey];
+
+            if (lastBatchId != bytes32(0)) {
+                BatchCommitment storage lastBatch = commitments[lastBatchId];
+
+                // For legacy function, we skip state root continuity check
+                // since it doesn't provide state roots
+
+                // Verify sequence continuity
+                if (lastBatch.sequenceEnd + 1 != _startSequence) {
+                    revert SequenceGap(lastBatch.sequenceEnd + 1, uint64(_startSequence));
+                }
+            }
+        }
+
+        // Store commitment
+        commitments[batchId] = BatchCommitment({
+            eventsRoot: _root,
+            prevStateRoot: bytes32(0),  // Legacy: no state root tracking
+            newStateRoot: bytes32(0),   // Legacy: no state root tracking
+            sequenceStart: uint64(_startSequence),
+            sequenceEnd: uint64(_endSequence),
+            eventCount: uint32(_endSequence - _startSequence + 1),
+            timestamp: uint64(block.timestamp),
+            submitter: msg.sender
+        });
+
+        // Update latest commitment and head sequence
+        latestCommitment[tenantStoreKey] = batchId;
+        headSequence[tenantStoreKey] = uint64(_endSequence);
+        totalCommitments++;
+
+        emit BatchCommitted(
             batchId,
-            bytes32(0),
-            bytes32(0),
+            tenantStoreKey,
             _root,
-            bytes32(0),
             bytes32(0),
             uint64(_startSequence),
             uint64(_endSequence),
@@ -657,7 +739,11 @@ contract SetRegistry is
     }
 
     /**
-     * @notice Legacy function for backward compatibility
+     * @notice Legacy function for backward compatibility (DEPRECATED)
+     *
+     * NOTE: This function remains available for reading historical data
+     * but will only return data if a batch with exact matching sequence
+     * range exists in the default tenant/store.
      */
     function getBatchRoot(
         uint256 _startSequence,

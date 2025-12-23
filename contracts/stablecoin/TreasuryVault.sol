@@ -79,6 +79,13 @@ contract TreasuryVault is
     /// @notice Pending redemption count
     uint256 public pendingRedemptionCount;
 
+    /// @notice Shares locked for pending redemptions (burned at request time for accurate accounting)
+    /// Maps requestId => shares that were burned
+    mapping(uint256 => uint256) public redemptionShares;
+
+    /// @notice Total shares pending redemption (for NAV calculations)
+    uint256 public totalPendingRedemptionShares;
+
     /// @notice Mint fee in basis points
     uint256 public mintFee;
 
@@ -232,6 +239,11 @@ contract TreasuryVault is
      * @param ssUSDAmount Amount of ssUSD to redeem
      * @param preferredCollateral Preferred collateral token
      * @return requestId Redemption request ID
+     *
+     * SECURITY FIX: Shares are now burned at request time to prevent
+     * manipulation via NAV changes between request and processing.
+     * The ssUSD amount stored in the request is the value at request time,
+     * and the shares burned are tracked separately for accurate accounting.
      */
     function requestRedemption(
         uint256 ssUSDAmount,
@@ -243,19 +255,29 @@ contract TreasuryVault is
         uint256 userBalance = IERC20(address(ssUSD)).balanceOf(msg.sender);
         if (userBalance < ssUSDAmount) revert InvalidAmount();
 
-        // Convert to shares and transfer to vault
+        // Calculate shares to burn at current NAV
+        // CRITICAL: Lock in the share count now to prevent NAV manipulation attacks
         uint256 sharesToBurn = ssUSD.getSharesByAmount(ssUSDAmount);
 
-        // Transfer ssUSD to vault (will be burned on processing)
-        IERC20(address(ssUSD)).safeTransferFrom(msg.sender, address(this), ssUSDAmount);
-
-        // Create redemption request
+        // Create redemption request BEFORE burning to get the ID
         requestId = _redemptionRequests.length;
+
+        // SECURITY FIX: Burn shares immediately at request time
+        // This locks in the redemption value and prevents:
+        // 1. Users redeeming more than their share if NAV increases
+        // 2. Protocol losing funds if NAV decreases before processing
+        // 3. Front-running attacks on NAV oracle updates
+        IERC20(address(ssUSD)).safeTransferFrom(msg.sender, address(this), ssUSDAmount);
+        ssUSD.burnShares(address(this), sharesToBurn);
+
+        // Track the shares burned for this redemption
+        redemptionShares[requestId] = sharesToBurn;
+        totalPendingRedemptionShares += sharesToBurn;
 
         _redemptionRequests.push(RedemptionRequest({
             id: requestId,
             requester: msg.sender,
-            ssUSDAmount: ssUSDAmount,
+            ssUSDAmount: ssUSDAmount,  // Store original amount for reference/events
             collateralToken: preferredCollateral,
             requestedAt: block.timestamp,
             processedAt: 0,
@@ -273,6 +295,9 @@ contract TreasuryVault is
     /**
      * @notice Cancel a pending redemption
      * @param requestId Redemption request ID
+     *
+     * SECURITY FIX: Since shares are now burned at request time,
+     * cancellation must re-mint shares back to the user.
      */
     function cancelRedemption(uint256 requestId) external nonReentrant {
         RedemptionRequest storage request = _redemptionRequests[requestId];
@@ -283,8 +308,16 @@ contract TreasuryVault is
         request.status = RedemptionStatus.CANCELLED;
         pendingRedemptionCount--;
 
-        // Return ssUSD to user
-        IERC20(address(ssUSD)).safeTransfer(msg.sender, request.ssUSDAmount);
+        // Get the shares that were burned at request time
+        uint256 sharesToRestore = redemptionShares[requestId];
+
+        // Clear the tracked shares
+        delete redemptionShares[requestId];
+        totalPendingRedemptionShares -= sharesToRestore;
+
+        // Re-mint shares back to user (shares were burned at request time)
+        // This restores the user's position at the current NAV
+        ssUSD.mintShares(msg.sender, sharesToRestore);
 
         emit RedemptionCancelled(requestId, msg.sender);
     }
@@ -321,11 +354,17 @@ contract TreasuryVault is
 
     /**
      * @dev Internal redemption processing
+     *
+     * SECURITY FIX: Shares were already burned at request time.
+     * This function only handles collateral transfer and state cleanup.
+     * The collateral value is based on the ssUSD amount at request time,
+     * ensuring consistent accounting regardless of NAV changes.
      */
     function _processRedemption(RedemptionRequest storage request) internal {
         request.status = RedemptionStatus.PROCESSING;
 
         // Calculate collateral to return (minus fee)
+        // Uses the ssUSD amount that was locked at request time
         uint256 feeAmount = (request.ssUSDAmount * redeemFee) / BPS_DENOMINATOR;
         uint256 collateralValue = request.ssUSDAmount - feeAmount;
 
@@ -357,9 +396,11 @@ contract TreasuryVault is
         request.status = RedemptionStatus.COMPLETED;
         pendingRedemptionCount--;
 
-        // Burn ssUSD
-        uint256 sharesToBurn = ssUSD.getSharesByAmount(request.ssUSDAmount);
-        ssUSD.burnShares(address(this), sharesToBurn);
+        // SECURITY FIX: Shares were already burned at request time
+        // Just clean up the tracking - do NOT burn again
+        uint256 burnedShares = redemptionShares[request.id];
+        delete redemptionShares[request.id];
+        totalPendingRedemptionShares -= burnedShares;
 
         // Transfer collateral to user
         IERC20(collateralToken).safeTransfer(request.requester, collateralAmount);

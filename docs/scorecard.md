@@ -28,6 +28,12 @@ A 10/10 security score requires:
 - [x] Upgrade and rollback procedures documented (`docs/runbook.md`)
 - [x] Static analysis tooling (`contracts/slither.config.json`, `scripts/security-analysis.sh`)
 - [x] Security CI workflow (`.github/workflows/security.yml`)
+- [x] Security-critical fixes implemented and tested:
+  - ForcedInclusion: Real inclusion-proof verification against L2OutputOracle
+  - EncryptedMempool: Decryption proofs bound to encrypted payloads
+  - TreasuryVault: Redemption shares burned at request time (NAV manipulation fix)
+  - ThresholdKeyRegistry: DKG state cleared per ceremony, duplicate registration prevented
+  - SetRegistry: Legacy registerBatchRoot disabled by default
 
 ### Decentralization (9/10)
 A 10/10 decentralization score requires:

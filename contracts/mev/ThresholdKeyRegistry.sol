@@ -74,6 +74,7 @@ contract ThresholdKeyRegistry is
         address[] participants;     // Registered participants
         mapping(address => bytes32) dealings; // Encrypted dealings
         uint256 dealingsReceived;   // Count of dealings
+        mapping(address => bool) hasRegistered; // Track who has registered for this DKG (prevents duplicates)
     }
 
     // =========================================================================
@@ -138,6 +139,8 @@ contract ThresholdKeyRegistry is
 
     event ThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
 
+    event DKGAborted(string reason);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -155,6 +158,7 @@ contract ThresholdKeyRegistry is
     error DKGDeadlinePassed();
     error DKGDeadlineNotPassed();
     error AlreadySubmittedDealing();
+    error AlreadyRegisteredForDKG();
     error EpochNotActive();
     error EpochAlreadyExists();
     error KeyRevoked();
@@ -298,10 +302,24 @@ contract ThresholdKeyRegistry is
 
     /**
      * @notice Start distributed key generation for next epoch
+     *
+     * SECURITY FIX: Properly clears all DKG state from previous ceremonies
+     * including the hasRegistered and dealings mappings to prevent:
+     * 1. Stale registration data affecting new ceremonies
+     * 2. Old dealings being counted in new ceremonies
+     * 3. Keypers being unable to participate in new ceremonies
      */
     function startDKG() external onlyOwner {
         if (dkgState.phase != 0) revert DKGAlreadyActive();
         if (activeKeyperCount < threshold) revert NotEnoughKeypers();
+
+        // SECURITY FIX: Clear previous ceremony's state before starting new one
+        // Clear the hasRegistered mapping for all previous participants
+        for (uint256 i = 0; i < dkgState.participants.length; i++) {
+            address participant = dkgState.participants[i];
+            delete dkgState.hasRegistered[participant];
+            delete dkgState.dealings[participant];
+        }
 
         uint256 nextEpoch = currentEpoch + 1;
 
@@ -316,6 +334,9 @@ contract ThresholdKeyRegistry is
 
     /**
      * @notice Register for DKG participation
+     *
+     * SECURITY FIX: Prevents duplicate registration in the same DKG ceremony.
+     * A keyper can only register once per ceremony.
      */
     function registerForDKG() external {
         if (dkgState.phase != 1) revert DKGPhaseIncorrect();
@@ -324,6 +345,10 @@ contract ThresholdKeyRegistry is
         Keyper storage keyper = keypers[msg.sender];
         if (!keyper.active) revert KeyperNotRegistered();
 
+        // SECURITY FIX: Prevent duplicate registration
+        if (dkgState.hasRegistered[msg.sender]) revert AlreadyRegisteredForDKG();
+
+        dkgState.hasRegistered[msg.sender] = true;
         dkgState.participants.push(msg.sender);
 
         // Auto-advance to dealing phase if enough participants
@@ -354,6 +379,9 @@ contract ThresholdKeyRegistry is
      * @notice Finalize DKG and activate new epoch key
      * @param _aggregatedPubKey Aggregated threshold public key
      * @param _keyCommitment Commitment to key shares
+     *
+     * SECURITY FIX: After finalization, DKG state is cleared to prevent
+     * any stale state from affecting future ceremonies.
      */
     function finalizeDKG(
         bytes calldata _aggregatedPubKey,
@@ -364,19 +392,21 @@ contract ThresholdKeyRegistry is
         if (_aggregatedPubKey.length != 48) revert InvalidPublicKey();
 
         uint256 epoch = dkgState.epoch;
+        uint256 participantCount = dkgState.participants.length;
 
         epochKeys[epoch] = ThresholdKey({
             epoch: epoch,
             aggregatedPubKey: _aggregatedPubKey,
             keyCommitment: _keyCommitment,
             threshold: threshold,
-            keyperCount: dkgState.participants.length,
+            keyperCount: participantCount,
             activatedAt: block.number,
             expiresAt: block.number + EPOCH_DURATION,
             revoked: false
         });
 
-        // Reset DKG state
+        // Reset DKG state - phase 0 means inactive
+        // Note: hasRegistered and dealings will be cleared in next startDKG call
         dkgState.phase = 0;
         currentEpoch = epoch;
 
@@ -384,10 +414,36 @@ contract ThresholdKeyRegistry is
             epoch,
             _aggregatedPubKey,
             threshold,
-            dkgState.participants.length
+            participantCount
         );
 
         emit EpochKeyActivated(epoch, _aggregatedPubKey);
+    }
+
+    /**
+     * @notice Abort a DKG ceremony that has failed or stalled
+     * @param _reason Reason for aborting
+     *
+     * SECURITY FIX: Allows admin to abort a failed DKG and clear state
+     * so a new ceremony can be started.
+     */
+    function abortDKG(string calldata _reason) external onlyOwner {
+        if (dkgState.phase == 0) revert DKGNotActive();
+
+        // Clear all DKG state
+        for (uint256 i = 0; i < dkgState.participants.length; i++) {
+            address participant = dkgState.participants[i];
+            delete dkgState.hasRegistered[participant];
+            delete dkgState.dealings[participant];
+        }
+
+        delete dkgState.participants;
+        dkgState.epoch = 0;
+        dkgState.phase = 0;
+        dkgState.phaseDeadline = 0;
+        dkgState.dealingsReceived = 0;
+
+        emit DKGAborted(_reason);
     }
 
     /**
