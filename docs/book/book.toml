@@ -1,0 +1,40 @@
+[book]
+title = "Set Chain Documentation"
+authors = ["Set Chain Team"]
+description = "Complete documentation for Set Chain - A commerce-optimized OP Stack L2"
+language = "en"
+multilingual = false
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/stateset/set-chain"
+edit-url-template = "https://github.com/stateset/set-chain/edit/main/docs/book/{path}"
+site-url = "/set-chain/"
+cname = "docs.setchain.io"
+additional-css = ["theme/custom.css"]
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+editable = false
+copyable = true
+copy-js = true
+line-numbers = true
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-hierarchical-headers = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3

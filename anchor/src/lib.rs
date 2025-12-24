@@ -9,6 +9,9 @@ pub mod health;
 pub mod service;
 pub mod types;
 
+#[cfg(test)]
+mod tests;
+
 pub use config::AnchorConfig;
 pub use health::{HealthServer, HealthState};
 pub use service::AnchorService;
