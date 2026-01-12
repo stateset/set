@@ -95,6 +95,15 @@ contract SetPaymaster is
     event Deposited(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event OperatorUpdated(address indexed operator, bool authorized);
+    event BatchSponsorshipCompleted(uint256 processed, uint256 succeeded, uint256 failed);
+    event BatchSponsorshipFailed(address indexed merchant, string reason);
+
+    // =========================================================================
+    // Constants
+    // =========================================================================
+
+    /// @notice Maximum merchants per batch operation
+    uint256 public constant MAX_BATCH_SIZE = 100;
 
     // =========================================================================
     // Errors
@@ -108,6 +117,10 @@ contract SetPaymaster is
     error InsufficientBalance();
     error NotOperator();
     error InvalidTier();
+    error InvalidAddress();
+    error ArrayLengthMismatch();
+    error BatchTooLarge();
+    error EmptyArray();
 
     // =========================================================================
     // Modifiers
@@ -547,6 +560,373 @@ contract SetPaymaster is
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyOwner {}
+
+    // =========================================================================
+    // Batch Operations
+    // =========================================================================
+
+    /**
+     * @notice Sponsor multiple merchants in a single transaction
+     * @param _merchants Array of merchant addresses
+     * @param _tierIds Array of tier IDs for each merchant
+     */
+    function batchSponsorMerchants(
+        address[] calldata _merchants,
+        uint256[] calldata _tierIds
+    ) external onlyOwner {
+        if (_merchants.length == 0) revert EmptyArray();
+        if (_merchants.length != _tierIds.length) revert ArrayLengthMismatch();
+        if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            if (_merchants[i] == address(0)) revert InvalidAddress();
+            if (!tiers[_tierIds[i]].active) {
+                revert InvalidTier();
+            }
+
+            merchantSponsorship[_merchants[i]] = MerchantSponsorship({
+                active: true,
+                tierId: _tierIds[i],
+                spentToday: 0,
+                spentThisMonth: 0,
+                lastDayReset: block.timestamp,
+                lastMonthReset: block.timestamp,
+                totalSponsored: 0
+            });
+
+            emit MerchantSponsored(_merchants[i], _tierIds[i]);
+        }
+    }
+
+    /**
+     * @notice Revoke sponsorship for multiple merchants
+     * @param _merchants Array of merchant addresses
+     */
+    function batchRevokeMerchants(address[] calldata _merchants) external onlyOwner {
+        if (_merchants.length == 0) revert EmptyArray();
+        if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            merchantSponsorship[_merchants[i]].active = false;
+            emit MerchantRevoked(_merchants[i]);
+        }
+    }
+
+    /**
+     * @notice Execute sponsorship for multiple merchants in a single transaction
+     * @param _merchants Array of merchant addresses
+     * @param _amounts Array of amounts to sponsor
+     * @param _operationTypes Array of operation types
+     * @return succeeded Count of successful sponsorships
+     * @return failed Count of failed sponsorships
+     * @dev Skips merchants that fail validation rather than reverting
+     */
+    function batchExecuteSponsorship(
+        address[] calldata _merchants,
+        uint256[] calldata _amounts,
+        OperationType[] calldata _operationTypes
+    ) external onlyOperator nonReentrant returns (uint256 succeeded, uint256 failed) {
+        if (_merchants.length == 0) revert EmptyArray();
+        if (_merchants.length != _amounts.length || _amounts.length != _operationTypes.length) {
+            revert ArrayLengthMismatch();
+        }
+        if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            MerchantSponsorship storage sponsorship = merchantSponsorship[_merchants[i]];
+
+            // Skip inactive merchants
+            if (!sponsorship.active) {
+                emit BatchSponsorshipFailed(_merchants[i], "Not sponsored");
+                failed++;
+                continue;
+            }
+
+            SponsorshipTier storage tier = tiers[sponsorship.tierId];
+            if (!tier.active) {
+                emit BatchSponsorshipFailed(_merchants[i], "Tier not active");
+                failed++;
+                continue;
+            }
+
+            // Skip if exceeds transaction limit
+            if (_amounts[i] > tier.maxPerTransaction) {
+                emit BatchSponsorshipFailed(_merchants[i], "Exceeds tx limit");
+                failed++;
+                continue;
+            }
+
+            // Reset and check daily limit
+            _resetDailyIfNeeded(sponsorship);
+            if (sponsorship.spentToday + _amounts[i] > tier.maxPerDay) {
+                emit BatchSponsorshipFailed(_merchants[i], "Exceeds daily limit");
+                failed++;
+                continue;
+            }
+
+            // Reset and check monthly limit
+            _resetMonthlyIfNeeded(sponsorship);
+            if (sponsorship.spentThisMonth + _amounts[i] > tier.maxPerMonth) {
+                emit BatchSponsorshipFailed(_merchants[i], "Exceeds monthly limit");
+                failed++;
+                continue;
+            }
+
+            // Check balance
+            if (address(this).balance < _amounts[i]) {
+                emit BatchSponsorshipFailed(_merchants[i], "Insufficient balance");
+                failed++;
+                continue;
+            }
+
+            // Update spending
+            sponsorship.spentToday += _amounts[i];
+            sponsorship.spentThisMonth += _amounts[i];
+            sponsorship.totalSponsored += _amounts[i];
+            totalGasSponsored += _amounts[i];
+
+            // Transfer gas to merchant
+            (bool success, ) = _merchants[i].call{value: _amounts[i]}("");
+            if (success) {
+                emit GasSponsored(_merchants[i], _amounts[i], _operationTypes[i]);
+                succeeded++;
+            } else {
+                // Rollback spending updates on failed transfer
+                sponsorship.spentToday -= _amounts[i];
+                sponsorship.spentThisMonth -= _amounts[i];
+                sponsorship.totalSponsored -= _amounts[i];
+                totalGasSponsored -= _amounts[i];
+                emit BatchSponsorshipFailed(_merchants[i], "Transfer failed");
+                failed++;
+            }
+        }
+
+        emit BatchSponsorshipCompleted(_merchants.length, succeeded, failed);
+        return (succeeded, failed);
+    }
+
+    /**
+     * @notice Batch refund unused gas for multiple merchants
+     * @param _merchants Array of merchant addresses
+     * @param _refundAmounts Array of refund amounts
+     */
+    function batchRefundUnusedGas(
+        address[] calldata _merchants,
+        uint256[] calldata _refundAmounts
+    ) external onlyOperator {
+        if (_merchants.length == 0) revert EmptyArray();
+        if (_merchants.length != _refundAmounts.length) revert ArrayLengthMismatch();
+        if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            MerchantSponsorship storage sponsorship = merchantSponsorship[_merchants[i]];
+            uint256 refundAmount = _refundAmounts[i];
+
+            // Reduce spent amounts (but not below 0)
+            if (refundAmount <= sponsorship.spentToday) {
+                sponsorship.spentToday -= refundAmount;
+            } else {
+                sponsorship.spentToday = 0;
+            }
+
+            if (refundAmount <= sponsorship.spentThisMonth) {
+                sponsorship.spentThisMonth -= refundAmount;
+            } else {
+                sponsorship.spentThisMonth = 0;
+            }
+
+            if (refundAmount <= sponsorship.totalSponsored) {
+                sponsorship.totalSponsored -= refundAmount;
+            }
+
+            if (refundAmount <= totalGasSponsored) {
+                totalGasSponsored -= refundAmount;
+            }
+        }
+    }
+
+    /**
+     * @notice Get sponsorship status for multiple merchants
+     * @param _merchants Array of merchant addresses
+     * @return statuses Array of active status for each merchant
+     * @return tiers_ Array of tier IDs for each merchant
+     */
+    function batchGetMerchantStatus(
+        address[] calldata _merchants
+    ) external view returns (bool[] memory statuses, uint256[] memory tiers_) {
+        statuses = new bool[](_merchants.length);
+        tiers_ = new uint256[](_merchants.length);
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            MerchantSponsorship storage s = merchantSponsorship[_merchants[i]];
+            statuses[i] = s.active;
+            tiers_[i] = s.tierId;
+        }
+
+        return (statuses, tiers_);
+    }
+
+    /**
+     * @notice Check if multiple merchants can be sponsored for given amounts
+     * @param _merchants Array of merchant addresses
+     * @param _amounts Array of requested amounts
+     * @return canSponsor_ Array of booleans indicating sponsorability
+     * @return reasons Array of rejection reasons (empty if sponsorable)
+     */
+    function batchCanSponsor(
+        address[] calldata _merchants,
+        uint256[] calldata _amounts
+    ) external view returns (bool[] memory canSponsor_, string[] memory reasons) {
+        if (_merchants.length != _amounts.length) revert ArrayLengthMismatch();
+
+        canSponsor_ = new bool[](_merchants.length);
+        reasons = new string[](_merchants.length);
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            (canSponsor_[i], reasons[i]) = this.canSponsor(_merchants[i], _amounts[i]);
+        }
+
+        return (canSponsor_, reasons);
+    }
+
+    /**
+     * @notice Get remaining daily allowances for multiple merchants
+     * @param _merchants Array of merchant addresses
+     * @return allowances Array of remaining daily allowances
+     */
+    function batchGetRemainingDailyAllowance(
+        address[] calldata _merchants
+    ) external view returns (uint256[] memory allowances) {
+        allowances = new uint256[](_merchants.length);
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            allowances[i] = this.getRemainingDailyAllowance(_merchants[i]);
+        }
+
+        return allowances;
+    }
+
+    /**
+     * @notice Get comprehensive details for multiple merchants
+     * @param _merchants Array of merchant addresses
+     * @return details Packed merchant details (active, tierId, spentToday, spentThisMonth, totalSponsored)
+     */
+    function batchGetMerchantDetails(
+        address[] calldata _merchants
+    ) external view returns (
+        bool[] memory active,
+        uint256[] memory tierIds,
+        uint256[] memory spentToday,
+        uint256[] memory spentThisMonth,
+        uint256[] memory totalSponsored
+    ) {
+        active = new bool[](_merchants.length);
+        tierIds = new uint256[](_merchants.length);
+        spentToday = new uint256[](_merchants.length);
+        spentThisMonth = new uint256[](_merchants.length);
+        totalSponsored = new uint256[](_merchants.length);
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            (
+                active[i],
+                tierIds[i],
+                spentToday[i],
+                spentThisMonth[i],
+                totalSponsored[i]
+            ) = this.getMerchantDetails(_merchants[i]);
+        }
+
+        return (active, tierIds, spentToday, spentThisMonth, totalSponsored);
+    }
+
+    /**
+     * @notice Update tier for multiple merchants
+     * @param _merchants Array of merchant addresses
+     * @param _newTierId New tier ID to assign
+     */
+    function batchUpdateMerchantTier(
+        address[] calldata _merchants,
+        uint256 _newTierId
+    ) external onlyOwner {
+        if (_merchants.length == 0) revert EmptyArray();
+        if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
+        if (!tiers[_newTierId].active) revert InvalidTier();
+
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            MerchantSponsorship storage s = merchantSponsorship[_merchants[i]];
+            if (s.active) {
+                s.tierId = _newTierId;
+                emit MerchantSponsored(_merchants[i], _newTierId);
+            }
+        }
+    }
+
+    // =========================================================================
+    // Monitoring Functions
+    // =========================================================================
+
+    /**
+     * @notice Get comprehensive paymaster status
+     * @return paymasterBalance Current contract balance
+     * @return totalSponsored_ Total gas ever sponsored
+     * @return tierCount Number of tiers
+     * @return treasuryAddr Treasury address
+     */
+    function getPaymasterStatus() external view returns (
+        uint256 paymasterBalance,
+        uint256 totalSponsored_,
+        uint256 tierCount,
+        address treasuryAddr
+    ) {
+        return (
+            address(this).balance,
+            totalGasSponsored,
+            nextTierId,
+            treasury
+        );
+    }
+
+    /**
+     * @notice Get all active tier details
+     * @return tierIds Array of tier IDs
+     * @return names Array of tier names
+     * @return maxPerTx Array of max per transaction limits
+     * @return maxPerDay_ Array of max per day limits
+     * @return maxPerMonth_ Array of max per month limits
+     */
+    function getAllTiers() external view returns (
+        uint256[] memory tierIds,
+        string[] memory names,
+        uint256[] memory maxPerTx,
+        uint256[] memory maxPerDay_,
+        uint256[] memory maxPerMonth_
+    ) {
+        // Count active tiers
+        uint256 activeCount = 0;
+        for (uint256 i = 0; i < nextTierId; i++) {
+            if (tiers[i].active) activeCount++;
+        }
+
+        tierIds = new uint256[](activeCount);
+        names = new string[](activeCount);
+        maxPerTx = new uint256[](activeCount);
+        maxPerDay_ = new uint256[](activeCount);
+        maxPerMonth_ = new uint256[](activeCount);
+
+        uint256 index = 0;
+        for (uint256 i = 0; i < nextTierId; i++) {
+            if (tiers[i].active) {
+                tierIds[index] = i;
+                names[index] = tiers[i].name;
+                maxPerTx[index] = tiers[i].maxPerTransaction;
+                maxPerDay_[index] = tiers[i].maxPerDay;
+                maxPerMonth_[index] = tiers[i].maxPerMonth;
+                index++;
+            }
+        }
+
+        return (tierIds, names, maxPerTx, maxPerDay_, maxPerMonth_);
+    }
 
     // =========================================================================
     // Receive

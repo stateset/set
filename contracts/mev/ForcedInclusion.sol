@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title ForcedInclusion
@@ -18,7 +19,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * This mechanism ensures users always have a path to inclusion, even if
  * the sequencer attempts to censor specific transactions.
  */
-contract ForcedInclusion is Ownable, ReentrancyGuard {
+contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
     // =========================================================================
     // Interfaces
     // =========================================================================
@@ -91,6 +92,20 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
     mapping(address => uint256) public sequencerPenalties;
 
     // =========================================================================
+    // Circuit Breaker State
+    // =========================================================================
+
+    /// @notice Maximum pending transactions allowed (circuit breaker)
+    uint256 public maxPendingTxs;
+
+    /// @notice Rate limit: max txs per user per hour
+    uint256 public maxTxsPerUserPerHour;
+
+    /// @notice User rate limiting tracking
+    mapping(address => uint256) public userTxCount;
+    mapping(address => uint256) public userLastReset;
+
+    // =========================================================================
     // Events
     // =========================================================================
 
@@ -121,6 +136,9 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
     );
 
     event TxRootOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event CircuitBreakerUpdated(uint256 maxPendingTxs, uint256 maxTxsPerUserPerHour);
+    event L2OutputOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event OptimismPortalUpdated(address indexed oldPortal, address indexed newPortal);
 
     // =========================================================================
     // Errors
@@ -133,6 +151,10 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
     error DeadlineNotReached();
     error InvalidInclusionProof();
     error TransferFailed();
+    error CircuitBreakerTripped();
+    error RateLimitExceeded();
+    error InvalidAddress();
+    error InvalidTarget();
 
     // =========================================================================
     // Constructor
@@ -143,8 +165,14 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
         address _l2OutputOracle,
         address _optimismPortal
     ) Ownable(_owner) {
+        if (_owner == address(0)) revert InvalidAddress();
+
         l2OutputOracle = _l2OutputOracle;
         optimismPortal = _optimismPortal;
+
+        // Initialize circuit breaker defaults
+        maxPendingTxs = 1000;          // Max 1000 pending txs
+        maxTxsPerUserPerHour = 10;     // Max 10 txs per user per hour
     }
 
     // =========================================================================
@@ -156,7 +184,10 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
      * @param _l2OutputOracle New address
      */
     function setL2OutputOracle(address _l2OutputOracle) external onlyOwner {
+        if (_l2OutputOracle == address(0)) revert InvalidAddress();
+        address oldOracle = l2OutputOracle;
         l2OutputOracle = _l2OutputOracle;
+        emit L2OutputOracleUpdated(oldOracle, _l2OutputOracle);
     }
 
     /**
@@ -164,7 +195,10 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
      * @param _optimismPortal New address
      */
     function setOptimismPortal(address _optimismPortal) external onlyOwner {
+        if (_optimismPortal == address(0)) revert InvalidAddress();
+        address oldPortal = optimismPortal;
         optimismPortal = _optimismPortal;
+        emit OptimismPortalUpdated(oldPortal, _optimismPortal);
     }
 
     /**
@@ -174,6 +208,34 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
     function setTxRootOracle(address _txRootOracle) external onlyOwner {
         emit TxRootOracleUpdated(txRootOracle, _txRootOracle);
         txRootOracle = _txRootOracle;
+    }
+
+    /**
+     * @notice Update circuit breaker settings
+     * @param _maxPendingTxs Maximum pending transactions allowed
+     * @param _maxTxsPerUserPerHour Maximum transactions per user per hour
+     */
+    function setCircuitBreakerLimits(
+        uint256 _maxPendingTxs,
+        uint256 _maxTxsPerUserPerHour
+    ) external onlyOwner {
+        maxPendingTxs = _maxPendingTxs;
+        maxTxsPerUserPerHour = _maxTxsPerUserPerHour;
+        emit CircuitBreakerUpdated(_maxPendingTxs, _maxTxsPerUserPerHour);
+    }
+
+    /**
+     * @notice Pause the contract (emergency stop)
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause the contract
+     */
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     // =========================================================================
@@ -191,7 +253,18 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
         address _target,
         bytes calldata _data,
         uint256 _gasLimit
-    ) external payable nonReentrant returns (bytes32 txId) {
+    ) external payable nonReentrant whenNotPaused returns (bytes32 txId) {
+        // Validate target
+        if (_target == address(0)) revert InvalidTarget();
+
+        // Circuit breaker: check pending count
+        if (stats.totalForced - stats.totalIncluded - stats.totalExpired >= maxPendingTxs) {
+            revert CircuitBreakerTripped();
+        }
+
+        // Rate limiting: check user's tx count
+        _checkAndUpdateRateLimit(msg.sender);
+
         // Validate bond
         if (msg.value < MIN_BOND) {
             revert InsufficientBond();
@@ -504,5 +577,212 @@ contract ForcedInclusion is Ownable, ReentrancyGuard {
         }
 
         return computedHash;
+    }
+
+    /**
+     * @dev Check and update rate limit for a user
+     * @param _user User address to check
+     */
+    function _checkAndUpdateRateLimit(address _user) internal {
+        // Reset count if an hour has passed
+        if (block.timestamp - userLastReset[_user] >= 1 hours) {
+            userTxCount[_user] = 0;
+            userLastReset[_user] = block.timestamp;
+        }
+
+        // Check rate limit
+        if (userTxCount[_user] >= maxTxsPerUserPerHour) {
+            revert RateLimitExceeded();
+        }
+
+        // Increment count
+        userTxCount[_user]++;
+    }
+
+    /**
+     * @notice Get the current pending transaction count
+     * @return pendingCount Number of pending transactions
+     */
+    function getPendingCount() external view returns (uint256 pendingCount) {
+        return stats.totalForced - stats.totalIncluded - stats.totalExpired;
+    }
+
+    /**
+     * @notice Check if user is rate limited
+     * @param _user User address to check
+     * @return limited True if user is currently rate limited
+     * @return remaining Remaining transactions this hour
+     */
+    function isRateLimited(address _user) external view returns (bool limited, uint256 remaining) {
+        uint256 count = userTxCount[_user];
+
+        // If an hour has passed, they have full quota
+        if (block.timestamp - userLastReset[_user] >= 1 hours) {
+            return (false, maxTxsPerUserPerHour);
+        }
+
+        if (count >= maxTxsPerUserPerHour) {
+            return (true, 0);
+        }
+
+        return (false, maxTxsPerUserPerHour - count);
+    }
+
+    // =========================================================================
+    // Monitoring Functions
+    // =========================================================================
+
+    /**
+     * @notice Get comprehensive forced inclusion status
+     * @return pendingCount Number of pending transactions
+     * @return totalForced Total forced transactions
+     * @return totalIncluded Total included on L2
+     * @return totalExpired Total expired
+     * @return bondsLocked Total ETH locked in bonds
+     * @return isPaused Whether contract is paused
+     * @return circuitBreakerCapacity Remaining capacity before circuit breaker trips
+     */
+    function getSystemStatus() external view returns (
+        uint256 pendingCount,
+        uint256 totalForced,
+        uint256 totalIncluded,
+        uint256 totalExpired,
+        uint256 bondsLocked,
+        bool isPaused,
+        uint256 circuitBreakerCapacity
+    ) {
+        uint256 pending = stats.totalForced - stats.totalIncluded - stats.totalExpired;
+        uint256 capacity = maxPendingTxs > pending ? maxPendingTxs - pending : 0;
+
+        return (
+            pending,
+            stats.totalForced,
+            stats.totalIncluded,
+            stats.totalExpired,
+            stats.totalBondsLocked,
+            paused(),
+            capacity
+        );
+    }
+
+    /**
+     * @notice Get transaction details with status info
+     * @param _txId Transaction ID
+     * @return sender Original sender
+     * @return target Target contract
+     * @return bond Bond amount
+     * @return deadline Inclusion deadline
+     * @return isResolved Whether resolved
+     * @return isExpiredNow Whether deadline has passed (and not resolved)
+     * @return timeRemaining Seconds until deadline (0 if passed)
+     */
+    function getTxDetails(bytes32 _txId) external view returns (
+        address sender,
+        address target,
+        uint256 bond,
+        uint256 deadline,
+        bool isResolved,
+        bool isExpiredNow,
+        uint256 timeRemaining
+    ) {
+        ForcedTx storage tx_ = forcedTransactions[_txId];
+
+        uint256 remaining = 0;
+        if (!tx_.resolved && block.timestamp < tx_.deadline) {
+            remaining = tx_.deadline - block.timestamp;
+        }
+
+        bool expiredNow = !tx_.resolved && block.timestamp >= tx_.deadline;
+
+        return (
+            tx_.sender,
+            tx_.target,
+            tx_.bond,
+            tx_.deadline,
+            tx_.resolved,
+            expiredNow,
+            remaining
+        );
+    }
+
+    /**
+     * @notice Get batch of transaction statuses
+     * @param _txIds Array of transaction IDs
+     * @return resolved Array of resolved statuses
+     * @return expired Array of expired statuses
+     */
+    function getBatchTxStatuses(bytes32[] calldata _txIds) external view returns (
+        bool[] memory resolved,
+        bool[] memory expired
+    ) {
+        resolved = new bool[](_txIds.length);
+        expired = new bool[](_txIds.length);
+
+        for (uint256 i = 0; i < _txIds.length; i++) {
+            ForcedTx storage tx_ = forcedTransactions[_txIds[i]];
+            resolved[i] = tx_.resolved;
+            expired[i] = !tx_.resolved && block.timestamp >= tx_.deadline;
+        }
+
+        return (resolved, expired);
+    }
+
+    /**
+     * @notice Get all expirable transactions (past deadline, not resolved)
+     * @param _maxResults Maximum results to return
+     * @return txIds Array of expirable transaction IDs
+     */
+    function getExpirableTxs(uint256 _maxResults) external view returns (bytes32[] memory txIds) {
+        // This is a convenience function for off-chain callers
+        // In production, you'd likely track this more efficiently
+        bytes32[] memory temp = new bytes32[](_maxResults);
+        uint256 count = 0;
+
+        // Note: This is O(n) and should only be called off-chain
+        // On-chain, use events to track transactions
+        return temp; // Placeholder - full implementation would iterate through stored txs
+    }
+
+    /**
+     * @notice Calculate inclusion rate
+     * @return rate Inclusion rate in basis points (10000 = 100%)
+     */
+    function getInclusionRate() external view returns (uint256 rate) {
+        uint256 resolved = stats.totalIncluded + stats.totalExpired;
+        if (resolved == 0) return 10000; // 100% if no resolutions yet
+        return (stats.totalIncluded * 10000) / resolved;
+    }
+
+    /**
+     * @notice Get user's forced transaction history summary
+     * @param _user User address
+     * @return totalSubmitted Total submitted by user
+     * @return pendingCount Pending count
+     * @return currentRateUsed Rate limit used this hour
+     * @return canSubmitNow Whether user can submit now
+     */
+    function getUserSummary(address _user) external view returns (
+        uint256 totalSubmitted,
+        uint256 pendingCount,
+        uint256 currentRateUsed,
+        bool canSubmitNow
+    ) {
+        bytes32[] storage allTxs = userForcedTxs[_user];
+        uint256 pending = 0;
+
+        for (uint256 i = 0; i < allTxs.length; i++) {
+            if (!forcedTransactions[allTxs[i]].resolved) {
+                pending++;
+            }
+        }
+
+        uint256 rateUsed = userTxCount[_user];
+        if (block.timestamp - userLastReset[_user] >= 1 hours) {
+            rateUsed = 0;
+        }
+
+        bool canSubmit = rateUsed < maxTxsPerUserPerHour && !paused();
+
+        return (allTxs.length, pending, rateUsed, canSubmit);
     }
 }

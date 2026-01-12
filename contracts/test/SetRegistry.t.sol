@@ -725,6 +725,181 @@ contract SetRegistryTest is Test {
     }
 
     // =========================================================================
+    // Pause Tests
+    // =========================================================================
+
+    function test_Pause() public {
+        vm.prank(owner);
+        registry.pause();
+        assertTrue(registry.paused());
+    }
+
+    function test_Unpause() public {
+        vm.prank(owner);
+        registry.pause();
+
+        vm.prank(owner);
+        registry.unpause();
+        assertFalse(registry.paused());
+    }
+
+    function test_CommitBatch_WhenPaused() public {
+        vm.prank(owner);
+        registry.pause();
+
+        vm.prank(sequencer);
+        vm.expectRevert();
+        registry.commitBatch(
+            keccak256("batch1"),
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            10
+        );
+    }
+
+    function test_Pause_NotOwner() public {
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        registry.pause();
+    }
+
+    // =========================================================================
+    // New Query Functions Tests
+    // =========================================================================
+
+    function test_GetBatchCommitment() public {
+        bytes32 batchId = keccak256("batch1");
+        bytes32 eventsRoot = keccak256("events");
+        bytes32 newStateRoot = keccak256("state1");
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            eventsRoot,
+            bytes32(0),
+            newStateRoot,
+            1,
+            10,
+            10
+        );
+
+        SetRegistry.BatchCommitment memory commitment = registry.getBatchCommitment(batchId);
+
+        assertEq(commitment.eventsRoot, eventsRoot);
+        assertEq(commitment.newStateRoot, newStateRoot);
+        assertEq(commitment.sequenceStart, 1);
+        assertEq(commitment.sequenceEnd, 10);
+        assertEq(commitment.eventCount, 10);
+        assertEq(commitment.submitter, sequencer);
+    }
+
+    function test_BatchExists() public {
+        bytes32 batchId = keccak256("batch1");
+
+        assertFalse(registry.batchExists(batchId));
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            10
+        );
+
+        assertTrue(registry.batchExists(batchId));
+    }
+
+    function test_GetLatestBatchId() public {
+        bytes32 batchId = keccak256("batch1");
+
+        assertEq(registry.getLatestBatchId(tenantId, storeId), bytes32(0));
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            10
+        );
+
+        assertEq(registry.getLatestBatchId(tenantId, storeId), batchId);
+    }
+
+    function test_GetRegistryStats() public {
+        (
+            uint256 commitmentCount,
+            uint256 proofCount,
+            bool isPaused,
+            bool isStrictMode
+        ) = registry.getRegistryStats();
+
+        assertEq(commitmentCount, 0);
+        assertEq(proofCount, 0);
+        assertFalse(isPaused);
+        assertTrue(isStrictMode);
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            keccak256("batch1"),
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            10
+        );
+
+        (commitmentCount, proofCount, isPaused, isStrictMode) = registry.getRegistryStats();
+        assertEq(commitmentCount, 1);
+    }
+
+    function test_GetBatchWithProofStatus() public {
+        bytes32 batchId = keccak256("batch1");
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            10
+        );
+
+        (
+            SetRegistry.BatchCommitment memory commitment,
+            bool hasProof,
+            bool proofCompliant
+        ) = registry.getBatchWithProofStatus(batchId);
+
+        assertEq(commitment.eventsRoot, keccak256("events"));
+        assertFalse(hasProof);
+        assertFalse(proofCompliant);
+    }
+
+    // =========================================================================
     // Fuzz Tests
     // =========================================================================
 

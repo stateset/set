@@ -565,6 +565,371 @@ contract EncryptedMempoolTest is Test {
     }
 
     // =========================================================================
+    // Rate Limiting Tests
+    // =========================================================================
+
+    function test_RateLimiting_ExceedsMaxSubmissions() public {
+        vm.deal(user1, 100 ether);
+
+        // Default maxSubmissionsPerUserPerBlock is 5
+        vm.startPrank(user1);
+
+        uint256 gasLimit = 100000;
+        uint256 maxFeePerGas = 1 gwei;
+        uint256 requiredFee = gasLimit * maxFeePerGas;
+
+        // Submit 5 transactions (should succeed)
+        for (uint256 i = 0; i < 5; i++) {
+            mempool.submitEncryptedTx{value: requiredFee}(
+                abi.encodePacked("payload", i),
+                2,
+                gasLimit,
+                maxFeePerGas
+            );
+        }
+
+        // 6th submission should fail
+        vm.expectRevert(EncryptedMempool.RateLimitExceeded.selector);
+        mempool.submitEncryptedTx{value: requiredFee}(
+            hex"aabbccdd",
+            2,
+            gasLimit,
+            maxFeePerGas
+        );
+
+        vm.stopPrank();
+    }
+
+    function test_RateLimiting_ResetNextBlock() public {
+        vm.deal(user1, 100 ether);
+
+        vm.startPrank(user1);
+
+        uint256 gasLimit = 100000;
+        uint256 maxFeePerGas = 1 gwei;
+        uint256 requiredFee = gasLimit * maxFeePerGas;
+
+        // Submit 5 transactions
+        for (uint256 i = 0; i < 5; i++) {
+            mempool.submitEncryptedTx{value: requiredFee}(
+                abi.encodePacked("payload", i),
+                2,
+                gasLimit,
+                maxFeePerGas
+            );
+        }
+
+        vm.stopPrank();
+
+        // Move to next block
+        vm.roll(block.number + 1);
+
+        // Should be able to submit again
+        vm.prank(user1);
+        bytes32 txId = mempool.submitEncryptedTx{value: requiredFee}(
+            hex"newpayload",
+            2,
+            gasLimit,
+            maxFeePerGas
+        );
+
+        assertTrue(txId != bytes32(0));
+    }
+
+    function test_SetMaxSubmissionsPerUserPerBlock() public {
+        vm.prank(owner);
+        mempool.setMaxSubmissionsPerUserPerBlock(10);
+
+        assertEq(mempool.maxSubmissionsPerUserPerBlock(), 10);
+    }
+
+    function test_SetMaxSubmissionsPerUserPerBlock_Unlimited() public {
+        vm.prank(owner);
+        mempool.setMaxSubmissionsPerUserPerBlock(0); // 0 = unlimited
+
+        vm.deal(user1, 1000 ether);
+        vm.startPrank(user1);
+
+        uint256 gasLimit = 100000;
+        uint256 maxFeePerGas = 1 gwei;
+        uint256 requiredFee = gasLimit * maxFeePerGas;
+
+        // Should be able to submit more than default limit
+        for (uint256 i = 0; i < 20; i++) {
+            mempool.submitEncryptedTx{value: requiredFee}(
+                abi.encodePacked("unlimited", i),
+                2,
+                gasLimit,
+                maxFeePerGas
+            );
+        }
+
+        vm.stopPrank();
+
+        assertEq(mempool.totalSubmitted(), 20);
+    }
+
+    // =========================================================================
+    // Queue Size Limit Tests
+    // =========================================================================
+
+    function test_QueueFull() public {
+        // Set small queue size for testing
+        vm.prank(owner);
+        mempool.setMaxQueueSize(3);
+
+        // Also disable rate limiting for this test
+        vm.prank(owner);
+        mempool.setMaxSubmissionsPerUserPerBlock(0);
+
+        vm.deal(user1, 100 ether);
+        vm.deal(user2, 100 ether);
+
+        uint256 gasLimit = 100000;
+        uint256 maxFeePerGas = 1 gwei;
+        uint256 requiredFee = gasLimit * maxFeePerGas;
+
+        // Submit 3 transactions (fill the queue)
+        vm.prank(user1);
+        mempool.submitEncryptedTx{value: requiredFee}(hex"11", 2, gasLimit, maxFeePerGas);
+
+        vm.prank(user1);
+        mempool.submitEncryptedTx{value: requiredFee}(hex"22", 2, gasLimit, maxFeePerGas);
+
+        vm.prank(user2);
+        mempool.submitEncryptedTx{value: requiredFee}(hex"33", 2, gasLimit, maxFeePerGas);
+
+        // 4th should fail
+        vm.prank(user2);
+        vm.expectRevert(EncryptedMempool.QueueFull.selector);
+        mempool.submitEncryptedTx{value: requiredFee}(hex"44", 2, gasLimit, maxFeePerGas);
+    }
+
+    function test_SetMaxQueueSize() public {
+        vm.prank(owner);
+        mempool.setMaxQueueSize(5000);
+
+        assertEq(mempool.maxQueueSize(), 5000);
+    }
+
+    // =========================================================================
+    // Initialization Validation Tests
+    // =========================================================================
+
+    function test_Initialize_RevertsZeroOwner() public {
+        EncryptedMempool newMempool = new EncryptedMempool();
+
+        vm.expectRevert(EncryptedMempool.InvalidAddress.selector);
+        new ERC1967Proxy(
+            address(newMempool),
+            abi.encodeCall(
+                EncryptedMempool.initialize,
+                (address(0), registryProxy, sequencer)
+            )
+        );
+    }
+
+    function test_Initialize_RevertsZeroKeyRegistry() public {
+        EncryptedMempool newMempool = new EncryptedMempool();
+
+        vm.expectRevert(EncryptedMempool.InvalidAddress.selector);
+        new ERC1967Proxy(
+            address(newMempool),
+            abi.encodeCall(
+                EncryptedMempool.initialize,
+                (owner, address(0), sequencer)
+            )
+        );
+    }
+
+    function test_Initialize_RevertsZeroSequencer() public {
+        EncryptedMempool newMempool = new EncryptedMempool();
+
+        vm.expectRevert(EncryptedMempool.InvalidAddress.selector);
+        new ERC1967Proxy(
+            address(newMempool),
+            abi.encodeCall(
+                EncryptedMempool.initialize,
+                (owner, registryProxy, address(0))
+            )
+        );
+    }
+
+    function test_SetKeyRegistry_RevertsZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(EncryptedMempool.InvalidAddress.selector);
+        mempool.setKeyRegistry(address(0));
+    }
+
+    // =========================================================================
+    // Monitoring Function Tests
+    // =========================================================================
+
+    function test_GetMempoolStatus() public {
+        _submitEncryptedTx(user1);
+        _submitEncryptedTx(user2);
+
+        (
+            uint256 pendingCount,
+            uint256 queueCapacity,
+            uint256 submitted,
+            uint256 executed,
+            uint256 failed,
+            uint256 expired,
+            bool isPaused,
+            uint256 currentMaxQueueSize
+        ) = mempool.getMempoolStatus();
+
+        assertEq(pendingCount, 2);
+        assertEq(submitted, 2);
+        assertEq(executed, 0);
+        assertEq(failed, 0);
+        assertEq(expired, 0);
+        assertFalse(isPaused);
+        assertEq(currentMaxQueueSize, 10000);
+        assertEq(queueCapacity, 10000 - 2);
+    }
+
+    function test_GetTxStatus() public {
+        bytes32 txId = _submitEncryptedTx(user1);
+
+        (
+            EncryptedMempool.EncryptedTxStatus status,
+            string memory statusName,
+            uint256 blocksUntilExpiry,
+            bool canExecute
+        ) = mempool.getTxStatus(txId);
+
+        assertEq(uint256(status), uint256(EncryptedMempool.EncryptedTxStatus.Pending));
+        assertEq(statusName, "Pending");
+        assertEq(blocksUntilExpiry, 50); // DECRYPTION_TIMEOUT
+        assertFalse(canExecute);
+    }
+
+    function test_GetTxStatus_NotFound() public {
+        (
+            EncryptedMempool.EncryptedTxStatus status,
+            string memory statusName,
+            ,
+        ) = mempool.getTxStatus(bytes32(uint256(12345)));
+
+        assertEq(uint256(status), uint256(EncryptedMempool.EncryptedTxStatus.Pending));
+        assertEq(statusName, "NotFound");
+    }
+
+    function test_GetTxStatus_Decrypted() public {
+        bytes32 txId = _submitOrderAndDecrypt(user1);
+
+        (
+            EncryptedMempool.EncryptedTxStatus status,
+            string memory statusName,
+            ,
+            bool canExecute
+        ) = mempool.getTxStatus(txId);
+
+        assertEq(uint256(status), uint256(EncryptedMempool.EncryptedTxStatus.Decrypted));
+        assertEq(statusName, "Decrypted");
+        assertTrue(canExecute);
+    }
+
+    function test_GetBatchTxStatuses() public {
+        bytes32 txId1 = _submitEncryptedTx(user1);
+        bytes32 txId2 = _submitOrderAndDecrypt(user2);
+
+        bytes32[] memory txIds = new bytes32[](2);
+        txIds[0] = txId1;
+        txIds[1] = txId2;
+
+        EncryptedMempool.EncryptedTxStatus[] memory statuses = mempool.getBatchTxStatuses(txIds);
+
+        assertEq(statuses.length, 2);
+        assertEq(uint256(statuses[0]), uint256(EncryptedMempool.EncryptedTxStatus.Pending));
+        assertEq(uint256(statuses[1]), uint256(EncryptedMempool.EncryptedTxStatus.Decrypted));
+    }
+
+    function test_CanUserSubmit() public {
+        (bool canSubmit, uint256 remaining) = mempool.canUserSubmit(user1);
+
+        assertTrue(canSubmit);
+        assertEq(remaining, 5); // Default maxSubmissionsPerUserPerBlock
+    }
+
+    function test_CanUserSubmit_AtLimit() public {
+        vm.deal(user1, 100 ether);
+
+        // Submit max allowed
+        vm.startPrank(user1);
+        for (uint256 i = 0; i < 5; i++) {
+            mempool.submitEncryptedTx{value: 0.1 ether}(
+                abi.encodePacked("tx", i),
+                2,
+                100000,
+                1 gwei
+            );
+        }
+        vm.stopPrank();
+
+        (bool canSubmit, uint256 remaining) = mempool.canUserSubmit(user1);
+
+        assertFalse(canSubmit);
+        assertEq(remaining, 0);
+    }
+
+    function test_GetBatchUserPendingCounts() public {
+        _submitEncryptedTx(user1);
+        _submitEncryptedTx(user1);
+        _submitEncryptedTx(user2);
+
+        address[] memory users = new address[](2);
+        users[0] = user1;
+        users[1] = user2;
+
+        uint256[] memory counts = mempool.getBatchUserPendingCounts(users);
+
+        assertEq(counts.length, 2);
+        assertEq(counts[0], 2);
+        assertEq(counts[1], 1);
+    }
+
+    function test_GetSuccessRate() public {
+        // Initially 100%
+        assertEq(mempool.getSuccessRate(), 10000);
+
+        // Execute one successfully
+        bytes32 txId = _submitOrderAndDecrypt(user1);
+        mempool.executeDecryptedTx(txId);
+
+        // Still 100%
+        assertEq(mempool.getSuccessRate(), 10000);
+    }
+
+    function test_GetSuccessRate_WithFailures() public {
+        // Execute one successfully
+        bytes32 txId1 = _submitOrderAndDecrypt(user1);
+        mempool.executeDecryptedTx(txId1);
+
+        // Execute one that fails
+        bytes32 txId2 = _submitAndOrderTx(user2);
+        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId2);
+        bytes memory data = abi.encodeCall(TestTarget.revertingCall, ());
+        bytes memory proof = _buildProof(
+            etx.payloadHash,
+            targetContract,
+            data,
+            0,
+            etx.epoch,
+            _defaultSignerKeys()
+        );
+
+        vm.prank(sequencer);
+        mempool.submitDecryption(txId2, targetContract, data, 0, proof);
+        mempool.executeDecryptedTx(txId2);
+
+        // Success rate should be 50% = 5000 basis points
+        assertEq(mempool.getSuccessRate(), 5000);
+    }
+
+    // =========================================================================
     // Helper Functions
     // =========================================================================
 

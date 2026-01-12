@@ -490,6 +490,125 @@ async function safeDeposit(
 }
 ```
 
+## Contract Helper Functions
+
+The SDK provides helper functions for common contract interactions.
+
+### TreasuryVault Helpers
+
+```typescript
+import {
+  getTreasuryVault,
+  fetchTreasuryVaultHealth,
+  getCollateralBreakdown,
+  getTreasuryUserSummary,
+  getRedemptionStatus,
+  getReadyRedemptions,
+  batchGetCollateralBalances,
+  batchGetRedemptionRequests
+} from "@setchain/sdk";
+
+const vault = getTreasuryVault(address, provider);
+
+// Get vault health
+const health = await fetchTreasuryVaultHealth(vault);
+console.log(`Collateral Ratio: ${health.collateralizationRatio}%`);
+console.log(`Pending Redemptions: ${health.pendingRedemptionsCount}`);
+
+// Get collateral breakdown
+const breakdown = await getCollateralBreakdown(vault);
+for (let i = 0; i < breakdown.tokens.length; i++) {
+  console.log(`${breakdown.tokens[i]}: ${breakdown.balances[i]}`);
+}
+
+// Get user summary
+const summary = await getTreasuryUserSummary(vault, userAddress);
+console.log(`Can Deposit: ${summary.canDeposit}`);
+console.log(`Pending Redemptions: ${summary.pendingRedemptions}`);
+
+// Check redemption status
+const status = await getRedemptionStatus(vault, requestId);
+if (status.canProcess) {
+  console.log("Redemption is ready to process!");
+}
+
+// Batch operations for efficiency
+const balances = await batchGetCollateralBalances(vault, tokenAddresses);
+const requests = await batchGetRedemptionRequests(vault, requestIds);
+```
+
+### SetPaymaster Helpers
+
+```typescript
+import {
+  getSetPaymaster,
+  fetchPaymasterStatus,
+  fetchAllTiers,
+  fetchMerchantDetails,
+  fetchBatchMerchantDetails,
+  checkCanSponsor,
+  batchCheckCanSponsor,
+  fetchBatchRemainingAllowances,
+  aggregateMerchantStats,
+  getPaymasterHealthSummary,
+  findSponsorableMerchants
+} from "@setchain/sdk";
+
+const paymaster = getSetPaymaster(address, provider);
+
+// Get paymaster health
+const health = await getPaymasterHealthSummary(paymaster);
+console.log(`Balance: ${health.balance}`);
+console.log(`Tiers: ${health.tiers.length}`);
+console.log(`Healthy: ${health.isHealthy}`);
+
+// Check if merchant can be sponsored
+const { canSponsor, reason } = await checkCanSponsor(paymaster, merchant, amount);
+if (!canSponsor) {
+  console.log(`Cannot sponsor: ${reason}`);
+}
+
+// Aggregate stats for multiple merchants
+const stats = await aggregateMerchantStats(paymaster, merchants);
+console.log(`Active: ${stats.activeMerchants}/${stats.totalMerchants}`);
+console.log(`Total Spent: ${stats.totalSpent}`);
+
+// Find which merchants can be sponsored
+const { sponsorable, nonSponsorable } = await findSponsorableMerchants(
+  paymaster,
+  merchants,
+  amounts
+);
+```
+
+### SetRegistry Helpers
+
+```typescript
+import {
+  getSetRegistry,
+  checkBatchExists,
+  checkBatchHasProof,
+  isRegistryPaused,
+  fetchRegistryStats,
+  fetchBatchHeadSequences
+} from "@setchain/sdk";
+
+const registry = getSetRegistry(address, provider);
+
+// Check batch status
+const exists = await checkBatchExists(registry, batchId);
+const hasProof = await checkBatchHasProof(registry, batchId);
+
+// Get registry stats
+const stats = await fetchRegistryStats(registry);
+console.log(`Commitments: ${stats.commitmentCount}`);
+console.log(`Proofs: ${stats.proofCount}`);
+console.log(`Strict Mode: ${stats.isStrictMode}`);
+
+// Get sequences for multiple tenant/store pairs
+const sequences = await fetchBatchHeadSequences(registry, tenantIds, storeIds);
+```
+
 ## Related
 
 - [SDK Installation](./installation.md)

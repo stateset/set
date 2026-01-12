@@ -611,6 +611,214 @@ findEventOrThrow(receipt, contract, eventName): ParsedEvent
 extractEventArg(receipt, contract, eventName, argName): T | null
 ```
 
+### Contract Helper Functions
+
+#### TreasuryVault Helpers
+
+```typescript
+import { getTreasuryVault, fetchTreasuryVaultHealth, getCollateralBreakdown } from "@setchain/sdk";
+
+// Create contract instance
+const vault = getTreasuryVault(address, provider);
+
+// Fetch vault health status
+const health = await fetchTreasuryVaultHealth(vault);
+// Returns: { collateralValue, ssUSDSupply, collateralizationRatio, isDepositsEnabled, isRedemptionsEnabled, pendingRedemptionsCount }
+
+// Get collateral breakdown
+const breakdown = await getCollateralBreakdown(vault);
+// Returns: { tokens: string[], balances: bigint[], values: bigint[] }
+
+// Get user summary
+const summary = await getTreasuryUserSummary(vault, userAddress);
+// Returns: { ssUSDBalance, pendingRedemptions, totalPendingValue, canDeposit, canRedeem }
+
+// Check redemption status
+const status = await getRedemptionStatus(vault, requestId);
+// Returns: { isPending, isReady, isProcessed, canProcess, timeUntilReady }
+
+// Get ready redemptions
+const readyIds = await getReadyRedemptions(vault, 100);
+
+// Batch operations
+const balances = await batchGetCollateralBalances(vault, tokenAddresses);
+const requests = await batchGetRedemptionRequests(vault, requestIds);
+```
+
+#### SetPaymaster Helpers
+
+```typescript
+import {
+  getSetPaymaster,
+  fetchPaymasterStatus,
+  fetchBatchMerchantDetails,
+  getPaymasterHealthSummary
+} from "@setchain/sdk";
+
+const paymaster = getSetPaymaster(address, provider);
+
+// Get paymaster status
+const status = await fetchPaymasterStatus(paymaster);
+// Returns: { balance, totalSponsored, tierCount, treasury }
+
+// Fetch all tiers
+const tiers = await fetchAllTiers(paymaster);
+// Returns: SponsorshipTier[]
+
+// Get merchant details
+const details = await fetchMerchantDetails(paymaster, merchant);
+// Returns: { active, tierId, spentToday, spentThisMonth, totalSponsored }
+
+// Batch merchant details
+const batchDetails = await fetchBatchMerchantDetails(paymaster, merchants);
+
+// Check sponsorability
+const { canSponsor, reason } = await checkCanSponsor(paymaster, merchant, amount);
+
+// Batch check sponsorability
+const results = await batchCheckCanSponsor(paymaster, merchants, amounts);
+// Returns: { canSponsor: boolean[], reasons: string[] }
+
+// Get remaining allowances
+const allowances = await fetchBatchRemainingAllowances(paymaster, merchants);
+
+// Aggregate stats across merchants
+const stats = await aggregateMerchantStats(paymaster, merchants);
+// Returns: { totalMerchants, activeMerchants, totalSpent, avgSpentPerMerchant }
+
+// Get total capacity
+const capacity = await getTotalRemainingCapacity(paymaster, merchants);
+
+// Find sponsorable merchants
+const { sponsorable, nonSponsorable } = await findSponsorableMerchants(paymaster, merchants, amounts);
+
+// Health summary
+const health = await getPaymasterHealthSummary(paymaster);
+// Returns: { ...status, tiers, isHealthy }
+
+// Get merchant tier limits
+const limits = await getMerchantTierLimits(paymaster, merchant);
+// Returns: { maxPerTx, maxPerDay, maxPerMonth, tierName }
+```
+
+#### SetRegistry Helpers
+
+```typescript
+import {
+  getSetRegistry,
+  checkBatchExists,
+  fetchRegistryStats,
+  fetchBatchHeadSequences
+} from "@setchain/sdk";
+
+const registry = getSetRegistry(address, provider);
+
+// Check if batch exists
+const exists = await checkBatchExists(registry, batchId);
+
+// Check if batch has proof
+const hasProof = await checkBatchHasProof(registry, batchId);
+
+// Check if registry is paused
+const paused = await isRegistryPaused(registry);
+
+// Get registry stats
+const stats = await fetchRegistryStats(registry);
+// Returns: { commitmentCount, proofCount, isPaused, isStrictMode }
+
+// Get head sequences for tenant/store pairs
+const sequences = await fetchBatchHeadSequences(registry, tenantIds, storeIds);
+```
+
+#### MEV Protection Helpers
+
+```typescript
+import {
+  getEncryptedMempool,
+  getForcedInclusion,
+  getSequencerAttestation,
+  fetchMempoolStatus,
+  getMempoolHealthSummary,
+  fetchForcedInclusionStatus,
+  getForcedInclusionHealthSummary,
+  fetchAttestationStats,
+  getAttestationHealthSummary,
+  verifyTxPosition
+} from "@setchain/sdk";
+
+// Encrypted Mempool
+const mempool = getEncryptedMempool(address, provider);
+const status = await fetchMempoolStatus(mempool);
+// Returns: { pendingCount, queueCapacity, submitted, executed, failed, expired, isPaused, currentMaxQueueSize }
+
+const mempoolHealth = await getMempoolHealthSummary(mempool);
+// Returns: { isPaused, pendingCount, queueCapacity, successRate, isHealthy }
+
+// Forced Inclusion (L1 censorship resistance)
+const forcedInclusion = getForcedInclusion(address, provider);
+const fiStatus = await fetchForcedInclusionStatus(forcedInclusion);
+// Returns: { pendingCount, totalForced, totalIncluded, totalExpired, bondsLocked, isPaused, circuitBreakerCapacity }
+
+const fiHealth = await getForcedInclusionHealthSummary(forcedInclusion);
+// Returns: { isPaused, pendingCount, circuitBreakerCapacity, inclusionRate, bondsLocked, isHealthy }
+
+// Sequencer Attestation (FCFS ordering verification)
+const attestation = getSequencerAttestation(address, provider);
+const attStats = await fetchAttestationStats(attestation);
+// Returns: { totalCommitments, totalVerifications, failedVerifications, lastCommitmentTime }
+
+// Verify transaction ordering
+const isValid = await verifyTxPosition(attestation, blockHash, txHash, position, merkleProof);
+```
+
+#### System Health Check
+
+```typescript
+import {
+  performSystemHealthCheck,
+  formatHealthStatus,
+  getSetRegistry,
+  getSetPaymaster,
+  getTreasuryVault,
+  getNAVOracle,
+  getEncryptedMempool,
+  getForcedInclusion,
+  getSequencerAttestation,
+  getSetTimelock,
+  getThresholdKeyRegistry
+} from "@setchain/sdk";
+
+// Create contract instances
+const contracts = {
+  registry: getSetRegistry(registryAddr, provider),
+  paymaster: getSetPaymaster(paymasterAddr, provider),
+  treasuryVault: getTreasuryVault(vaultAddr, provider),
+  navOracle: getNAVOracle(oracleAddr, provider),
+  mempool: getEncryptedMempool(mempoolAddr, provider),
+  forcedInclusion: getForcedInclusion(fiAddr, provider),
+  attestation: getSequencerAttestation(attAddr, provider),
+  timelock: getSetTimelock(timelockAddr, provider),
+  thresholdRegistry: getThresholdKeyRegistry(keyRegAddr, provider)
+};
+
+// Perform comprehensive health check
+const health = await performSystemHealthCheck(contracts);
+console.log(`Overall healthy: ${health.overallHealthy}`);
+console.log(`Errors: ${health.errors.length}`);
+
+// Get formatted status
+const statusText = formatHealthStatus(health);
+console.log(statusText);
+// Output:
+// System Health Check - 2024-01-15T10:30:00.000Z
+// Overall: HEALTHY
+//
+// registry: OK
+// paymaster: OK
+// treasuryVault: OK
+// ...
+```
+
 ### Error Handling
 
 ```typescript
@@ -639,6 +847,189 @@ try {
 | SDK_6001 | MEV_UNAVAILABLE | MEV protection unavailable |
 | SDK_7002 | DEPOSITS_PAUSED | Deposits paused |
 | SDK_7003 | REDEMPTIONS_PAUSED | Redemptions paused |
+
+---
+
+### Transaction Builder
+
+High-level transaction builders with retry, simulation, and gas estimation.
+
+#### TransactionBuilder Class
+
+```typescript
+import { TransactionBuilder, TxStatus, TxBuilderOptions } from "@setchain/sdk";
+
+// Create builder with options
+const builder = new TransactionBuilder(wallet, {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  gasPriceMultiplier: 1.1,
+  gasLimitMultiplier: 1.2,
+  confirmations: 1,
+  simulate: true,
+  onStatusChange: (status, details) => console.log(status, details)
+});
+
+// Estimate gas
+const { gasLimit, gasPrice, totalCost } = await builder.estimateGas(
+  contract, 'methodName', [arg1, arg2], value
+);
+
+// Simulate (dry-run)
+const { success, returnData, error } = await builder.simulate(
+  contract, 'methodName', [arg1, arg2], value
+);
+
+// Execute with retry
+const result = await builder.execute(contract, 'methodName', [arg1, arg2], value);
+// Returns: { status, hash, receipt, gasUsed, gasPrice, totalCost, blockNumber }
+```
+
+**Transaction Statuses:**
+| Status | Description |
+|--------|-------------|
+| `pending` | Transaction created, not yet sent |
+| `simulating` | Running simulation |
+| `estimating_gas` | Estimating gas costs |
+| `sending` | Broadcasting transaction |
+| `confirming` | Waiting for confirmations |
+| `confirmed` | Transaction confirmed |
+| `failed` | Transaction failed |
+| `reverted` | Transaction reverted on-chain |
+
+#### Flow Builders
+
+Pre-built transaction sequences for common operations:
+
+```typescript
+import {
+  executeDepositFlow,
+  executeWrapFlow,
+  executeUnwrapFlow,
+  executeRedemptionRequestFlow,
+  executeBatchSponsorFlow,
+  executeCommitBatchFlow,
+  executeEncryptedTxFlow,
+  executeForcedInclusionFlow
+} from "@setchain/sdk";
+
+// Deposit collateral and mint ssUSD
+const depositResult = await executeDepositFlow(
+  wallet, treasuryVault, collateralToken, amount
+);
+// Returns: { success, steps[], totalGasUsed, totalCost }
+
+// Wrap ssUSD to wssUSD
+const wrapResult = await executeWrapFlow(wallet, wssUSD, ssUSD, amount);
+
+// Unwrap wssUSD to ssUSD
+const unwrapResult = await executeUnwrapFlow(wallet, wssUSD, shares);
+
+// Request redemption
+const redemptionResult = await executeRedemptionRequestFlow(
+  wallet, treasuryVault, ssUSD, amount
+);
+// Returns: { success, steps[], requestId }
+
+// Submit encrypted transaction
+const encryptedResult = await executeEncryptedTxFlow(
+  wallet, mempool, encryptedPayload, epoch, gasLimit, maxFeePerGas, valueDeposit
+);
+// Returns: { success, steps[], txId }
+
+// Force transaction inclusion (L1)
+const forcedResult = await executeForcedInclusionFlow(
+  wallet, forcedInclusion, target, data, gasLimit, bond
+);
+// Returns: { success, steps[], txId, deadline }
+```
+
+#### Transaction Tracking
+
+```typescript
+import {
+  TransactionTracker,
+  createTransactionTracker,
+  watchTransaction,
+  speedUpTransaction,
+  cancelTransaction,
+  getNextNonce
+} from "@setchain/sdk";
+
+// Create tracker
+const tracker = createTransactionTracker(provider, 2000); // 2s polling
+
+// Track a transaction
+const tracked = await tracker.track(txHash, { metadata: 'deposit' });
+
+// Subscribe to events
+const unsubscribe = tracker.on(txHash, (event) => {
+  console.log(event.type, event.confirmations);
+});
+
+// Wait for confirmation
+const confirmed = await tracker.waitForConfirmation(txHash, 2); // 2 confirmations
+
+// Get pending transactions
+const pending = tracker.getPending();
+
+// Simple one-off watch
+const receipt = await watchTransaction(provider, txHash, 1, 120000);
+
+// Speed up stuck transaction
+const newTxHash = await speedUpTransaction(wallet, originalTxHash, 1.5);
+
+// Cancel pending transaction
+const cancelHash = await cancelTransaction(wallet, originalTxHash, 1.5);
+
+// Get next nonce (including pending)
+const nonce = await getNextNonce(provider, address);
+```
+
+**Tracker Event Types:**
+| Event | Description |
+|-------|-------------|
+| `submitted` | Transaction submitted for tracking |
+| `confirmed` | First confirmation received |
+| `confirmation` | Additional confirmation received |
+| `failed` | Transaction failed |
+| `dropped` | Transaction dropped from mempool |
+| `replaced` | Transaction replaced (speedup/cancel) |
+
+#### Gas Estimation Helpers
+
+```typescript
+import { estimateContractGas, simulateContractCall } from "@setchain/sdk";
+
+// Detailed gas estimate
+const estimate = await estimateContractGas(
+  contract, 'methodName', [arg1], value, 1.2
+);
+// Returns: { gasLimit, gasPrice, maxFeePerGas, maxPriorityFeePerGas, totalCost, totalCostEth }
+
+// Simulate with result
+const sim = await simulateContractCall<ReturnType>(
+  contract, 'methodName', [arg1], value
+);
+// Returns: { success, result, error, gasEstimate }
+```
+
+#### Event Parsing Helpers
+
+```typescript
+import { findEvent, findAllEvents, formatBalance } from "@setchain/sdk";
+
+// Find single event
+const event = findEvent(receipt, contract, 'Transfer');
+// Returns: { name, args: { from, to, value }, log }
+
+// Find all matching events
+const events = findAllEvents(receipt, contract, 'Transfer');
+
+// Format bigint balance
+const formatted = formatBalance(BigInt('1000000000000000000'), 18);
+// Returns: "1"
+```
 
 ---
 

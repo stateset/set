@@ -1,6 +1,6 @@
 {
   "name": "@setchain/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Set Chain SDK for SetRegistry and SetPaymaster",
   "license": "MIT",
   "type": "module",

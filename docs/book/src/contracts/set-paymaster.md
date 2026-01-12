@@ -394,6 +394,92 @@ function _shouldReset(UserUsage storage usage) internal view returns (bool) {
 - Selector validation uses first 4 bytes of calldata
 - Policy changes take effect immediately
 
+## Batch Operations
+
+SetPaymaster supports efficient batch operations for managing multiple merchants:
+
+### Batch Sponsor Merchants
+
+```typescript
+// Sponsor multiple merchants at once
+const merchants = [merchant1, merchant2, merchant3];
+const tierIds = [0n, 1n, 2n];  // Different tiers
+
+await paymaster.batchSponsorMerchants(merchants, tierIds);
+```
+
+### Batch Execute Sponsorship
+
+```typescript
+// Execute sponsorship for multiple merchants
+const { succeeded, failed } = await paymaster.batchExecuteSponsorship(
+    [merchant1, merchant2, merchant3],
+    [amount1, amount2, amount3],
+    [OperationType.ORDER_CREATE, OperationType.PAYMENT_PROCESS, OperationType.INVENTORY_UPDATE]
+);
+
+console.log(`${succeeded} succeeded, ${failed} failed`);
+```
+
+### Batch Query Functions
+
+```typescript
+// Check status for multiple merchants
+const { statuses, tiers } = await paymaster.batchGetMerchantStatus(merchants);
+
+// Check if multiple merchants can be sponsored
+const { canSponsor, reasons } = await paymaster.batchCanSponsor(merchants, amounts);
+
+// Get remaining allowances for multiple merchants
+const allowances = await paymaster.batchGetRemainingDailyAllowance(merchants);
+
+// Get comprehensive details
+const { active, tierIds, spentToday, spentThisMonth, totalSponsored } =
+    await paymaster.batchGetMerchantDetails(merchants);
+```
+
+### Batch Update Tier
+
+```typescript
+// Update tier for multiple merchants
+await paymaster.batchUpdateMerchantTier(merchants, newTierId);
+```
+
+### Batch Limits
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| MAX_BATCH_SIZE | 100 | Maximum merchants per batch |
+
+## Monitoring
+
+### Paymaster Status
+
+```typescript
+const {
+    balance,
+    totalSponsored,
+    tierCount,
+    treasury
+} = await paymaster.getPaymasterStatus();
+
+console.log(`Balance: ${formatEther(balance)} ETH`);
+console.log(`Total sponsored: ${totalSponsored} gas units`);
+```
+
+### Get All Tiers
+
+```typescript
+const tiers = await paymaster.getAllTiers();
+
+for (const tier of tiers) {
+    console.log(`Tier ${tier.tierId}: ${tier.name}`);
+    console.log(`  Max/tx: ${formatEther(tier.maxPerTx)} ETH`);
+    console.log(`  Max/day: ${formatEther(tier.maxPerDay)} ETH`);
+    console.log(`  Max/month: ${formatEther(tier.maxPerMonth)} ETH`);
+}
+```
+
 ## Error Codes
 
 | Error | Description |
@@ -406,6 +492,10 @@ function _shouldReset(UserUsage storage usage) internal view returns (bool) {
 | `DailyLimitExceeded()` | User or total daily limit exceeded |
 | `InvalidTarget()` | Target contract not whitelisted |
 | `InvalidSelector()` | Function selector not whitelisted |
+| `InvalidAddress()` | Zero address provided |
+| `ArrayLengthMismatch()` | Batch arrays have different lengths |
+| `BatchTooLarge()` | Batch exceeds MAX_BATCH_SIZE |
+| `EmptyArray()` | Empty array provided to batch function |
 
 ## Related
 

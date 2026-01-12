@@ -20,6 +20,8 @@ interface IssUSD is IERC20 {
 
     event TreasuryVaultUpdated(address indexed treasuryVault);
 
+    event NavOracleUpdated(address indexed oldOracle, address indexed newOracle);
+
     // =========================================================================
     // Shares Interface
     // =========================================================================

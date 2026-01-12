@@ -37,6 +37,8 @@ interface INAVOracle {
 
     event ssUSDUpdated(address indexed ssUSD);
 
+    event MaxNavChangeBpsUpdated(uint256 bps);
+
     // =========================================================================
     // Functions
     // =========================================================================

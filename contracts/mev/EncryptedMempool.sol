@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -29,6 +30,7 @@ contract EncryptedMempool is
     Initializable,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable,
+    PausableUpgradeable,
     UUPSUpgradeable
 {
     // =========================================================================
@@ -131,6 +133,15 @@ contract EncryptedMempool is
     uint256 public totalFailed;
     uint256 public totalExpired;
 
+    /// @notice Maximum queue size to prevent spam
+    uint256 public maxQueueSize;
+
+    /// @notice Rate limit: max submissions per user per block
+    uint256 public maxSubmissionsPerUserPerBlock;
+
+    /// @notice User submission count per block
+    mapping(address => mapping(uint256 => uint256)) public userBlockSubmissions;
+
     // =========================================================================
     // Events
     // =========================================================================
@@ -190,6 +201,9 @@ contract EncryptedMempool is
     error InsufficientFee();
     error ValueExceedsDeposit();
     error ExecutionFailed();
+    error InvalidAddress();
+    error QueueFull();
+    error RateLimitExceeded();
 
     // =========================================================================
     // Modifiers
@@ -220,12 +234,21 @@ contract EncryptedMempool is
         address _keyRegistry,
         address _sequencer
     ) public initializer {
+        if (_owner == address(0)) revert InvalidAddress();
+        if (_keyRegistry == address(0)) revert InvalidAddress();
+        if (_sequencer == address(0)) revert InvalidAddress();
+
         __Ownable_init(_owner);
         __ReentrancyGuard_init();
+        __Pausable_init();
         __UUPSUpgradeable_init();
 
         keyRegistry = ThresholdKeyRegistry(payable(_keyRegistry));
         sequencer = _sequencer;
+
+        // Default limits
+        maxQueueSize = 10000;
+        maxSubmissionsPerUserPerBlock = 5;
     }
 
     // =========================================================================
@@ -245,7 +268,21 @@ contract EncryptedMempool is
         uint256 _epoch,
         uint256 _gasLimit,
         uint256 _maxFeePerGas
-    ) external payable nonReentrant returns (bytes32 txId) {
+    ) external payable nonReentrant whenNotPaused returns (bytes32 txId) {
+        // Check queue size limit
+        uint256 effectiveQueueSize = pendingQueue.length - nextQueuePosition;
+        if (maxQueueSize > 0 && effectiveQueueSize >= maxQueueSize) {
+            revert QueueFull();
+        }
+
+        // Check rate limit
+        if (maxSubmissionsPerUserPerBlock > 0) {
+            if (userBlockSubmissions[msg.sender][block.number] >= maxSubmissionsPerUserPerBlock) {
+                revert RateLimitExceeded();
+            }
+            userBlockSubmissions[msg.sender][block.number]++;
+        }
+
         // Validate payload size
         if (_encryptedPayload.length > MAX_PAYLOAD_SIZE) {
             revert PayloadTooLarge();
@@ -564,7 +601,168 @@ contract EncryptedMempool is
      * @param _keyRegistry New key registry address
      */
     function setKeyRegistry(address _keyRegistry) external onlyOwner {
+        if (_keyRegistry == address(0)) revert InvalidAddress();
         keyRegistry = ThresholdKeyRegistry(payable(_keyRegistry));
+    }
+
+    /**
+     * @notice Set maximum queue size
+     * @param _maxQueueSize New max queue size (0 = unlimited)
+     */
+    function setMaxQueueSize(uint256 _maxQueueSize) external onlyOwner {
+        maxQueueSize = _maxQueueSize;
+    }
+
+    /**
+     * @notice Set rate limit per user per block
+     * @param _maxSubmissions Max submissions per user per block (0 = unlimited)
+     */
+    function setMaxSubmissionsPerUserPerBlock(uint256 _maxSubmissions) external onlyOwner {
+        maxSubmissionsPerUserPerBlock = _maxSubmissions;
+    }
+
+    /**
+     * @notice Pause the encrypted mempool (emergency stop)
+     * @dev Prevents new encrypted tx submissions while paused
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause the encrypted mempool
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    // =========================================================================
+    // Monitoring Functions
+    // =========================================================================
+
+    /**
+     * @notice Get comprehensive mempool status
+     * @return pendingCount Number of pending transactions
+     * @return queueCapacity Remaining queue capacity
+     * @return submitted Total submitted
+     * @return executed Total executed
+     * @return failed Total failed
+     * @return expired Total expired
+     * @return isPaused Whether mempool is paused
+     * @return currentMaxQueueSize Current queue size limit
+     */
+    function getMempoolStatus() external view returns (
+        uint256 pendingCount,
+        uint256 queueCapacity,
+        uint256 submitted,
+        uint256 executed,
+        uint256 failed,
+        uint256 expired,
+        bool isPaused,
+        uint256 currentMaxQueueSize
+    ) {
+        uint256 effectiveQueueSize = pendingQueue.length - nextQueuePosition;
+        uint256 capacity = maxQueueSize > 0 ? (maxQueueSize > effectiveQueueSize ? maxQueueSize - effectiveQueueSize : 0) : type(uint256).max;
+
+        return (
+            effectiveQueueSize,
+            capacity,
+            totalSubmitted,
+            totalExecuted,
+            totalFailed,
+            totalExpired,
+            paused(),
+            maxQueueSize
+        );
+    }
+
+    /**
+     * @notice Get transaction status summary
+     * @param _txId Transaction ID
+     * @return status Current status enum value
+     * @return statusName Human-readable status
+     * @return blocksUntilExpiry Blocks until expiration (0 if already expired or executed)
+     * @return canExecute Whether transaction can be executed now
+     */
+    function getTxStatus(bytes32 _txId) external view returns (
+        EncryptedTxStatus status,
+        string memory statusName,
+        uint256 blocksUntilExpiry,
+        bool canExecute
+    ) {
+        EncryptedTx storage etx = encryptedTxs[_txId];
+        if (etx.sender == address(0)) {
+            return (EncryptedTxStatus.Pending, "NotFound", 0, false);
+        }
+
+        string memory name;
+        if (etx.status == EncryptedTxStatus.Pending) name = "Pending";
+        else if (etx.status == EncryptedTxStatus.Ordered) name = "Ordered";
+        else if (etx.status == EncryptedTxStatus.Decrypting) name = "Decrypting";
+        else if (etx.status == EncryptedTxStatus.Decrypted) name = "Decrypted";
+        else if (etx.status == EncryptedTxStatus.Executed) name = "Executed";
+        else if (etx.status == EncryptedTxStatus.Failed) name = "Failed";
+        else name = "Expired";
+
+        uint256 expiryBlock = etx.submittedAt + DECRYPTION_TIMEOUT;
+        uint256 remaining = block.number >= expiryBlock ? 0 : expiryBlock - block.number;
+
+        bool executable = etx.status == EncryptedTxStatus.Decrypted && !decryptedTxs[_txId].executed;
+
+        return (etx.status, name, remaining, executable);
+    }
+
+    /**
+     * @notice Get batch of transaction statuses
+     * @param _txIds Array of transaction IDs
+     * @return statuses Array of status values
+     */
+    function getBatchTxStatuses(bytes32[] calldata _txIds) external view returns (EncryptedTxStatus[] memory statuses) {
+        statuses = new EncryptedTxStatus[](_txIds.length);
+        for (uint256 i = 0; i < _txIds.length; i++) {
+            statuses[i] = encryptedTxs[_txIds[i]].status;
+        }
+        return statuses;
+    }
+
+    /**
+     * @notice Check if user can submit (rate limit check)
+     * @param _user User address
+     * @return canSubmit Whether user can submit
+     * @return remainingSubmissions Remaining submissions this block
+     */
+    function canUserSubmit(address _user) external view returns (bool canSubmit, uint256 remainingSubmissions) {
+        if (maxSubmissionsPerUserPerBlock == 0) {
+            return (true, type(uint256).max);
+        }
+        uint256 used = userBlockSubmissions[_user][block.number];
+        if (used >= maxSubmissionsPerUserPerBlock) {
+            return (false, 0);
+        }
+        return (true, maxSubmissionsPerUserPerBlock - used);
+    }
+
+    /**
+     * @notice Get pending transactions for a batch of users
+     * @param _users Array of user addresses
+     * @return counts Array of pending transaction counts
+     */
+    function getBatchUserPendingCounts(address[] calldata _users) external view returns (uint256[] memory counts) {
+        counts = new uint256[](_users.length);
+        for (uint256 i = 0; i < _users.length; i++) {
+            counts[i] = userPendingTxs[_users[i]].length;
+        }
+        return counts;
+    }
+
+    /**
+     * @notice Get success rate
+     * @return rate Success rate in basis points (10000 = 100%)
+     */
+    function getSuccessRate() external view returns (uint256 rate) {
+        uint256 completed = totalExecuted + totalFailed;
+        if (completed == 0) return 10000; // 100% if no completions yet
+        return (totalExecuted * 10000) / completed;
     }
 
     // =========================================================================

@@ -141,6 +141,55 @@ export const navOracleAbi = [
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "secondsSinceLastAttestation",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "isAttestationOverdue",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getOracleStatus",
+    inputs: [],
+    outputs: [
+      { name: "navPerShare", type: "uint256" },
+      { name: "lastUpdate", type: "uint256" },
+      { name: "isFresh", type: "bool" },
+      { name: "reportDate", type: "uint256" },
+      { name: "totalAssets", type: "uint256" },
+      { name: "configuredMaxChange", type: "uint256" }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getMaxAllowedNavChange",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getHistoryLength",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "maxNavChangeBps",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
   }
 ] as const;
 
@@ -256,6 +305,34 @@ export const ssUSDAbi = [
     name: "getNavPerShare",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  // New functions
+  {
+    type: "function",
+    name: "increaseAllowance",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "addedValue", type: "uint256" }
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "decreaseAllowance",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "subtractedValue", type: "uint256" }
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "paused",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
     stateMutability: "view"
   }
 ] as const;
@@ -506,6 +583,52 @@ export const treasuryVaultAbi = [
     name: "redemptionsPaused",
     inputs: [],
     outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view"
+  },
+  // New health check functions
+  {
+    type: "function",
+    name: "getVaultHealth",
+    inputs: [],
+    outputs: [
+      { name: "collateralValue", type: "uint256" },
+      { name: "ssUSDSupply", type: "uint256" },
+      { name: "collateralizationRatio", type: "uint256" },
+      { name: "isDepositsEnabled", type: "bool" },
+      { name: "isRedemptionsEnabled", type: "bool" },
+      { name: "pendingRedemptionsCount", type: "uint256" }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getExcessCollateral",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "checkUndercollateralization",
+    inputs: [],
+    outputs: [
+      { name: "isUnder", type: "bool" },
+      { name: "shortfall", type: "uint256" }
+    ],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getPendingRedemptionCount",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    type: "function",
+    name: "getTotalPendingRedemptionValue",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
   }
 ] as const;

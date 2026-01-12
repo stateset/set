@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 /**
  * @title ThresholdKeyRegistry
@@ -22,6 +24,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 contract ThresholdKeyRegistry is
     Initializable,
     OwnableUpgradeable,
+    PausableUpgradeable,
+    ReentrancyGuardUpgradeable,
     UUPSUpgradeable
 {
     // =========================================================================
@@ -163,6 +167,8 @@ contract ThresholdKeyRegistry is
     error EpochNotActive();
     error EpochAlreadyExists();
     error KeyRevoked();
+    error InvalidAddress();
+    error EmptyArray();
 
     // =========================================================================
     // Initialization
@@ -185,6 +191,8 @@ contract ThresholdKeyRegistry is
         uint256 _minStake
     ) public initializer {
         __Ownable_init(_owner);
+        __Pausable_init();
+        __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
 
         if (_threshold < MIN_THRESHOLD) revert InvalidThreshold();
@@ -206,7 +214,7 @@ contract ThresholdKeyRegistry is
     function registerKeyper(
         bytes calldata _publicKey,
         string calldata _endpoint
-    ) external payable {
+    ) external payable whenNotPaused {
         if (keypers[msg.sender].addr != address(0)) {
             revert KeyperAlreadyRegistered();
         }
@@ -285,12 +293,13 @@ contract ThresholdKeyRegistry is
     /**
      * @notice Withdraw stake (only for inactive keypers)
      */
-    function withdrawStake() external {
+    function withdrawStake() external nonReentrant {
         Keyper storage keyper = keypers[msg.sender];
         if (keyper.addr == address(0)) revert KeyperNotRegistered();
         if (keyper.active) revert KeyperNotRegistered(); // Must deactivate first
 
         uint256 amount = stakes[msg.sender];
+        if (amount == 0) revert InsufficientStake();
         stakes[msg.sender] = 0;
 
         (bool success, ) = msg.sender.call{value: amount}("");
@@ -568,10 +577,407 @@ contract ThresholdKeyRegistry is
 
     /**
      * @notice Update minimum stake
-     * @param _newMinStake New minimum stake
+     * @param _newMinStake New minimum stake (must be > 0)
      */
     function setMinStake(uint256 _newMinStake) external onlyOwner {
+        if (_newMinStake == 0) revert InsufficientStake();
         minStake = _newMinStake;
+    }
+
+    /**
+     * @notice Pause all keyper operations
+     * @dev Emergency stop mechanism
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause keyper operations
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    // =========================================================================
+    // Monitoring Functions
+    // =========================================================================
+
+    /**
+     * @notice Get comprehensive registry status
+     * @return totalKeypers Total registered keypers
+     * @return activeCount Number of active keypers
+     * @return currentThreshold Current threshold (t)
+     * @return epoch Current epoch number
+     * @return dkgPhase Current DKG phase
+     * @return isPaused Whether contract is paused
+     */
+    function getRegistryStatus() external view returns (
+        uint256 totalKeypers,
+        uint256 activeCount,
+        uint256 currentThreshold,
+        uint256 epoch,
+        uint256 dkgPhase,
+        bool isPaused
+    ) {
+        return (
+            keyperList.length,
+            activeKeyperCount,
+            threshold,
+            currentEpoch,
+            dkgState.phase,
+            paused()
+        );
+    }
+
+    /**
+     * @notice Get full keyper details
+     * @param _keyper Keyper address
+     * @return keyperData Full keyper struct
+     * @return stakedAmount Amount staked
+     * @return isActive Whether currently active
+     */
+    function getKeyperDetails(address _keyper) external view returns (
+        Keyper memory keyperData,
+        uint256 stakedAmount,
+        bool isActive
+    ) {
+        Keyper storage k = keypers[_keyper];
+        return (k, stakes[_keyper], k.active);
+    }
+
+    /**
+     * @notice Get current epoch key status
+     * @return valid Whether current key is valid
+     * @return blocksRemaining Blocks until expiration (0 if expired)
+     * @return keyperCount Number of keypers in current epoch
+     * @return epochThreshold Threshold for current epoch
+     */
+    function getCurrentKeyStatus() external view returns (
+        bool valid,
+        uint256 blocksRemaining,
+        uint256 keyperCount,
+        uint256 epochThreshold
+    ) {
+        ThresholdKey storage key = epochKeys[currentEpoch];
+        bool isValid = key.epoch != 0 && !key.revoked && block.number <= key.expiresAt;
+        uint256 remaining = 0;
+        if (isValid && block.number < key.expiresAt) {
+            remaining = key.expiresAt - block.number;
+        }
+        return (isValid, remaining, key.keyperCount, key.threshold);
+    }
+
+    /**
+     * @notice Get DKG ceremony status
+     * @return epoch Epoch being generated
+     * @return phase Current phase
+     * @return deadline Phase deadline block
+     * @return participantCount Number of registered participants
+     * @return dealingsCount Number of dealings received
+     * @return blocksUntilDeadline Blocks until deadline (0 if passed)
+     */
+    function getDKGStatus() external view returns (
+        uint256 epoch,
+        uint256 phase,
+        uint256 deadline,
+        uint256 participantCount,
+        uint256 dealingsCount,
+        uint256 blocksUntilDeadline
+    ) {
+        uint256 remaining = 0;
+        if (block.number < dkgState.phaseDeadline) {
+            remaining = dkgState.phaseDeadline - block.number;
+        }
+        return (
+            dkgState.epoch,
+            dkgState.phase,
+            dkgState.phaseDeadline,
+            dkgState.participants.length,
+            dkgState.dealingsReceived,
+            remaining
+        );
+    }
+
+    /**
+     * @notice Check if a keyper has registered for current DKG
+     * @param _keyper Keyper address
+     * @return registered True if registered
+     */
+    function isRegisteredForDKG(address _keyper) external view returns (bool registered) {
+        return dkgState.hasRegistered[_keyper];
+    }
+
+    /**
+     * @notice Get total staked value in the registry
+     * @return totalStaked Sum of all keyper stakes
+     */
+    function getTotalStaked() external view returns (uint256 totalStaked) {
+        for (uint256 i = 0; i < keyperList.length; i++) {
+            totalStaked += stakes[keyperList[i]];
+        }
+        return totalStaked;
+    }
+
+    /**
+     * @notice Get the list of all keyper addresses
+     * @return allKeypers Array of keyper addresses
+     */
+    function getAllKeypers() external view returns (address[] memory allKeypers) {
+        return keyperList;
+    }
+
+    // =========================================================================
+    // Batch Query Functions
+    // =========================================================================
+
+    /**
+     * @notice Get active status for multiple keypers
+     * @param _keypers Array of keyper addresses
+     * @return active Array of active statuses
+     */
+    function batchIsKeyperActive(
+        address[] calldata _keypers
+    ) external view returns (bool[] memory active) {
+        active = new bool[](_keypers.length);
+        for (uint256 i = 0; i < _keypers.length; i++) {
+            active[i] = keypers[_keypers[i]].active;
+        }
+        return active;
+    }
+
+    /**
+     * @notice Get stakes for multiple keypers
+     * @param _keypers Array of keyper addresses
+     * @return stakedAmounts Array of staked amounts
+     */
+    function batchGetStakes(
+        address[] calldata _keypers
+    ) external view returns (uint256[] memory stakedAmounts) {
+        stakedAmounts = new uint256[](_keypers.length);
+        for (uint256 i = 0; i < _keypers.length; i++) {
+            stakedAmounts[i] = stakes[_keypers[i]];
+        }
+        return stakedAmounts;
+    }
+
+    /**
+     * @notice Check DKG registration status for multiple keypers
+     * @param _keypers Array of keyper addresses
+     * @return registered Array of registration statuses
+     */
+    function batchIsRegisteredForDKG(
+        address[] calldata _keypers
+    ) external view returns (bool[] memory registered) {
+        registered = new bool[](_keypers.length);
+        for (uint256 i = 0; i < _keypers.length; i++) {
+            registered[i] = dkgState.hasRegistered[_keypers[i]];
+        }
+        return registered;
+    }
+
+    /**
+     * @notice Check if multiple epochs have valid keys
+     * @param _epochs Array of epoch numbers
+     * @return valid Array of validity statuses
+     */
+    function batchIsEpochKeyValid(
+        uint256[] calldata _epochs
+    ) external view returns (bool[] memory valid) {
+        valid = new bool[](_epochs.length);
+        for (uint256 i = 0; i < _epochs.length; i++) {
+            ThresholdKey storage key = epochKeys[_epochs[i]];
+            valid[i] = key.epoch != 0 && !key.revoked && block.number <= key.expiresAt;
+        }
+        return valid;
+    }
+
+    /**
+     * @notice Get comprehensive keyper summaries
+     * @param _keypers Array of keyper addresses
+     * @return active_ Array of active statuses
+     * @return stakes_ Array of stake amounts
+     * @return slashCounts Array of slash counts
+     * @return registeredForDKG Array of DKG registration statuses
+     */
+    function batchGetKeyperSummary(
+        address[] calldata _keypers
+    ) external view returns (
+        bool[] memory active_,
+        uint256[] memory stakes_,
+        uint256[] memory slashCounts,
+        bool[] memory registeredForDKG
+    ) {
+        uint256 len = _keypers.length;
+        active_ = new bool[](len);
+        stakes_ = new uint256[](len);
+        slashCounts = new uint256[](len);
+        registeredForDKG = new bool[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            Keyper storage k = keypers[_keypers[i]];
+            active_[i] = k.active;
+            stakes_[i] = stakes[_keypers[i]];
+            slashCounts[i] = k.slashCount;
+            registeredForDKG[i] = dkgState.hasRegistered[_keypers[i]];
+        }
+
+        return (active_, stakes_, slashCounts, registeredForDKG);
+    }
+
+    // =========================================================================
+    // Extended Monitoring
+    // =========================================================================
+
+    /**
+     * @notice Get keyper network health metrics
+     * @return totalKeypers_ Total registered keypers
+     * @return activeCount_ Active keyper count
+     * @return avgStake Average stake per active keyper
+     * @return totalSlashed Total slash count across all keypers
+     * @return networkSecure Whether network meets minimum security (active >= threshold)
+     */
+    function getNetworkHealth() external view returns (
+        uint256 totalKeypers_,
+        uint256 activeCount_,
+        uint256 avgStake,
+        uint256 totalSlashed,
+        bool networkSecure
+    ) {
+        totalKeypers_ = keyperList.length;
+        activeCount_ = activeKeyperCount;
+
+        uint256 totalStake = 0;
+        for (uint256 i = 0; i < keyperList.length; i++) {
+            address k = keyperList[i];
+            totalStake += stakes[k];
+            totalSlashed += keypers[k].slashCount;
+        }
+
+        if (activeCount_ > 0) {
+            avgStake = totalStake / activeCount_;
+        }
+
+        networkSecure = activeCount_ >= threshold;
+
+        return (totalKeypers_, activeCount_, avgStake, totalSlashed, networkSecure);
+    }
+
+    /**
+     * @notice Get epoch history summary
+     * @param _epochStart Starting epoch
+     * @param _epochEnd Ending epoch
+     * @return epochs_ Array of epoch numbers
+     * @return valid Array of validity statuses
+     * @return revoked Array of revocation statuses
+     * @return thresholds_ Array of thresholds used
+     */
+    function getEpochHistory(
+        uint256 _epochStart,
+        uint256 _epochEnd
+    ) external view returns (
+        uint256[] memory epochs_,
+        bool[] memory valid,
+        bool[] memory revoked,
+        uint256[] memory thresholds_
+    ) {
+        if (_epochEnd < _epochStart) {
+            return (epochs_, valid, revoked, thresholds_);
+        }
+
+        uint256 count = _epochEnd - _epochStart + 1;
+        epochs_ = new uint256[](count);
+        valid = new bool[](count);
+        revoked = new bool[](count);
+        thresholds_ = new uint256[](count);
+
+        for (uint256 i = 0; i < count; i++) {
+            uint256 epoch = _epochStart + i;
+            ThresholdKey storage key = epochKeys[epoch];
+
+            epochs_[i] = epoch;
+            revoked[i] = key.revoked;
+            thresholds_[i] = key.threshold;
+            valid[i] = key.epoch != 0 && !key.revoked && block.number <= key.expiresAt;
+        }
+
+        return (epochs_, valid, revoked, thresholds_);
+    }
+
+    /**
+     * @notice Calculate time until current key expires
+     * @return blocksRemaining Blocks until expiration
+     * @return secondsRemaining Approximate seconds (assuming 12s blocks)
+     * @return percentRemaining Percentage of epoch remaining (basis points)
+     */
+    function getKeyExpirationInfo() external view returns (
+        uint256 blocksRemaining,
+        uint256 secondsRemaining,
+        uint256 percentRemaining
+    ) {
+        ThresholdKey storage key = epochKeys[currentEpoch];
+
+        if (key.epoch == 0 || key.revoked || block.number > key.expiresAt) {
+            return (0, 0, 0);
+        }
+
+        blocksRemaining = key.expiresAt - block.number;
+        secondsRemaining = blocksRemaining * 12; // Assuming 12 second blocks
+
+        uint256 totalDuration = key.expiresAt - key.activatedAt;
+        if (totalDuration > 0) {
+            percentRemaining = (blocksRemaining * 10000) / totalDuration;
+        }
+
+        return (blocksRemaining, secondsRemaining, percentRemaining);
+    }
+
+    /**
+     * @notice Get keypers sorted by stake (descending)
+     * @param _limit Maximum number to return
+     * @return topKeypers Array of keyper addresses
+     * @return topStakes Array of stake amounts
+     */
+    function getTopKeypersByStake(
+        uint256 _limit
+    ) external view returns (
+        address[] memory topKeypers,
+        uint256[] memory topStakes
+    ) {
+        uint256 count = keyperList.length;
+        if (_limit > 0 && _limit < count) {
+            count = _limit;
+        }
+
+        // Create temporary arrays
+        address[] memory tempAddrs = new address[](keyperList.length);
+        uint256[] memory tempStakes = new uint256[](keyperList.length);
+
+        for (uint256 i = 0; i < keyperList.length; i++) {
+            tempAddrs[i] = keyperList[i];
+            tempStakes[i] = stakes[keyperList[i]];
+        }
+
+        // Simple bubble sort (fine for small arrays)
+        for (uint256 i = 0; i < keyperList.length; i++) {
+            for (uint256 j = i + 1; j < keyperList.length; j++) {
+                if (tempStakes[j] > tempStakes[i]) {
+                    // Swap
+                    (tempStakes[i], tempStakes[j]) = (tempStakes[j], tempStakes[i]);
+                    (tempAddrs[i], tempAddrs[j]) = (tempAddrs[j], tempAddrs[i]);
+                }
+            }
+        }
+
+        // Return top N
+        topKeypers = new address[](count);
+        topStakes = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            topKeypers[i] = tempAddrs[i];
+            topStakes[i] = tempStakes[i];
+        }
+
+        return (topKeypers, topStakes);
     }
 
     /**

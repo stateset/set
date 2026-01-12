@@ -409,6 +409,382 @@ contract ForcedInclusionTest is Test {
         forcedInclusion.setTxRootOracle(address(0x777));
     }
 
+    // =========================================================================
+    // Input Validation Tests
+    // =========================================================================
+
+    function test_Constructor_RevertsZeroOwner() public {
+        vm.expectRevert(ForcedInclusion.InvalidAddress.selector);
+        new ForcedInclusion(
+            address(0),
+            address(outputOracle),
+            optimismPortal
+        );
+    }
+
+    function test_SetL2OutputOracle_RevertsZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ForcedInclusion.InvalidAddress.selector);
+        forcedInclusion.setL2OutputOracle(address(0));
+    }
+
+    function test_SetOptimismPortal_RevertsZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ForcedInclusion.InvalidAddress.selector);
+        forcedInclusion.setOptimismPortal(address(0));
+    }
+
+    function test_ForceTransaction_RevertsZeroTarget() public {
+        vm.prank(user);
+        vm.expectRevert(ForcedInclusion.InvalidTarget.selector);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(
+            address(0),
+            txData,
+            gasLimit
+        );
+    }
+
+    // =========================================================================
+    // Event Tests
+    // =========================================================================
+
+    function test_SetL2OutputOracle_EmitsEvent() public {
+        address newOracle = address(0x999);
+
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit ForcedInclusion.L2OutputOracleUpdated(address(outputOracle), newOracle);
+        forcedInclusion.setL2OutputOracle(newOracle);
+    }
+
+    function test_SetOptimismPortal_EmitsEvent() public {
+        address newPortal = address(0x888);
+
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit ForcedInclusion.OptimismPortalUpdated(optimismPortal, newPortal);
+        forcedInclusion.setOptimismPortal(newPortal);
+    }
+
+    // =========================================================================
+    // Monitoring Function Tests
+    // =========================================================================
+
+    function test_GetSystemStatus() public {
+        // Initial state
+        (
+            uint256 pendingCount,
+            uint256 totalForced,
+            uint256 totalIncluded,
+            uint256 totalExpired,
+            uint256 bondsLocked,
+            bool isPaused,
+            uint256 circuitBreakerCapacity
+        ) = forcedInclusion.getSystemStatus();
+
+        assertEq(pendingCount, 0);
+        assertEq(totalForced, 0);
+        assertEq(totalIncluded, 0);
+        assertEq(totalExpired, 0);
+        assertEq(bondsLocked, 0);
+        assertFalse(isPaused);
+        assertEq(circuitBreakerCapacity, 1000); // Default maxPendingTxs
+
+        // Add a transaction
+        vm.prank(user);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        (
+            pendingCount,
+            totalForced,
+            ,
+            ,
+            bondsLocked,
+            ,
+            circuitBreakerCapacity
+        ) = forcedInclusion.getSystemStatus();
+
+        assertEq(pendingCount, 1);
+        assertEq(totalForced, 1);
+        assertEq(bondsLocked, 0.1 ether);
+        assertEq(circuitBreakerCapacity, 999);
+    }
+
+    function test_GetTxDetails() public {
+        vm.prank(user);
+        bytes32 txId = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        (
+            address sender,
+            address txTarget,
+            uint256 bond,
+            uint256 deadline,
+            bool isResolved,
+            bool isExpiredNow,
+            uint256 timeRemaining
+        ) = forcedInclusion.getTxDetails(txId);
+
+        assertEq(sender, user);
+        assertEq(txTarget, target);
+        assertEq(bond, 0.1 ether);
+        assertEq(deadline, block.timestamp + 24 hours);
+        assertFalse(isResolved);
+        assertFalse(isExpiredNow);
+        assertEq(timeRemaining, 24 hours);
+    }
+
+    function test_GetTxDetails_Expired() public {
+        vm.prank(user);
+        bytes32 txId = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        // Warp past deadline
+        vm.warp(block.timestamp + 25 hours);
+
+        (
+            ,
+            ,
+            ,
+            ,
+            bool isResolved,
+            bool isExpiredNow,
+            uint256 timeRemaining
+        ) = forcedInclusion.getTxDetails(txId);
+
+        assertFalse(isResolved);
+        assertTrue(isExpiredNow);
+        assertEq(timeRemaining, 0);
+    }
+
+    function test_GetBatchTxStatuses() public {
+        vm.startPrank(user);
+
+        bytes32 txId1 = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        bytes32 txId2 = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            address(0x200),
+            txData,
+            gasLimit
+        );
+
+        vm.stopPrank();
+
+        // Confirm one
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
+        forcedInclusion.confirmInclusion(txId1, 100, proof);
+
+        // Warp to expire the other
+        vm.warp(block.timestamp + 25 hours);
+
+        bytes32[] memory txIds = new bytes32[](2);
+        txIds[0] = txId1;
+        txIds[1] = txId2;
+
+        (bool[] memory resolved, bool[] memory expired) = forcedInclusion.getBatchTxStatuses(txIds);
+
+        assertEq(resolved.length, 2);
+        assertEq(expired.length, 2);
+        assertTrue(resolved[0]); // txId1 was confirmed
+        assertFalse(resolved[1]); // txId2 not resolved
+        assertFalse(expired[0]); // txId1 resolved, not expired
+        assertTrue(expired[1]); // txId2 is expired
+    }
+
+    function test_GetInclusionRate() public {
+        // Initially 100%
+        assertEq(forcedInclusion.getInclusionRate(), 10000);
+
+        // Force and confirm one transaction
+        vm.prank(user);
+        bytes32 txId1 = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        bytes memory proof = _buildProof(user, target, txData, gasLimit, 100);
+        forcedInclusion.confirmInclusion(txId1, 100, proof);
+
+        // Still 100%
+        assertEq(forcedInclusion.getInclusionRate(), 10000);
+
+        // Force and let one expire
+        vm.prank(user);
+        bytes32 txId2 = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            address(0x200),
+            txData,
+            gasLimit
+        );
+
+        vm.warp(block.timestamp + 25 hours);
+        forcedInclusion.claimExpired(txId2);
+
+        // Now 50% = 5000 basis points
+        assertEq(forcedInclusion.getInclusionRate(), 5000);
+    }
+
+    function test_GetUserSummary() public {
+        vm.startPrank(user);
+
+        forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        forcedInclusion.forceTransaction{value: 0.1 ether}(
+            address(0x200),
+            txData,
+            gasLimit
+        );
+
+        vm.stopPrank();
+
+        (
+            uint256 totalSubmitted,
+            uint256 pendingCount,
+            uint256 currentRateUsed,
+            bool canSubmitNow
+        ) = forcedInclusion.getUserSummary(user);
+
+        assertEq(totalSubmitted, 2);
+        assertEq(pendingCount, 2);
+        assertEq(currentRateUsed, 2);
+        assertTrue(canSubmitNow); // Haven't hit rate limit yet
+    }
+
+    function test_GetUserSummary_RateLimited() public {
+        // Set low rate limit for testing
+        vm.prank(owner);
+        forcedInclusion.setCircuitBreakerLimits(1000, 2);
+
+        vm.startPrank(user);
+
+        forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+
+        forcedInclusion.forceTransaction{value: 0.1 ether}(
+            address(0x200),
+            txData,
+            gasLimit
+        );
+
+        vm.stopPrank();
+
+        (
+            ,
+            ,
+            uint256 currentRateUsed,
+            bool canSubmitNow
+        ) = forcedInclusion.getUserSummary(user);
+
+        assertEq(currentRateUsed, 2);
+        assertFalse(canSubmitNow); // At rate limit
+    }
+
+    // =========================================================================
+    // Circuit Breaker Tests
+    // =========================================================================
+
+    function test_CircuitBreaker_RevertsWhenTripped() public {
+        // Set very low limit
+        vm.prank(owner);
+        forcedInclusion.setCircuitBreakerLimits(2, 100);
+
+        vm.startPrank(user);
+
+        // Submit 2 (should work)
+        forcedInclusion.forceTransaction{value: 0.1 ether}(target, txData, gasLimit);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(address(0x200), txData, gasLimit);
+
+        // 3rd should trip circuit breaker
+        vm.expectRevert(ForcedInclusion.CircuitBreakerTripped.selector);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(address(0x300), txData, gasLimit);
+
+        vm.stopPrank();
+    }
+
+    function test_RateLimit_RevertsWhenExceeded() public {
+        // Set very low rate limit
+        vm.prank(owner);
+        forcedInclusion.setCircuitBreakerLimits(1000, 2);
+
+        vm.startPrank(user);
+
+        // Submit 2 (should work)
+        forcedInclusion.forceTransaction{value: 0.1 ether}(target, txData, gasLimit);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(address(0x200), txData, gasLimit);
+
+        // 3rd should hit rate limit
+        vm.expectRevert(ForcedInclusion.RateLimitExceeded.selector);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(address(0x300), txData, gasLimit);
+
+        vm.stopPrank();
+    }
+
+    function test_RateLimit_ResetsAfterHour() public {
+        // Set very low rate limit
+        vm.prank(owner);
+        forcedInclusion.setCircuitBreakerLimits(1000, 1);
+
+        vm.prank(user);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(target, txData, gasLimit);
+
+        // Should fail immediately
+        vm.prank(user);
+        vm.expectRevert(ForcedInclusion.RateLimitExceeded.selector);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(address(0x200), txData, gasLimit);
+
+        // Warp forward 1 hour
+        vm.warp(block.timestamp + 1 hours);
+
+        // Should work now
+        vm.prank(user);
+        bytes32 txId = forcedInclusion.forceTransaction{value: 0.1 ether}(address(0x200), txData, gasLimit);
+        assertTrue(txId != bytes32(0));
+    }
+
+    function test_IsRateLimited() public {
+        (bool limited, uint256 remaining) = forcedInclusion.isRateLimited(user);
+        assertFalse(limited);
+        assertEq(remaining, 10); // Default maxTxsPerUserPerHour
+
+        // Submit one
+        vm.prank(user);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(target, txData, gasLimit);
+
+        (limited, remaining) = forcedInclusion.isRateLimited(user);
+        assertFalse(limited);
+        assertEq(remaining, 9);
+    }
+
+    function test_GetPendingCount() public {
+        assertEq(forcedInclusion.getPendingCount(), 0);
+
+        vm.prank(user);
+        forcedInclusion.forceTransaction{value: 0.1 ether}(target, txData, gasLimit);
+
+        assertEq(forcedInclusion.getPendingCount(), 1);
+    }
+
     function _buildProof(
         address sender,
         address txTarget,

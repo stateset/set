@@ -51,6 +51,12 @@ contract TreasuryVault is
     /// @notice Minimum deposit amount ($1)
     uint256 public constant MIN_DEPOSIT = 1e18;
 
+    /// @notice Minimum redemption delay (15 minutes) - security floor
+    uint256 public constant MIN_REDEMPTION_DELAY = 15 minutes;
+
+    /// @notice Maximum redemption delay (7 days) - usability ceiling
+    uint256 public constant MAX_REDEMPTION_DELAY = 7 days;
+
     // =========================================================================
     // Storage
     // =========================================================================
@@ -105,6 +111,22 @@ contract TreasuryVault is
     mapping(address => bool) public operators;
 
     // =========================================================================
+    // Circuit Breaker
+    // =========================================================================
+
+    /// @notice Minimum collateral ratio before circuit breaker triggers (basis points, 10000 = 100%)
+    uint256 public circuitBreakerThreshold;
+
+    /// @notice Whether circuit breaker is enabled
+    bool public circuitBreakerEnabled;
+
+    /// @notice Whether circuit breaker has been triggered
+    bool public circuitBreakerTriggered;
+
+    /// @notice Timestamp when circuit breaker was triggered
+    uint256 public circuitBreakerTriggeredAt;
+
+    // =========================================================================
     // Errors
     // =========================================================================
 
@@ -120,6 +142,9 @@ contract TreasuryVault is
     error InsufficientCollateral();
     error NotOperator();
     error InvalidAmount();
+    error InvalidRedemptionDelay();
+    error CircuitBreakerActive();
+    error InvalidCircuitBreakerThreshold();
 
     // =========================================================================
     // Modifiers
@@ -141,6 +166,19 @@ contract TreasuryVault is
         if (redemptionsPaused) revert RedemptionsArePaused();
         _;
     }
+
+    modifier whenCircuitBreakerNotTriggered() {
+        if (circuitBreakerTriggered) revert CircuitBreakerActive();
+        _;
+    }
+
+    // =========================================================================
+    // Circuit Breaker Events
+    // =========================================================================
+
+    event CircuitBreakerTriggered(uint256 collateralRatio, uint256 threshold, uint256 timestamp);
+    event CircuitBreakerReset(address indexed by, uint256 timestamp);
+    event CircuitBreakerConfigured(bool enabled, uint256 threshold);
 
     // =========================================================================
     // Initialization
@@ -177,6 +215,10 @@ contract TreasuryVault is
         mintFee = 0; // 0%
         redeemFee = 10; // 0.1%
         redemptionDelay = 1 hours;
+
+        // Circuit breaker defaults (disabled by default)
+        circuitBreakerEnabled = false;
+        circuitBreakerThreshold = 9500; // 95% collateralization triggers circuit breaker
     }
 
     // =========================================================================
@@ -194,7 +236,7 @@ contract TreasuryVault is
         address collateralToken,
         uint256 amount,
         address recipient
-    ) external nonReentrant whenDepositsNotPaused returns (uint256 ssUSDMinted) {
+    ) external nonReentrant whenDepositsNotPaused whenCircuitBreakerNotTriggered returns (uint256 ssUSDMinted) {
         // Validate collateral
         if (!tokenRegistry.isApprovedCollateral(collateralToken)) {
             revert NotApprovedCollateral();
@@ -481,10 +523,19 @@ contract TreasuryVault is
 
     /**
      * @notice Set redemption delay
+     * @param delay_ New delay in seconds (must be between MIN_REDEMPTION_DELAY and MAX_REDEMPTION_DELAY)
      */
     function setRedemptionDelay(uint256 delay_) external onlyOwner {
+        if (delay_ < MIN_REDEMPTION_DELAY || delay_ > MAX_REDEMPTION_DELAY) {
+            revert InvalidRedemptionDelay();
+        }
+        uint256 oldDelay = redemptionDelay;
         redemptionDelay = delay_;
+        emit RedemptionDelayUpdated(oldDelay, delay_);
     }
+
+    /// @notice Event emitted when redemption delay changes
+    event RedemptionDelayUpdated(uint256 oldDelay, uint256 newDelay);
 
     /**
      * @notice Pause deposits
@@ -508,6 +559,89 @@ contract TreasuryVault is
     function setOperator(address operator, bool authorized) external onlyOwner {
         operators[operator] = authorized;
         emit OperatorUpdated(operator, authorized);
+    }
+
+    // =========================================================================
+    // Circuit Breaker Functions
+    // =========================================================================
+
+    /**
+     * @notice Configure circuit breaker
+     * @param enabled_ Enable or disable circuit breaker
+     * @param threshold_ Collateral ratio threshold in basis points (e.g., 9500 = 95%)
+     */
+    function configureCircuitBreaker(bool enabled_, uint256 threshold_) external onlyOwner {
+        if (threshold_ < 5000 || threshold_ > 10000) {
+            revert InvalidCircuitBreakerThreshold();
+        }
+        circuitBreakerEnabled = enabled_;
+        circuitBreakerThreshold = threshold_;
+        emit CircuitBreakerConfigured(enabled_, threshold_);
+    }
+
+    /**
+     * @notice Check collateral ratio and trigger circuit breaker if below threshold
+     * @dev Can be called by anyone - allows external monitoring to trigger
+     * @return triggered True if circuit breaker was triggered
+     */
+    function checkCircuitBreaker() external returns (bool triggered) {
+        if (!circuitBreakerEnabled || circuitBreakerTriggered) {
+            return false;
+        }
+
+        uint256 totalSupply = IERC20(address(ssUSD)).totalSupply();
+        if (totalSupply == 0) {
+            return false;
+        }
+
+        uint256 ratio = (totalCollateralValue * BPS_DENOMINATOR) / totalSupply;
+
+        if (ratio < circuitBreakerThreshold) {
+            circuitBreakerTriggered = true;
+            circuitBreakerTriggeredAt = block.timestamp;
+            emit CircuitBreakerTriggered(ratio, circuitBreakerThreshold, block.timestamp);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @notice Reset circuit breaker (owner only, after fixing collateral)
+     * @dev Should only be called after collateral ratio is restored
+     */
+    function resetCircuitBreaker() external onlyOwner {
+        circuitBreakerTriggered = false;
+        circuitBreakerTriggeredAt = 0;
+        emit CircuitBreakerReset(msg.sender, block.timestamp);
+    }
+
+    /**
+     * @notice Get circuit breaker status
+     * @return enabled Whether circuit breaker is enabled
+     * @return triggered Whether circuit breaker is currently triggered
+     * @return threshold Trigger threshold in basis points
+     * @return currentRatio Current collateral ratio in basis points
+     * @return triggeredAt Timestamp when triggered (0 if not triggered)
+     */
+    function getCircuitBreakerStatus() external view returns (
+        bool enabled,
+        bool triggered,
+        uint256 threshold,
+        uint256 currentRatio,
+        uint256 triggeredAt
+    ) {
+        enabled = circuitBreakerEnabled;
+        triggered = circuitBreakerTriggered;
+        threshold = circuitBreakerThreshold;
+        triggeredAt = circuitBreakerTriggeredAt;
+
+        uint256 totalSupply = IERC20(address(ssUSD)).totalSupply();
+        if (totalSupply > 0) {
+            currentRatio = (totalCollateralValue * BPS_DENOMINATOR) / totalSupply;
+        } else {
+            currentRatio = BPS_DENOMINATOR; // 100% if no supply
+        }
     }
 
     /**
@@ -555,6 +689,276 @@ contract TreasuryVault is
             return amount / 10 ** (18 - decimals);
         }
         return amount * 10 ** (decimals - 18);
+    }
+
+    // =========================================================================
+    // Health Check Functions
+    // =========================================================================
+
+    /**
+     * @notice Get comprehensive vault health status
+     * @return collateralValue Total collateral value in USD (18 decimals)
+     * @return ssUSDSupply Total ssUSD supply
+     * @return collateralizationRatio Collateral ratio in basis points (10000 = 100%)
+     * @return isDepositsEnabled True if deposits are not paused
+     * @return isRedemptionsEnabled True if redemptions are not paused
+     * @return pendingRedemptionsCount Number of pending redemption requests
+     */
+    function getVaultHealth() external view returns (
+        uint256 collateralValue,
+        uint256 ssUSDSupply,
+        uint256 collateralizationRatio,
+        bool isDepositsEnabled,
+        bool isRedemptionsEnabled,
+        uint256 pendingRedemptionsCount
+    ) {
+        collateralValue = totalCollateralValue;
+        ssUSDSupply = IERC20(address(ssUSD)).totalSupply();
+        collateralizationRatio = ssUSDSupply > 0
+            ? (collateralValue * 10000) / ssUSDSupply
+            : 10000;
+        isDepositsEnabled = !depositsPaused;
+        isRedemptionsEnabled = !redemptionsPaused;
+        pendingRedemptionsCount = pendingRedemptionCount;
+    }
+
+    /**
+     * @notice Get excess collateral above 100% backing
+     * @return excess Amount of excess collateral (0 if undercollateralized)
+     */
+    function getExcessCollateral() external view returns (uint256 excess) {
+        uint256 totalSupply = IERC20(address(ssUSD)).totalSupply();
+
+        if (totalCollateralValue > totalSupply) {
+            return totalCollateralValue - totalSupply;
+        }
+        return 0;
+    }
+
+    /**
+     * @notice Check if vault is undercollateralized
+     * @return isUnder True if collateral < ssUSD supply
+     * @return shortfall Amount of shortfall (0 if adequately collateralized)
+     */
+    function checkUndercollateralization() external view returns (
+        bool isUnder,
+        uint256 shortfall
+    ) {
+        uint256 totalSupply = IERC20(address(ssUSD)).totalSupply();
+
+        if (totalCollateralValue < totalSupply) {
+            return (true, totalSupply - totalCollateralValue);
+        }
+        return (false, 0);
+    }
+
+    /**
+     * @notice Get count of pending redemptions for a user
+     * @param user User address
+     * @return count Number of pending redemptions
+     */
+    function getUserPendingRedemptionCount(address user) external view returns (uint256 count) {
+        uint256[] memory userRedemptions = _userRedemptions[user];
+        for (uint256 i = 0; i < userRedemptions.length; i++) {
+            RedemptionRequest storage request = _redemptionRequests[userRedemptions[i]];
+            if (request.status == RedemptionStatus.PENDING) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * @notice Get total pending redemption value
+     * @return totalValue Total value of all pending redemptions (in shares)
+     */
+    function getTotalPendingRedemptionValue() external view returns (uint256 totalValue) {
+        // Use the tracked total pending shares
+        return ssUSD.getAmountByShares(totalPendingRedemptionShares);
+    }
+
+    // =========================================================================
+    // Batch Query Functions
+    // =========================================================================
+
+    /**
+     * @notice Get collateral balances for multiple tokens
+     * @param tokens Array of token addresses
+     * @return balances Array of balances
+     */
+    function batchGetCollateralBalances(
+        address[] calldata tokens
+    ) external view returns (uint256[] memory balances) {
+        balances = new uint256[](tokens.length);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            balances[i] = collateralBalances[tokens[i]];
+        }
+        return balances;
+    }
+
+    /**
+     * @notice Get multiple redemption requests
+     * @param requestIds Array of request IDs
+     * @return requests Array of redemption requests
+     */
+    function batchGetRedemptionRequests(
+        uint256[] calldata requestIds
+    ) external view returns (RedemptionRequest[] memory requests) {
+        requests = new RedemptionRequest[](requestIds.length);
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            if (requestIds[i] < _redemptionRequests.length) {
+                requests[i] = _redemptionRequests[requestIds[i]];
+            }
+        }
+        return requests;
+    }
+
+    /**
+     * @notice Get redemptions ready to be processed
+     * @param maxCount Maximum number to return
+     * @return readyIds Array of request IDs that are ready
+     */
+    function getReadyRedemptions(
+        uint256 maxCount
+    ) external view returns (uint256[] memory readyIds) {
+        // First count ready redemptions
+        uint256 readyCount = 0;
+        for (uint256 i = 0; i < _redemptionRequests.length && readyCount < maxCount; i++) {
+            RedemptionRequest storage request = _redemptionRequests[i];
+            if (request.status == RedemptionStatus.PENDING &&
+                block.timestamp >= request.requestedAt + redemptionDelay) {
+                readyCount++;
+            }
+        }
+
+        // Build result array
+        readyIds = new uint256[](readyCount);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < _redemptionRequests.length && idx < readyCount; i++) {
+            RedemptionRequest storage request = _redemptionRequests[i];
+            if (request.status == RedemptionStatus.PENDING &&
+                block.timestamp >= request.requestedAt + redemptionDelay) {
+                readyIds[idx++] = i;
+            }
+        }
+
+        return readyIds;
+    }
+
+    /**
+     * @notice Get collateral breakdown
+     * @return tokens Array of collateral token addresses
+     * @return balances Array of balances (in token decimals)
+     * @return values Array of values (normalized to 18 decimals)
+     */
+    function getCollateralBreakdown() external view returns (
+        address[] memory tokens,
+        uint256[] memory balances,
+        uint256[] memory values
+    ) {
+        tokens = tokenRegistry.getCollateralTokens();
+        balances = new uint256[](tokens.length);
+        values = new uint256[](tokens.length);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            balances[i] = collateralBalances[tokens[i]];
+            if (balances[i] > 0) {
+                uint8 decimals = IERC20Metadata(tokens[i]).decimals();
+                values[i] = _normalize(balances[i], decimals);
+            }
+        }
+
+        return (tokens, balances, values);
+    }
+
+    /**
+     * @notice Get user's vault summary
+     * @param user User address
+     * @return ssUSDBalance User's ssUSD balance
+     * @return pendingRedemptions Number of pending redemptions
+     * @return totalPendingValue Total value of pending redemptions
+     * @return canDeposit Whether deposits are enabled
+     * @return canRedeem Whether redemptions are enabled
+     */
+    function getUserSummary(address user) external view returns (
+        uint256 ssUSDBalance,
+        uint256 pendingRedemptions,
+        uint256 totalPendingValue,
+        bool canDeposit,
+        bool canRedeem
+    ) {
+        ssUSDBalance = IERC20(address(ssUSD)).balanceOf(user);
+        canDeposit = !depositsPaused;
+        canRedeem = !redemptionsPaused;
+
+        uint256[] memory userRedemptionIds = _userRedemptions[user];
+        for (uint256 i = 0; i < userRedemptionIds.length; i++) {
+            RedemptionRequest storage request = _redemptionRequests[userRedemptionIds[i]];
+            if (request.status == RedemptionStatus.PENDING) {
+                pendingRedemptions++;
+                totalPendingValue += redemptionShares[request.id];
+            }
+        }
+
+        // Convert shares to current value
+        if (totalPendingValue > 0) {
+            totalPendingValue = ssUSD.getAmountByShares(totalPendingValue);
+        }
+
+        return (ssUSDBalance, pendingRedemptions, totalPendingValue, canDeposit, canRedeem);
+    }
+
+    /**
+     * @notice Get redemption request status with timing details
+     * @param requestId Request ID
+     * @return status Redemption status
+     * @return timeRemaining Seconds until ready (0 if ready)
+     * @return isReady True if can be processed now
+     * @return ssUSDValue Value in ssUSD terms
+     */
+    function getRedemptionStatus(uint256 requestId) external view returns (
+        RedemptionStatus status,
+        uint256 timeRemaining,
+        bool isReady,
+        uint256 ssUSDValue
+    ) {
+        if (requestId >= _redemptionRequests.length) {
+            return (RedemptionStatus.PENDING, 0, false, 0);
+        }
+
+        RedemptionRequest storage request = _redemptionRequests[requestId];
+        status = request.status;
+
+        if (status == RedemptionStatus.PENDING) {
+            uint256 readyAt = request.requestedAt + redemptionDelay;
+            if (block.timestamp >= readyAt) {
+                isReady = true;
+                timeRemaining = 0;
+            } else {
+                timeRemaining = readyAt - block.timestamp;
+            }
+
+            // Get current value based on locked shares
+            uint256 shares = redemptionShares[requestId];
+            ssUSDValue = ssUSD.getAmountByShares(shares);
+        }
+
+        return (status, timeRemaining, isReady, ssUSDValue);
+    }
+
+    /**
+     * @notice Check operator authorization for multiple addresses
+     * @param addresses Array of addresses to check
+     * @return authorized Array of authorization flags
+     */
+    function batchIsOperator(
+        address[] calldata addresses
+    ) external view returns (bool[] memory authorized) {
+        authorized = new bool[](addresses.length);
+        for (uint256 i = 0; i < addresses.length; i++) {
+            authorized[i] = operators[addresses[i]];
+        }
+        return authorized;
     }
 
     // =========================================================================

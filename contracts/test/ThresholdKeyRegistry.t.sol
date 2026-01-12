@@ -468,6 +468,179 @@ contract ThresholdKeyRegistryTest is Test {
     }
 
     // =========================================================================
+    // Pause Tests
+    // =========================================================================
+
+    function test_Pause() public {
+        vm.prank(owner);
+        registry.pause();
+
+        assertTrue(registry.paused());
+    }
+
+    function test_Unpause() public {
+        vm.prank(owner);
+        registry.pause();
+
+        vm.prank(owner);
+        registry.unpause();
+
+        assertFalse(registry.paused());
+    }
+
+    function test_RegisterKeyper_RevertsWhenPaused() public {
+        vm.prank(owner);
+        registry.pause();
+
+        vm.deal(keyper1, 2 ether);
+        vm.prank(keyper1);
+
+        vm.expectRevert();
+        registry.registerKeyper{value: 1 ether}(validPubKey, "http://keyper1:8080");
+    }
+
+    // =========================================================================
+    // Monitoring Function Tests
+    // =========================================================================
+
+    function test_GetRegistryStatus() public {
+        _registerKeypers(3);
+
+        (
+            uint256 totalKeypers,
+            uint256 activeCount,
+            uint256 currentThreshold,
+            uint256 epoch,
+            uint256 dkgPhase,
+            bool isPaused
+        ) = registry.getRegistryStatus();
+
+        assertEq(totalKeypers, 3);
+        assertEq(activeCount, 3);
+        assertEq(currentThreshold, 2);
+        assertEq(epoch, 1);
+        assertEq(dkgPhase, 0);
+        assertFalse(isPaused);
+    }
+
+    function test_GetKeyperDetails() public {
+        _registerKeyper(keyper1);
+
+        (
+            ThresholdKeyRegistry.Keyper memory keyperData,
+            uint256 stakedAmount,
+            bool isActive
+        ) = registry.getKeyperDetails(keyper1);
+
+        assertEq(keyperData.addr, keyper1);
+        assertEq(stakedAmount, 1 ether);
+        assertTrue(isActive);
+    }
+
+    function test_GetCurrentKeyStatus() public {
+        _completeDKG();
+
+        (
+            bool valid,
+            uint256 blocksRemaining,
+            uint256 keyperCount,
+            uint256 epochThreshold
+        ) = registry.getCurrentKeyStatus();
+
+        assertTrue(valid);
+        assertTrue(blocksRemaining > 0);
+        assertEq(keyperCount, 2);
+        assertEq(epochThreshold, 2);
+    }
+
+    function test_GetDKGStatus() public {
+        _registerKeypers(3);
+
+        vm.prank(owner);
+        registry.startDKG();
+
+        (
+            uint256 epoch,
+            uint256 phase,
+            uint256 deadline,
+            uint256 participantCount,
+            uint256 dealingsCount,
+            uint256 blocksUntilDeadline
+        ) = registry.getDKGStatus();
+
+        assertEq(epoch, 2);
+        assertEq(phase, 1);
+        assertTrue(deadline > block.number);
+        assertEq(participantCount, 0);
+        assertEq(dealingsCount, 0);
+        assertTrue(blocksUntilDeadline > 0);
+    }
+
+    function test_IsRegisteredForDKG() public {
+        _registerKeypers(3);
+
+        vm.prank(owner);
+        registry.startDKG();
+
+        assertFalse(registry.isRegisteredForDKG(keyper1));
+
+        vm.prank(keyper1);
+        registry.registerForDKG();
+
+        assertTrue(registry.isRegisteredForDKG(keyper1));
+    }
+
+    function test_GetTotalStaked() public {
+        _registerKeypers(3);
+
+        uint256 totalStaked = registry.getTotalStaked();
+        assertEq(totalStaked, 3 ether);
+    }
+
+    function test_GetAllKeypers() public {
+        _registerKeypers(3);
+
+        address[] memory allKeypers = registry.getAllKeypers();
+        assertEq(allKeypers.length, 3);
+    }
+
+    function test_AbortDKG() public {
+        _registerKeypers(3);
+
+        vm.prank(owner);
+        registry.startDKG();
+
+        vm.prank(keyper1);
+        registry.registerForDKG();
+
+        vm.prank(owner);
+        registry.abortDKG("Test abort");
+
+        assertEq(registry.getDKGPhase(), 0);
+    }
+
+    function test_SetMinStake_RevertsZero() public {
+        vm.prank(owner);
+        vm.expectRevert(ThresholdKeyRegistry.InsufficientStake.selector);
+        registry.setMinStake(0);
+    }
+
+    function test_WithdrawStake_RevertsZeroBalance() public {
+        _registerKeyper(keyper1);
+
+        vm.prank(keyper1);
+        registry.deactivateKeyper(keyper1, "Leaving");
+
+        vm.prank(keyper1);
+        registry.withdrawStake();
+
+        // Try to withdraw again with 0 balance
+        vm.prank(keyper1);
+        vm.expectRevert(ThresholdKeyRegistry.InsufficientStake.selector);
+        registry.withdrawStake();
+    }
+
+    // =========================================================================
     // Helper Functions
     // =========================================================================
 

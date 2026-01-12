@@ -1,6 +1,6 @@
 [package]
 name = "set-anchor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Anchor service for Set Chain - bridges stateset-sequencer to on-chain SetRegistry"
 license = "MIT"

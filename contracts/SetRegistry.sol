@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -21,6 +22,7 @@ contract SetRegistry is
     Initializable,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable,
+    PausableUpgradeable,
     UUPSUpgradeable
 {
     // =========================================================================
@@ -79,6 +81,9 @@ contract SetRegistry is
     /// @notice Total STARK proofs submitted
     uint256 public totalStarkProofs;
 
+    /// @notice Count of authorized sequencers
+    uint256 public authorizedSequencerCount;
+
     // =========================================================================
     // Events
     // =========================================================================
@@ -119,6 +124,9 @@ contract SetRegistry is
     error BatchNotCommitted();
     error StarkProofAlreadyCommitted();
     error StateRootMismatchInProof();
+    error InvalidAddress();
+    error ArrayLengthMismatch();
+    error EmptyArray();
 
     // =========================================================================
     // Initialization
@@ -140,6 +148,7 @@ contract SetRegistry is
     ) public initializer {
         __Ownable_init(_owner);
         __ReentrancyGuard_init();
+        __Pausable_init();
         __UUPSUpgradeable_init();
 
         if (_initialSequencer != address(0)) {
@@ -163,8 +172,46 @@ contract SetRegistry is
         address _sequencer,
         bool _authorized
     ) external onlyOwner {
+        if (_sequencer == address(0)) revert InvalidAddress();
+
+        bool wasAuthorized = authorizedSequencers[_sequencer];
         authorizedSequencers[_sequencer] = _authorized;
+
+        // Update count
+        if (_authorized && !wasAuthorized) {
+            unchecked { ++authorizedSequencerCount; }
+        } else if (!_authorized && wasAuthorized) {
+            unchecked { --authorizedSequencerCount; }
+        }
+
         emit SequencerAuthorized(_sequencer, _authorized);
+    }
+
+    /**
+     * @notice Authorize multiple sequencers at once
+     * @param _sequencers Array of sequencer addresses
+     * @param _authorized Whether to authorize or revoke all
+     */
+    function batchSetSequencerAuthorization(
+        address[] calldata _sequencers,
+        bool _authorized
+    ) external onlyOwner {
+        if (_sequencers.length == 0) revert EmptyArray();
+
+        for (uint256 i = 0; i < _sequencers.length; i++) {
+            if (_sequencers[i] == address(0)) revert InvalidAddress();
+
+            bool wasAuthorized = authorizedSequencers[_sequencers[i]];
+            authorizedSequencers[_sequencers[i]] = _authorized;
+
+            if (_authorized && !wasAuthorized) {
+                unchecked { ++authorizedSequencerCount; }
+            } else if (!_authorized && wasAuthorized) {
+                unchecked { --authorizedSequencerCount; }
+            }
+
+            emit SequencerAuthorized(_sequencers[i], _authorized);
+        }
     }
 
     /**
@@ -174,6 +221,22 @@ contract SetRegistry is
     function setStrictMode(bool _enabled) external onlyOwner {
         strictModeEnabled = _enabled;
         emit StrictModeUpdated(_enabled);
+    }
+
+    /**
+     * @notice Pause the contract (emergency stop)
+     * @dev Can only be called by owner. Pauses commitBatch, commitStarkProof, and commitBatchWithStarkProof
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause the contract
+     * @dev Can only be called by owner
+     */
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     // =========================================================================
@@ -202,7 +265,7 @@ contract SetRegistry is
         uint64 _sequenceStart,
         uint64 _sequenceEnd,
         uint32 _eventCount
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         // Authorization check
         if (!authorizedSequencers[msg.sender]) {
             revert NotAuthorizedSequencer();
@@ -256,7 +319,11 @@ contract SetRegistry is
         // Update latest commitment and head sequence
         latestCommitment[tenantStoreKey] = _batchId;
         headSequence[tenantStoreKey] = _sequenceEnd;
-        totalCommitments++;
+
+        // Gas optimization: use unchecked for counter that cannot realistically overflow
+        unchecked {
+            ++totalCommitments;
+        }
 
         emit BatchCommitted(
             _batchId,
@@ -291,7 +358,7 @@ contract SetRegistry is
         bool _allCompliant,
         uint64 _proofSize,
         uint64 _provingTimeMs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         // Authorization check
         if (!authorizedSequencers[msg.sender]) {
             revert NotAuthorizedSequencer();
@@ -325,7 +392,10 @@ contract SetRegistry is
             submitter: msg.sender
         });
 
-        totalStarkProofs++;
+        // Gas optimization: use unchecked for counter that cannot realistically overflow
+        unchecked {
+            ++totalStarkProofs;
+        }
 
         emit StarkProofCommitted(
             _batchId,
@@ -356,7 +426,7 @@ contract SetRegistry is
         bool _allCompliant,
         uint64 _proofSize,
         uint64 _provingTimeMs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         // Authorization check
         if (!authorizedSequencers[msg.sender]) {
             revert NotAuthorizedSequencer();
@@ -420,8 +490,12 @@ contract SetRegistry is
         // Update state
         latestCommitment[tenantStoreKey] = _batchId;
         headSequence[tenantStoreKey] = _sequenceEnd;
-        totalCommitments++;
-        totalStarkProofs++;
+
+        // Gas optimization: use unchecked for counters that cannot realistically overflow
+        unchecked {
+            ++totalCommitments;
+            ++totalStarkProofs;
+        }
 
         emit BatchCommitted(
             _batchId,
@@ -588,12 +662,269 @@ contract SetRegistry is
         return headSequence[tenantStoreKey];
     }
 
+    /**
+     * @notice Get full batch commitment details
+     * @param _batchId Batch identifier
+     * @return commitment The batch commitment struct
+     */
+    function getBatchCommitment(
+        bytes32 _batchId
+    ) external view returns (BatchCommitment memory commitment) {
+        return commitments[_batchId];
+    }
+
+    /**
+     * @notice Check if a batch exists
+     * @param _batchId Batch identifier
+     * @return exists True if batch exists
+     */
+    function batchExists(bytes32 _batchId) external view returns (bool exists) {
+        return commitments[_batchId].timestamp != 0;
+    }
+
+    /**
+     * @notice Get the latest batch ID for a tenant/store
+     * @param _tenantId Tenant identifier
+     * @param _storeId Store identifier
+     * @return batchId Latest batch ID (bytes32(0) if none)
+     */
+    function getLatestBatchId(
+        bytes32 _tenantId,
+        bytes32 _storeId
+    ) external view returns (bytes32 batchId) {
+        bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
+        return latestCommitment[tenantStoreKey];
+    }
+
+    /**
+     * @notice Get batch commitment with STARK proof status
+     * @param _batchId Batch identifier
+     * @return commitment The batch commitment
+     * @return hasProof Whether STARK proof exists
+     * @return proofCompliant Whether all events were compliant (if proof exists)
+     */
+    function getBatchWithProofStatus(
+        bytes32 _batchId
+    ) external view returns (
+        BatchCommitment memory commitment,
+        bool hasProof,
+        bool proofCompliant
+    ) {
+        commitment = commitments[_batchId];
+        StarkProofCommitment storage proof = starkProofs[_batchId];
+        hasProof = proof.timestamp != 0;
+        proofCompliant = proof.allCompliant;
+    }
+
+    /**
+     * @notice Get registry statistics
+     * @return commitmentCount Total number of batch commitments
+     * @return proofCount Total number of STARK proofs
+     * @return isPaused Whether the contract is paused
+     * @return isStrictMode Whether strict mode is enabled
+     */
+    function getRegistryStats() external view returns (
+        uint256 commitmentCount,
+        uint256 proofCount,
+        bool isPaused,
+        bool isStrictMode
+    ) {
+        return (totalCommitments, totalStarkProofs, paused(), strictModeEnabled);
+    }
+
+    // =========================================================================
+    // Batch Query Functions
+    // =========================================================================
+
+    /**
+     * @notice Get multiple batch commitments in a single call
+     * @param _batchIds Array of batch identifiers
+     * @return commitmentList Array of batch commitments
+     */
+    function getBatchCommitments(
+        bytes32[] calldata _batchIds
+    ) external view returns (BatchCommitment[] memory commitmentList) {
+        commitmentList = new BatchCommitment[](_batchIds.length);
+        for (uint256 i = 0; i < _batchIds.length; i++) {
+            commitmentList[i] = commitments[_batchIds[i]];
+        }
+        return commitmentList;
+    }
+
+    /**
+     * @notice Check existence of multiple batches
+     * @param _batchIds Array of batch identifiers
+     * @return exists Array of existence flags
+     */
+    function batchExists(
+        bytes32[] calldata _batchIds
+    ) external view returns (bool[] memory exists) {
+        exists = new bool[](_batchIds.length);
+        for (uint256 i = 0; i < _batchIds.length; i++) {
+            exists[i] = commitments[_batchIds[i]].timestamp != 0;
+        }
+        return exists;
+    }
+
+    /**
+     * @notice Get STARK proof status for multiple batches
+     * @param _batchIds Array of batch identifiers
+     * @return hasProofs Array of proof existence flags
+     * @return allCompliant Array of compliance flags
+     */
+    function getBatchProofStatuses(
+        bytes32[] calldata _batchIds
+    ) external view returns (bool[] memory hasProofs, bool[] memory allCompliant) {
+        hasProofs = new bool[](_batchIds.length);
+        allCompliant = new bool[](_batchIds.length);
+
+        for (uint256 i = 0; i < _batchIds.length; i++) {
+            StarkProofCommitment storage proof = starkProofs[_batchIds[i]];
+            hasProofs[i] = proof.timestamp != 0;
+            allCompliant[i] = proof.allCompliant;
+        }
+
+        return (hasProofs, allCompliant);
+    }
+
+    /**
+     * @notice Get latest state roots for multiple tenant/store pairs
+     * @param _tenantIds Array of tenant identifiers
+     * @param _storeIds Array of store identifiers
+     * @return stateRoots Array of latest state roots
+     */
+    function getBatchLatestStateRoots(
+        bytes32[] calldata _tenantIds,
+        bytes32[] calldata _storeIds
+    ) external view returns (bytes32[] memory stateRoots) {
+        if (_tenantIds.length != _storeIds.length) revert ArrayLengthMismatch();
+
+        stateRoots = new bytes32[](_tenantIds.length);
+
+        for (uint256 i = 0; i < _tenantIds.length; i++) {
+            bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantIds[i], _storeIds[i]));
+            bytes32 batchId = latestCommitment[tenantStoreKey];
+
+            if (batchId != bytes32(0)) {
+                stateRoots[i] = commitments[batchId].newStateRoot;
+            }
+        }
+
+        return stateRoots;
+    }
+
+    /**
+     * @notice Get head sequences for multiple tenant/store pairs
+     * @param _tenantIds Array of tenant identifiers
+     * @param _storeIds Array of store identifiers
+     * @return sequences Array of head sequences
+     */
+    function getBatchHeadSequences(
+        bytes32[] calldata _tenantIds,
+        bytes32[] calldata _storeIds
+    ) external view returns (uint64[] memory sequences) {
+        if (_tenantIds.length != _storeIds.length) revert ArrayLengthMismatch();
+
+        sequences = new uint64[](_tenantIds.length);
+
+        for (uint256 i = 0; i < _tenantIds.length; i++) {
+            bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantIds[i], _storeIds[i]));
+            sequences[i] = headSequence[tenantStoreKey];
+        }
+
+        return sequences;
+    }
+
+    // =========================================================================
+    // Extended Monitoring Functions
+    // =========================================================================
+
+    /**
+     * @notice Get comprehensive registry status
+     * @return totalBatches Total batch commitments
+     * @return totalProofs Total STARK proofs
+     * @return sequencerCount Number of authorized sequencers
+     * @return isPaused Contract pause status
+     * @return isStrictMode Strict mode status
+     * @return proofCoverage Percentage of batches with proofs (basis points)
+     */
+    function getExtendedRegistryStatus() external view returns (
+        uint256 totalBatches,
+        uint256 totalProofs,
+        uint256 sequencerCount,
+        bool isPaused,
+        bool isStrictMode,
+        uint256 proofCoverage
+    ) {
+        totalBatches = totalCommitments;
+        totalProofs = totalStarkProofs;
+        sequencerCount = authorizedSequencerCount;
+        isPaused = paused();
+        isStrictMode = strictModeEnabled;
+
+        // Calculate proof coverage (in basis points, 10000 = 100%)
+        if (totalBatches > 0) {
+            proofCoverage = (totalProofs * 10000) / totalBatches;
+        } else {
+            proofCoverage = 10000; // 100% if no batches
+        }
+
+        return (totalBatches, totalProofs, sequencerCount, isPaused, isStrictMode, proofCoverage);
+    }
+
+    /**
+     * @notice Get tenant/store summary
+     * @param _tenantId Tenant identifier
+     * @param _storeId Store identifier
+     * @return latestBatchId Latest batch ID
+     * @return currentStateRoot Current state root
+     * @return currentHeadSequence Current head sequence
+     * @return hasLatestProof Whether latest batch has STARK proof
+     */
+    function getTenantStoreSummary(
+        bytes32 _tenantId,
+        bytes32 _storeId
+    ) external view returns (
+        bytes32 latestBatchId,
+        bytes32 currentStateRoot,
+        uint64 currentHeadSequence,
+        bool hasLatestProof
+    ) {
+        bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
+
+        latestBatchId = latestCommitment[tenantStoreKey];
+        currentHeadSequence = headSequence[tenantStoreKey];
+
+        if (latestBatchId != bytes32(0)) {
+            currentStateRoot = commitments[latestBatchId].newStateRoot;
+            hasLatestProof = starkProofs[latestBatchId].timestamp != 0;
+        }
+
+        return (latestBatchId, currentStateRoot, currentHeadSequence, hasLatestProof);
+    }
+
+    /**
+     * @notice Check if multiple addresses are authorized sequencers
+     * @param _addresses Array of addresses to check
+     * @return authorized Array of authorization flags
+     */
+    function areSequencersAuthorized(
+        address[] calldata _addresses
+    ) external view returns (bool[] memory authorized) {
+        authorized = new bool[](_addresses.length);
+        for (uint256 i = 0; i < _addresses.length; i++) {
+            authorized[i] = authorizedSequencers[_addresses[i]];
+        }
+        return authorized;
+    }
+
     // =========================================================================
     // Internal Functions
     // =========================================================================
 
     /**
      * @dev Compute Merkle root from leaf and proof
+     * @notice Gas-optimized with unchecked arithmetic (safe because loop bounds are controlled)
      */
     function _computeMerkleRoot(
         bytes32 _leaf,
@@ -601,19 +932,24 @@ contract SetRegistry is
         uint256 _index
     ) internal pure returns (bytes32) {
         bytes32 computedHash = _leaf;
+        uint256 proofLength = _proof.length;
 
-        for (uint256 i = 0; i < _proof.length; i++) {
+        // Gas optimization: use unchecked for loop counter and index division
+        for (uint256 i; i < proofLength; ) {
             bytes32 proofElement = _proof[i];
 
-            if (_index % 2 == 0) {
-                // Current node is left child
+            if (_index & 1 == 0) {
+                // Current node is left child (using bitwise AND for gas efficiency)
                 computedHash = keccak256(abi.encodePacked(computedHash, proofElement));
             } else {
                 // Current node is right child
                 computedHash = keccak256(abi.encodePacked(proofElement, computedHash));
             }
 
-            _index = _index / 2;
+            unchecked {
+                _index >>= 1;  // Division by 2 using bit shift
+                ++i;
+            }
         }
 
         return computedHash;
