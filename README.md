@@ -1,11 +1,11 @@
-# Set Chain (SSC)
+# Set
 
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.20-blue)](https://soliditylang.org/)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://www.rust-lang.org/)
 [![OP Stack](https://img.shields.io/badge/OP%20Stack-v1.8.0-red)](https://docs.optimism.io/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-Set Chain is an Ethereum Layer-2 (L2) network built on the **OP Stack**, designed for **commerce**. It offers faster, cheaper, and cryptographically verifiable transactions by leveraging optimistic rollups with Merkle root anchoring.
+Set is an Ethereum Layer-2 (L2) network built on the **OP Stack**, designed for **commerce**. It offers faster, cheaper, and cryptographically verifiable transactions by leveraging optimistic rollups with Merkle root anchoring.
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ Set Chain is an Ethereum Layer-2 (L2) network built on the **OP Stack**, designe
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           SET CHAIN L2 (84532001)                       │
+│                             SET L2 (84532001)                           │
 │                      (Commerce-Optimized OP Stack)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
@@ -414,7 +414,7 @@ curl http://localhost:9090/metrics
 
 ## Integration with stateset-sequencer
 
-Set Chain integrates with the stateset-sequencer through a two-phase process:
+Set integrates with the stateset-sequencer through a two-phase process:
 
 ```
 stateset-sequencer                    Anchor Service                    SetRegistry
