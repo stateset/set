@@ -76,6 +76,9 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
     /// @notice User's pending forced transactions
     mapping(address => bytes32[]) public userForcedTxs;
 
+    /// @notice All forced transaction IDs (append-only)
+    bytes32[] public allForcedTxs;
+
     /// @notice L2OutputOracle contract for verifying inclusion
     address public l2OutputOracle;
 
@@ -206,6 +209,7 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
      * @param _txRootOracle New oracle address
      */
     function setTxRootOracle(address _txRootOracle) external onlyOwner {
+        if (_txRootOracle == address(0)) revert InvalidAddress();
         emit TxRootOracleUpdated(txRootOracle, _txRootOracle);
         txRootOracle = _txRootOracle;
     }
@@ -299,6 +303,7 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
         });
 
         userForcedTxs[msg.sender].push(txId);
+        allForcedTxs.push(txId);
 
         // Update stats
         stats.totalForced++;
@@ -733,14 +738,31 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
      * @return txIds Array of expirable transaction IDs
      */
     function getExpirableTxs(uint256 _maxResults) external view returns (bytes32[] memory txIds) {
-        // This is a convenience function for off-chain callers
-        // In production, you'd likely track this more efficiently
-        bytes32[] memory temp = new bytes32[](_maxResults);
-        uint256 count = 0;
+        if (_maxResults == 0) {
+            return new bytes32[](0);
+        }
+
+        bytes32[] memory results = new bytes32[](_maxResults);
+        uint256 found = 0;
 
         // Note: This is O(n) and should only be called off-chain
         // On-chain, use events to track transactions
-        return temp; // Placeholder - full implementation would iterate through stored txs
+        for (uint256 i = 0; i < allForcedTxs.length && found < _maxResults; i++) {
+            bytes32 txId = allForcedTxs[i];
+            ForcedTx storage tx_ = forcedTransactions[txId];
+
+            if (tx_.sender != address(0) && !tx_.resolved && block.timestamp >= tx_.deadline) {
+                results[found] = txId;
+                found++;
+            }
+        }
+
+        // Trim unused slots for cleaner off-chain consumption.
+        assembly {
+            mstore(results, found)
+        }
+
+        return results;
     }
 
     /**

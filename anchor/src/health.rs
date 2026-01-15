@@ -202,6 +202,15 @@ pub struct StatsResponse {
     pub success_rate: f64,
     pub last_anchor_time: Option<String>,
     pub last_batch_id: Option<String>,
+    pub consecutive_failures: u64,
+    pub l2_connection_failures: u64,
+    pub sequencer_api_failures: u64,
+    pub gas_price_skips: u64,
+    pub avg_anchor_time_ms: u64,
+    pub last_l2_healthy: Option<String>,
+    pub last_sequencer_healthy: Option<String>,
+    pub total_cycles: u64,
+    pub service_started: Option<String>,
     pub uptime_secs: u64,
 }
 
@@ -237,7 +246,7 @@ async fn ready_handler(State(state): State<Arc<HealthState>>) -> Response {
         .unwrap_or(false);
 
     let response = ReadyResponse {
-        ready: is_ready && l2_healthy,
+        ready: is_ready && l2_healthy && seq_healthy,
         l2_connected: l2_healthy,
         sequencer_connected: seq_healthy,
         last_l2_check_secs_ago: last_l2.map(|t| t.elapsed().as_secs()),
@@ -256,6 +265,8 @@ async fn metrics_handler(State(state): State<Arc<HealthState>>) -> String {
     let stats = state.stats.read().await;
     let error_counts = state.error_counts.read().await;
     let uptime = state.start_time.elapsed().as_secs();
+    let last_l2 = state.last_l2_check.read().await;
+    let last_seq = state.last_sequencer_check.read().await;
 
     let total = stats.total_anchored + stats.total_failed;
     let success_rate = if total > 0 {
@@ -264,7 +275,16 @@ async fn metrics_handler(State(state): State<Arc<HealthState>>) -> String {
         1.0
     };
 
-    let is_ready = if *state.is_ready.read().await { 1 } else { 0 };
+    let is_ready = *state.is_ready.read().await;
+    let l2_healthy = last_l2
+        .map(|t| t.elapsed().as_secs() < 60)
+        .unwrap_or(false);
+    let seq_healthy = last_seq
+        .map(|t| t.elapsed().as_secs() < 60)
+        .unwrap_or(false);
+    let is_ready = if is_ready && l2_healthy && seq_healthy { 1 } else { 0 };
+    let l2_connected = if l2_healthy { 1 } else { 0 };
+    let sequencer_connected = if seq_healthy { 1 } else { 0 };
 
     let total_errors = error_counts.config_errors
         + error_counts.l2_connection_errors
@@ -282,6 +302,38 @@ set_anchor_batches_total{{status="failed"}} {}
 # HELP set_anchor_events_total Total number of events anchored
 # TYPE set_anchor_events_total counter
 set_anchor_events_total {}
+
+# HELP set_anchor_gas_price_skips_total Total number of gas price skips
+# TYPE set_anchor_gas_price_skips_total counter
+set_anchor_gas_price_skips_total {}
+
+# HELP set_anchor_consecutive_failures Consecutive failed anchors
+# TYPE set_anchor_consecutive_failures gauge
+set_anchor_consecutive_failures {}
+
+# HELP set_anchor_avg_anchor_time_ms Average anchor time in milliseconds
+# TYPE set_anchor_avg_anchor_time_ms gauge
+set_anchor_avg_anchor_time_ms {}
+
+# HELP set_anchor_cycles_total Total anchor cycles completed
+# TYPE set_anchor_cycles_total counter
+set_anchor_cycles_total {}
+
+# HELP set_anchor_l2_connected Whether L2 is reachable
+# TYPE set_anchor_l2_connected gauge
+set_anchor_l2_connected {}
+
+# HELP set_anchor_sequencer_connected Whether the sequencer API is reachable
+# TYPE set_anchor_sequencer_connected gauge
+set_anchor_sequencer_connected {}
+
+# HELP set_anchor_l2_connection_failures_total Total L2 connection failures
+# TYPE set_anchor_l2_connection_failures_total counter
+set_anchor_l2_connection_failures_total {}
+
+# HELP set_anchor_sequencer_api_failures_total Total sequencer API failures
+# TYPE set_anchor_sequencer_api_failures_total counter
+set_anchor_sequencer_api_failures_total {}
 
 # HELP set_anchor_success_rate Ratio of successful anchors
 # TYPE set_anchor_success_rate gauge
@@ -311,6 +363,14 @@ set_anchor_errors_total_sum {}
         stats.total_anchored,
         stats.total_failed,
         stats.total_events_anchored,
+        stats.gas_price_skips,
+        stats.consecutive_failures,
+        stats.avg_anchor_time_ms,
+        stats.total_cycles,
+        l2_connected,
+        sequencer_connected,
+        stats.l2_connection_failures,
+        stats.sequencer_api_failures,
         success_rate,
         uptime,
         is_ready,
@@ -354,6 +414,15 @@ async fn stats_handler(State(state): State<Arc<HealthState>>) -> Json<StatsRespo
         success_rate,
         last_anchor_time: stats.last_anchor_time.map(|t| t.to_rfc3339()),
         last_batch_id: stats.last_batch_id.map(|id| id.to_string()),
+        consecutive_failures: stats.consecutive_failures,
+        l2_connection_failures: stats.l2_connection_failures,
+        sequencer_api_failures: stats.sequencer_api_failures,
+        gas_price_skips: stats.gas_price_skips,
+        avg_anchor_time_ms: stats.avg_anchor_time_ms,
+        last_l2_healthy: stats.last_l2_healthy.map(|t| t.to_rfc3339()),
+        last_sequencer_healthy: stats.last_sequencer_healthy.map(|t| t.to_rfc3339()),
+        total_cycles: stats.total_cycles,
+        service_started: stats.service_started.map(|t| t.to_rfc3339()),
         uptime_secs: uptime,
     })
 }
@@ -469,11 +538,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ready_endpoint_ready() {
+    async fn test_ready_endpoint_requires_sequencer() {
         let stats = Arc::new(RwLock::new(AnchorStats::default()));
         let state = Arc::new(HealthState::new(test_config(), stats));
 
-        // Mark as ready
         state.set_ready(true).await;
         state.mark_l2_healthy().await;
 
@@ -489,7 +557,38 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_ready_endpoint_ready() {
+        let stats = Arc::new(RwLock::new(AnchorStats::default()));
+        let state = Arc::new(HealthState::new(test_config(), stats));
+
+        // Mark as ready
+        state.set_ready(true).await;
+        state.mark_l2_healthy().await;
+        state.mark_sequencer_healthy().await;
+
+        let router = create_router(state);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
         assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["sequencer_connected"], true);
     }
 
     #[tokio::test]
@@ -500,6 +599,7 @@ mod tests {
             total_events_anchored: 500,
             last_anchor_time: None,
             last_batch_id: None,
+            ..AnchorStats::default()
         }));
         let state = Arc::new(HealthState::new(test_config(), stats));
         let router = create_router(state);
@@ -524,6 +624,10 @@ mod tests {
         assert!(body_str.contains("set_anchor_batches_total{status=\"success\"} 10"));
         assert!(body_str.contains("set_anchor_batches_total{status=\"failed\"} 2"));
         assert!(body_str.contains("set_anchor_events_total 500"));
+        assert!(body_str.contains("set_anchor_gas_price_skips_total 0"));
+        assert!(body_str.contains("set_anchor_cycles_total 0"));
+        assert!(body_str.contains("set_anchor_l2_connected 0"));
+        assert!(body_str.contains("set_anchor_sequencer_connected 0"));
         assert!(body_str.contains("set_anchor_errors_total{category=\"l2_connection\"} 0"));
     }
 

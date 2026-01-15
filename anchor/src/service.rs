@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     client::{create_provider, RegistryClient, SequencerApiClient},
     config::AnchorConfig,
+    error::{AnchorError, AuthorizationError, ConfigError, L2Error, SequencerApiError, TransactionError},
     health::HealthState,
     types::{AnchorNotification, AnchorResult, AnchorStats, BatchCommitment},
 };
@@ -54,6 +55,12 @@ impl AnchorService {
         Arc::clone(&self.stats)
     }
 
+    async fn record_error(&self, error: AnchorError) {
+        if let Some(ref health) = self.health_state {
+            health.record_error(&error).await;
+        }
+    }
+
     /// Run the anchor service loop
     pub async fn run(&self) -> Result<()> {
         info!(
@@ -63,13 +70,39 @@ impl AnchorService {
             "Starting Set Chain anchor service"
         );
 
+        {
+            let mut stats = self.stats.write().await;
+            if stats.service_started.is_none() {
+                stats.service_started = Some(Utc::now());
+            }
+        }
+
         // Create provider and registry client
-        let provider = create_provider(
+        let provider = match create_provider(
             &self.config.l2_rpc_url,
             &self.config.sequencer_private_key,
-        ).await?;
+        ).await {
+            Ok(provider) => provider,
+            Err(e) => {
+                self.record_error(AnchorError::Config(ConfigError::InvalidValue {
+                    field: "provider".to_string(),
+                    message: e.to_string(),
+                })).await;
+                return Err(e);
+            }
+        };
 
-        let chain_id = provider.get_chain_id().await?;
+        let chain_id = match provider.get_chain_id().await {
+            Ok(chain_id) => chain_id,
+            Err(e) => {
+                self.record_error(AnchorError::L2Connection(L2Error::RpcError(e.to_string()))).await;
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.l2_connection_failures += 1;
+                }
+                return Err(e.into());
+            }
+        };
         info!(chain_id = chain_id, "Connected to Set Chain");
 
         let registry_address: Address = self.config.set_registry_address.parse()?;
@@ -77,9 +110,20 @@ impl AnchorService {
 
         // Verify sequencer authorization
         let signer_address = self.get_signer_address()?;
-        let is_authorized = registry.is_authorized(signer_address).await?;
+        let is_authorized = match registry.is_authorized(signer_address).await {
+            Ok(is_authorized) => is_authorized,
+            Err(e) => {
+                self.record_error(AnchorError::Authorization(AuthorizationError::CheckFailed(
+                    e.to_string(),
+                ))).await;
+                return Err(e);
+            }
+        };
 
         if !is_authorized {
+            self.record_error(AnchorError::Authorization(AuthorizationError::NotAuthorized {
+                address: format!("{:?}", signer_address),
+            })).await;
             error!(
                 address = %signer_address,
                 "Sequencer address not authorized in SetRegistry"
@@ -97,14 +141,27 @@ impl AnchorService {
             health.set_ready(true).await;
             health.mark_l2_healthy().await;
         }
+        {
+            let mut stats = self.stats.write().await;
+            stats.mark_l2_healthy();
+        }
 
         // Main loop
         loop {
+            {
+                let mut stats = self.stats.write().await;
+                stats.total_cycles += 1;
+            }
+
             match self.anchor_pending(&registry).await {
                 Ok(results) => {
                     // Mark L2 as healthy on successful cycle
                     if let Some(ref health) = self.health_state {
                         health.mark_l2_healthy().await;
+                    }
+                    {
+                        let mut stats = self.stats.write().await;
+                        stats.mark_l2_healthy();
                     }
 
                     let successful = results.iter().filter(|r| r.success).count();
@@ -119,6 +176,10 @@ impl AnchorService {
                     }
                 }
                 Err(e) => {
+                    self.record_error(AnchorError::Internal(format!(
+                        "Anchor cycle failed: {}",
+                        e
+                    ))).await;
                     error!(error = %e, "Anchor cycle failed");
                 }
             }
@@ -133,11 +194,28 @@ impl AnchorService {
         registry: &RegistryClient<P>,
     ) -> Result<Vec<AnchorResult>> {
         if self.config.max_gas_price_gwei > 0 {
-            let gas_price = registry.gas_price().await?;
+            let gas_price = match registry.gas_price().await {
+                Ok(gas_price) => gas_price,
+                Err(e) => {
+                    self.record_error(AnchorError::L2Connection(L2Error::GasPriceError(
+                        e.to_string(),
+                    ))).await;
+                    {
+                        let mut stats = self.stats.write().await;
+                        stats.l2_connection_failures += 1;
+                    }
+                    warn!(error = %e, "Failed to fetch gas price");
+                    return Ok(vec![]);
+                }
+            };
             let max_gas_price = U256::from(self.config.max_gas_price_gwei)
                 * U256::from(1_000_000_000u64);
 
             if gas_price > max_gas_price {
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.record_gas_skip();
+                }
                 warn!(
                     gas_price = %gas_price,
                     max_gas_price = %max_gas_price,
@@ -154,9 +232,23 @@ impl AnchorService {
                 if let Some(ref health) = self.health_state {
                     health.mark_sequencer_healthy().await;
                 }
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.mark_sequencer_healthy();
+                }
                 c
             }
             Err(e) => {
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.sequencer_api_failures += 1;
+                }
+                self.record_error(AnchorError::SequencerApi(
+                    SequencerApiError::ConnectionFailed {
+                        url: self.config.sequencer_api_url.clone(),
+                        message: e.to_string(),
+                    },
+                )).await;
                 debug!(error = %e, "Failed to fetch pending commitments");
                 return Ok(vec![]);
             }
@@ -203,13 +295,13 @@ impl AnchorService {
         let mut last_error = None;
 
         for attempt in 1..=self.config.max_retries {
+            let start = std::time::Instant::now();
             match self.anchor_commitment(registry, commitment).await {
                 Ok(result) => {
                     // Update stats
                     let mut stats = self.stats.write().await;
-                    stats.total_anchored += 1;
+                    stats.record_success(start.elapsed().as_millis() as u64);
                     stats.total_events_anchored += commitment.event_count as u64;
-                    stats.last_anchor_time = Some(Utc::now());
                     stats.last_batch_id = Some(commitment.batch_id);
 
                     return result;
@@ -236,7 +328,12 @@ impl AnchorService {
 
         // All retries failed
         let mut stats = self.stats.write().await;
-        stats.total_failed += 1;
+        stats.record_failure(crate::types::ErrorType::Transaction);
+
+        let error_message = last_error.unwrap_or_else(|| "unknown error".to_string());
+        self.record_error(AnchorError::Transaction(TransactionError::SubmissionFailed(
+            error_message.clone(),
+        ))).await;
 
         AnchorResult {
             batch_id: commitment.batch_id,
@@ -244,7 +341,7 @@ impl AnchorService {
             block_number: 0,
             gas_used: 0,
             success: false,
-            error: last_error,
+            error: Some(error_message),
         }
     }
 
@@ -279,6 +376,14 @@ impl AnchorService {
             .notify_anchored(commitment.batch_id, &notification)
             .await
         {
+            {
+                let mut stats = self.stats.write().await;
+                stats.sequencer_api_failures += 1;
+            }
+            self.record_error(AnchorError::SequencerApi(
+                SequencerApiError::NotificationFailed(e.to_string()),
+            ))
+            .await;
             warn!(
                 batch_id = %commitment.batch_id,
                 error = %e,

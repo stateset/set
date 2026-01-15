@@ -482,6 +482,12 @@ function claimExpired(bytes32 txId) external
 ```
 Claim bond for expired forced transaction (censorship detected).
 
+##### `getExpirableTxs`
+```solidity
+function getExpirableTxs(uint256 maxResults) external view returns (bytes32[] memory txIds)
+```
+List expirable forced transactions (past deadline, not resolved). Intended for off-chain callers.
+
 ---
 
 ## SDK Reference

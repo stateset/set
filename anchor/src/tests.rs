@@ -192,70 +192,91 @@ mod types_tests {
 
 #[cfg(test)]
 mod health_tests {
+    use crate::config::AnchorConfig;
     use crate::health::HealthState;
+    use crate::types::AnchorStats;
     use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    fn test_config() -> AnchorConfig {
+        AnchorConfig {
+            l2_rpc_url: "http://localhost:8547".to_string(),
+            set_registry_address: "0x0000000000000000000000000000000000000000".to_string(),
+            sequencer_private_key: "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+            sequencer_api_url: "http://localhost:8080".to_string(),
+            anchor_interval_secs: 30,
+            min_events_for_anchor: 1,
+            max_retries: 3,
+            retry_delay_secs: 5,
+            max_gas_price_gwei: 0,
+            health_port: 9090,
+        }
+    }
+
+    fn build_state() -> Arc<HealthState> {
+        let stats = Arc::new(RwLock::new(AnchorStats::default()));
+        Arc::new(HealthState::new(test_config(), stats))
+    }
 
     #[tokio::test]
     async fn test_health_state_initialization() {
-        let health = HealthState::new();
+        let health = build_state();
 
-        assert!(!health.is_ready().await);
-        assert!(!health.is_healthy().await);
+        assert!(!*health.is_ready.read().await);
+        assert!(health.last_l2_check.read().await.is_none());
+        assert!(health.last_sequencer_check.read().await.is_none());
     }
 
     #[tokio::test]
     async fn test_health_state_ready() {
-        let health = HealthState::new();
+        let health = build_state();
 
         health.set_ready(true).await;
-        assert!(health.is_ready().await);
+        assert!(*health.is_ready.read().await);
 
         health.set_ready(false).await;
-        assert!(!health.is_ready().await);
+        assert!(!*health.is_ready.read().await);
     }
 
     #[tokio::test]
     async fn test_health_state_l2_healthy() {
-        let health = HealthState::new();
+        let health = build_state();
 
         health.mark_l2_healthy().await;
-        // Health check includes L2 status
-        let status = health.get_status().await;
-        assert!(status.l2_connected);
+        assert!(health.last_l2_check.read().await.is_some());
     }
 
     #[tokio::test]
     async fn test_health_state_sequencer_healthy() {
-        let health = HealthState::new();
+        let health = build_state();
 
         health.mark_sequencer_healthy().await;
-        let status = health.get_status().await;
-        assert!(status.sequencer_connected);
+        assert!(health.last_sequencer_check.read().await.is_some());
     }
 
     #[tokio::test]
     async fn test_health_state_full_health() {
-        let health = HealthState::new();
+        let health = build_state();
 
         health.set_ready(true).await;
         health.mark_l2_healthy().await;
         health.mark_sequencer_healthy().await;
 
-        assert!(health.is_ready().await);
-        assert!(health.is_healthy().await);
+        assert!(*health.is_ready.read().await);
+        assert!(health.last_l2_check.read().await.is_some());
+        assert!(health.last_sequencer_check.read().await.is_some());
     }
 
     #[tokio::test]
     async fn test_health_state_shared() {
-        let health = Arc::new(HealthState::new());
+        let health = build_state();
         let health_clone = Arc::clone(&health);
 
         health.set_ready(true).await;
-        assert!(health_clone.is_ready().await);
+        assert!(*health_clone.is_ready.read().await);
 
         health_clone.mark_l2_healthy().await;
-        let status = health.get_status().await;
-        assert!(status.l2_connected);
+        assert!(health.last_l2_check.read().await.is_some());
     }
 }
 
@@ -264,7 +285,9 @@ mod service_tests {
     use crate::config::AnchorConfig;
     use crate::service::AnchorService;
     use crate::health::HealthState;
+    use crate::types::AnchorStats;
     use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     fn test_config() -> AnchorConfig {
         AnchorConfig {
@@ -293,7 +316,10 @@ mod service_tests {
     #[test]
     fn test_service_with_health_state() {
         let config = test_config();
-        let health = Arc::new(HealthState::new());
+        let health = Arc::new(HealthState::new(
+            config.clone(),
+            Arc::new(RwLock::new(AnchorStats::default())),
+        ));
         let service = AnchorService::with_health_state(config, Arc::clone(&health));
 
         // Stats reference should be shared

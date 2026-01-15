@@ -153,6 +153,7 @@ contract SetRegistry is
 
         if (_initialSequencer != address(0)) {
             authorizedSequencers[_initialSequencer] = true;
+            authorizedSequencerCount = 1;
             emit SequencerAuthorized(_initialSequencer, true);
         }
 

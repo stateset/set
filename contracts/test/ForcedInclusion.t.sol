@@ -78,6 +78,12 @@ contract ForcedInclusionTest is Test {
         assertEq(forcedInclusion.MAX_GAS_LIMIT(), 10_000_000);
     }
 
+    function test_SetTxRootOracle_RevertsZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ForcedInclusion.InvalidAddress.selector);
+        forcedInclusion.setTxRootOracle(address(0));
+    }
+
     // =========================================================================
     // Force Transaction Tests
     // =========================================================================
@@ -167,6 +173,30 @@ contract ForcedInclusionTest is Test {
 
         bytes32[] memory pending = forcedInclusion.getUserPendingTxs(user);
         assertEq(pending.length, 2);
+    }
+
+    function test_GetExpirableTxs() public {
+        vm.startPrank(user);
+        bytes32 txId1 = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            target,
+            txData,
+            gasLimit
+        );
+        bytes32 txId2 = forcedInclusion.forceTransaction{value: 0.1 ether}(
+            address(0x200),
+            abi.encodeWithSignature("other()"),
+            gasLimit
+        );
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + forcedInclusion.INCLUSION_DEADLINE() + 1);
+
+        vm.prank(user);
+        forcedInclusion.claimExpired(txId1);
+
+        bytes32[] memory expirable = forcedInclusion.getExpirableTxs(10);
+        assertEq(expirable.length, 1);
+        assertEq(expirable[0], txId2);
     }
 
     // =========================================================================

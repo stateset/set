@@ -100,8 +100,8 @@ contract ThresholdKeyRegistry is
     /// @notice Current epoch
     uint256 public currentEpoch;
 
-    /// @notice Current DKG state
-    DKGState public dkgState;
+    /// @notice Current DKG state (contains mappings; cannot be public)
+    DKGState private dkgState;
 
     /// @notice Required threshold (t-of-n)
     uint256 public threshold;

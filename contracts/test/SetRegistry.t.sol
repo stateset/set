@@ -50,6 +50,7 @@ contract SetRegistryTest is Test {
         assertTrue(registry.authorizedSequencers(sequencer));
         assertTrue(registry.strictModeEnabled());
         assertEq(registry.totalCommitments(), 0);
+        assertEq(registry.authorizedSequencerCount(), 1);
     }
 
     function test_Initialize_WithZeroSequencer() public {
@@ -62,6 +63,7 @@ contract SetRegistryTest is Test {
         SetRegistry reg = SetRegistry(address(proxy));
 
         assertFalse(reg.authorizedSequencers(address(0)));
+        assertEq(reg.authorizedSequencerCount(), 0);
     }
 
     function test_CannotReinitialize() public {
@@ -153,6 +155,74 @@ contract SetRegistryTest is Test {
         assertGt(timestamp, 0);
 
         assertEq(registry.totalCommitments(), 1);
+    }
+
+    function test_CommitBatchWithStarkProof() public {
+        bytes32 batchId = keccak256("batch-stark");
+        bytes32 eventsRoot = keccak256("events");
+        bytes32 prevStateRoot = bytes32(0);
+        bytes32 newStateRoot = keccak256("state1");
+        bytes32 proofHash = keccak256("proof");
+        bytes32 policyHash = keccak256("policy");
+
+        vm.prank(sequencer);
+        registry.commitBatchWithStarkProof(
+            batchId,
+            tenantId,
+            storeId,
+            eventsRoot,
+            prevStateRoot,
+            newStateRoot,
+            1,
+            10,
+            10,
+            proofHash,
+            policyHash,
+            100,
+            true,
+            1024,
+            500
+        );
+
+        (
+            bytes32 storedEventsRoot,
+            ,
+            bytes32 storedNewStateRoot,
+            uint64 seqStart,
+            uint64 seqEnd,
+            uint32 eventCount,
+            ,
+            address submitter
+        ) = registry.commitments(batchId);
+
+        assertEq(storedEventsRoot, eventsRoot);
+        assertEq(storedNewStateRoot, newStateRoot);
+        assertEq(seqStart, 1);
+        assertEq(seqEnd, 10);
+        assertEq(eventCount, 10);
+        assertEq(submitter, sequencer);
+
+        (
+            bytes32 storedProofHash,
+            bytes32 storedPolicyHash,
+            uint64 policyLimit,
+            bool allCompliant,
+            uint64 proofSize,
+            uint64 provingTimeMs,
+            ,
+            address proofSubmitter
+        ) = registry.starkProofs(batchId);
+
+        assertEq(storedProofHash, proofHash);
+        assertEq(storedPolicyHash, policyHash);
+        assertEq(policyLimit, 100);
+        assertTrue(allCompliant);
+        assertEq(proofSize, 1024);
+        assertEq(provingTimeMs, 500);
+        assertEq(proofSubmitter, sequencer);
+
+        assertEq(registry.totalCommitments(), 1);
+        assertEq(registry.totalStarkProofs(), 1);
     }
 
     function test_CommitBatch_EmitsEvent() public {
@@ -658,7 +728,16 @@ contract SetRegistryTest is Test {
     // Legacy Compatibility Tests
     // =========================================================================
 
+    function test_RegisterBatchRoot_DisabledByDefault() public {
+        vm.prank(sequencer);
+        vm.expectRevert(SetRegistry.LegacyFunctionsDisabled.selector);
+        registry.registerBatchRoot(1, 10, keccak256("root"));
+    }
+
     function test_RegisterBatchRoot_Legacy() public {
+        vm.prank(owner);
+        registry.setLegacyFunctionsEnabled(true);
+
         vm.prank(sequencer);
         registry.registerBatchRoot(1, 10, keccak256("root"));
 
@@ -667,6 +746,9 @@ contract SetRegistryTest is Test {
 
     function test_GetBatchRoot_Legacy() public {
         bytes32 root = keccak256("root");
+
+        vm.prank(owner);
+        registry.setLegacyFunctionsEnabled(true);
 
         vm.prank(sequencer);
         registry.registerBatchRoot(1, 10, root);

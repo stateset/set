@@ -206,6 +206,7 @@ async fn test_ready_endpoint_becomes_ready() {
     // Mark as ready
     health_state.set_ready(true).await;
     health_state.mark_l2_healthy().await;
+    health_state.mark_sequencer_healthy().await;
 
     let router = set_anchor::health::create_router(Arc::clone(&health_state));
 
@@ -227,6 +228,7 @@ async fn test_ready_endpoint_becomes_ready() {
 
     assert_eq!(json["ready"], true);
     assert_eq!(json["l2_connected"], true);
+    assert_eq!(json["sequencer_connected"], true);
 }
 
 #[tokio::test]
@@ -237,6 +239,7 @@ async fn test_metrics_endpoint_format() {
         total_events_anchored: 1000,
         last_anchor_time: Some(Utc::now()),
         last_batch_id: Some(Uuid::new_v4()),
+        ..AnchorStats::default()
     }));
 
     let config = test_config(
@@ -271,6 +274,10 @@ async fn test_metrics_endpoint_format() {
     assert!(body_str.contains("set_anchor_batches_total{status=\"success\"} 42"));
     assert!(body_str.contains("set_anchor_batches_total{status=\"failed\"} 3"));
     assert!(body_str.contains("set_anchor_events_total 1000"));
+    assert!(body_str.contains("set_anchor_gas_price_skips_total 0"));
+    assert!(body_str.contains("set_anchor_cycles_total 0"));
+    assert!(body_str.contains("set_anchor_l2_connected 0"));
+    assert!(body_str.contains("set_anchor_sequencer_connected 0"));
 }
 
 #[tokio::test]
@@ -281,6 +288,7 @@ async fn test_stats_endpoint_json() {
         total_events_anchored: 500,
         last_anchor_time: None,
         last_batch_id: None,
+        ..AnchorStats::default()
     }));
 
     let config = test_config(

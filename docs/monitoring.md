@@ -19,15 +19,30 @@ Prometheus metrics from `GET /metrics`:
 - `set_anchor_batches_total{status="success"}`
 - `set_anchor_batches_total{status="failed"}`
 - `set_anchor_events_total`
+- `set_anchor_gas_price_skips_total`
+- `set_anchor_consecutive_failures`
+- `set_anchor_avg_anchor_time_ms`
+- `set_anchor_cycles_total`
+- `set_anchor_l2_connected`
+- `set_anchor_sequencer_connected`
+- `set_anchor_l2_connection_failures_total`
+- `set_anchor_sequencer_api_failures_total`
 - `set_anchor_success_rate`
 - `set_anchor_uptime_seconds`
 - `set_anchor_ready`
+- `set_anchor_errors_total{category="config|l2_connection|sequencer_api|transaction|authorization|internal"}`
+- `set_anchor_errors_total_sum`
+
+Additional endpoints:
+- `GET /stats` (JSON stats for anchors, cycles, health timestamps)
+- `GET /errors` (recent errors with categories and retryability)
 
 ## Alert Suggestions
 - L2 block gap > 10 seconds (warn) or > 60 seconds (critical).
 - Batch submission gap > 30 minutes.
 - Anchor success rate < 0.98 over 15 minutes.
 - `set_anchor_ready` == 0 for > 60 seconds.
+  - Ready requires recent L2 + sequencer health checks.
 
 ## Local Monitoring Stack (Docker)
 Start Prometheus and Grafana with the included compose file:
