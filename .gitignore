@@ -30,7 +30,10 @@ Cargo.lock
 # Solidity / Foundry
 # =============================================================================
 /contracts/out/
+/contracts/out_*/
+/contracts/out-*/
 /contracts/cache/
+/contracts/cache-*/
 /contracts/cache_forge/
 /contracts/broadcast/
 /contracts/artifacts/
