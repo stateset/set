@@ -3,6 +3,12 @@
 This document records all significant operational milestones for Set Chain.
 Update as deployments and upgrades occur to maintain an auditable history.
 
+## How to update this document
+- Use UTC dates in YYYY-MM-DD.
+- Include exact transaction hashes and block numbers.
+- Record the git commit hash and tag for each deployment.
+- Keep placeholders until actual data is available; do not delete sections.
+
 ## Deployment Checklist
 
 Before recording a deployment, ensure:
@@ -26,6 +32,12 @@ Before recording a deployment, ensure:
 | Chain ID | 84532001 |
 | L1 Settlement | Sepolia (11155111) |
 | Block Time | 2 seconds |
+| Commit hash | |
+| Release tag | |
+| Genesis hash | |
+| Batch inbox | |
+| Sequencer address | |
+| Proposer address | |
 
 ### Endpoints
 
@@ -35,6 +47,7 @@ Before recording a deployment, ensure:
 | L2 WebSocket | wss://ws.sepolia.setchain.io |
 | Explorer | https://explorer.sepolia.setchain.io |
 | Bridge | https://bridge.sepolia.setchain.io |
+| Monitoring | |
 
 ### Contract Addresses
 
@@ -43,6 +56,15 @@ Before recording a deployment, ensure:
 | SetRegistry | 0x... | 0x... |
 | SetPaymaster | 0x... | 0x... |
 | SetTimelock | 0x... | N/A |
+| SequencerAttestation | 0x... | 0x... |
+| ForcedInclusion | 0x... | 0x... |
+| ThresholdKeyRegistry | 0x... | 0x... |
+| EncryptedMempool | 0x... | 0x... |
+| TokenRegistry | 0x... | 0x... |
+| NAVOracle | 0x... | 0x... |
+| ssUSD | 0x... | 0x... |
+| wssUSD | 0x... | 0x... |
+| TreasuryVault | 0x... | 0x... |
 
 ### L1 Contracts (Sepolia)
 
@@ -53,12 +75,16 @@ Before recording a deployment, ensure:
 | SystemConfig | 0x... |
 | L1StandardBridge | 0x... |
 | DisputeGameFactory | 0x... |
+| AnchorStateRegistry | 0x... |
+| MIPS | 0x... |
 
 ### Deployment Log
 
 ```
 # Record deployment transactions here
 Date: YYYY-MM-DD
+Commit: <git sha>
+Tag: <release tag>
 
 1. L1 contracts deployed
    - Tx: 0x...
@@ -74,7 +100,23 @@ Date: YYYY-MM-DD
 4. Governance deployed
    - Timelock: 0x...
    - Ownership transferred
+
+5. Explorer and bridge verified
+   - Explorer indexed at: <block height>
+   - Bridge deposit/withdraw test tx:
+
+6. Monitoring and alerting
+   - Alerts tested:
 ```
+
+### Post-deploy Verification Checklist
+- [ ] L2 RPC responds to `eth_chainId`
+- [ ] L2 block production stable for 24h
+- [ ] L1 batch submission observed
+- [ ] L2 output submissions observed
+- [ ] Explorer indexing verified
+- [ ] Bridge deposit/withdraw works end-to-end
+- [ ] Fault proof tooling deployed and reachable
 
 ---
 

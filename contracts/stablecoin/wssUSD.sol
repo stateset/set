@@ -90,7 +90,7 @@ contract wssUSD is
     event DailyWrapLimitUpdated(uint256 oldLimit, uint256 newLimit);
     event WrapCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
     event SnapshotIntervalUpdated(uint256 oldInterval, uint256 newInterval);
-    event SharePriceSnapshot(uint256 price, uint256 totalAssets, uint256 totalSupply);
+    event SharePriceSnapshotRecorded(uint256 price, uint256 totalAssets, uint256 totalSupply);
     event BatchWrapped(address indexed caller, uint256 totalSsUSD, uint256 totalWssUSD, uint256 count);
     event BatchUnwrapped(address indexed caller, uint256 totalWssUSD, uint256 totalSsUSD, uint256 count);
     // =========================================================================
@@ -148,12 +148,12 @@ contract wssUSD is
         if (depositCap > 0 && totalDeposited + ssUSDAmount > depositCap) {
             revert DepositCapExceeded();
         }
-        totalDeposited += ssUSDAmount;
 
         // Update rate limiting
         _updateWrapTracking(msg.sender, ssUSDAmount);
 
         wssUSDAmount = deposit(ssUSDAmount, msg.sender);
+        totalDeposited += ssUSDAmount;
 
         // Record snapshot if interval passed
         _maybeRecordSnapshot();
@@ -218,7 +218,7 @@ contract wssUSD is
             totalSupply: _totalSupply
         }));
 
-        emit SharePriceSnapshot(price, _totalAssets, _totalSupply);
+        emit SharePriceSnapshotRecorded(price, _totalAssets, _totalSupply);
     }
 
     /**
@@ -307,9 +307,9 @@ contract wssUSD is
             if (depositCap > 0 && totalDeposited + amounts[i] > depositCap) {
                 revert DepositCapExceeded();
             }
-            totalDeposited += amounts[i];
 
             uint256 shares = deposit(amounts[i], recipients[i]);
+            totalDeposited += amounts[i];
             totalSsUSD += amounts[i];
             totalWssUSD += shares;
 
@@ -488,7 +488,7 @@ contract wssUSD is
             totalSupply: _totalSupply
         }));
 
-        emit SharePriceSnapshot(price, _totalAssets, _totalSupply);
+        emit SharePriceSnapshotRecorded(price, _totalAssets, _totalSupply);
     }
 
     // =========================================================================

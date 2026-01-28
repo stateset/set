@@ -42,6 +42,34 @@ pub struct AnchorConfig {
     /// Health server port
     #[serde(default = "default_health_port")]
     pub health_port: u16,
+
+    /// Expected L2 chain ID (0 = disable check)
+    #[serde(default)]
+    pub expected_l2_chain_id: u64,
+
+    /// Maximum commitments to anchor per cycle (0 = unlimited)
+    #[serde(default = "default_max_commitments_per_cycle")]
+    pub max_commitments_per_cycle: u32,
+
+    /// Sequencer API request timeout in seconds
+    #[serde(default = "default_sequencer_request_timeout_secs")]
+    pub sequencer_request_timeout_secs: u64,
+
+    /// Sequencer API connect timeout in seconds
+    #[serde(default = "default_sequencer_connect_timeout_secs")]
+    pub sequencer_connect_timeout_secs: u64,
+
+    /// Circuit breaker failure threshold (consecutive failures)
+    #[serde(default = "default_circuit_breaker_failure_threshold")]
+    pub circuit_breaker_failure_threshold: u64,
+
+    /// Circuit breaker reset timeout in seconds
+    #[serde(default = "default_circuit_breaker_reset_timeout_secs")]
+    pub circuit_breaker_reset_timeout_secs: u64,
+
+    /// Circuit breaker successes required to close after half-open
+    #[serde(default = "default_circuit_breaker_half_open_success_threshold")]
+    pub circuit_breaker_half_open_success_threshold: u64,
 }
 
 fn default_health_port() -> u16 {
@@ -70,6 +98,30 @@ fn default_max_retries() -> u32 {
 
 fn default_retry_delay() -> u64 {
     5
+}
+
+fn default_max_commitments_per_cycle() -> u32 {
+    0
+}
+
+fn default_sequencer_request_timeout_secs() -> u64 {
+    10
+}
+
+fn default_sequencer_connect_timeout_secs() -> u64 {
+    3
+}
+
+fn default_circuit_breaker_failure_threshold() -> u64 {
+    5
+}
+
+fn default_circuit_breaker_reset_timeout_secs() -> u64 {
+    60
+}
+
+fn default_circuit_breaker_half_open_success_threshold() -> u64 {
+    3
 }
 
 impl AnchorConfig {
@@ -108,6 +160,35 @@ impl AnchorConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_else(default_health_port),
+            expected_l2_chain_id: std::env::var("EXPECTED_L2_CHAIN_ID")
+                .ok()
+                .or_else(|| std::env::var("L2_CHAIN_ID").ok())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
+            max_commitments_per_cycle: std::env::var("MAX_COMMITMENTS_PER_CYCLE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_max_commitments_per_cycle),
+            sequencer_request_timeout_secs: std::env::var("SEQUENCER_REQUEST_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_sequencer_request_timeout_secs),
+            sequencer_connect_timeout_secs: std::env::var("SEQUENCER_CONNECT_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_sequencer_connect_timeout_secs),
+            circuit_breaker_failure_threshold: std::env::var("CIRCUIT_BREAKER_FAILURE_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_circuit_breaker_failure_threshold),
+            circuit_breaker_reset_timeout_secs: std::env::var("CIRCUIT_BREAKER_RESET_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_circuit_breaker_reset_timeout_secs),
+            circuit_breaker_half_open_success_threshold: std::env::var("CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(default_circuit_breaker_half_open_success_threshold),
         })
     }
 }

@@ -3,14 +3,17 @@
 //! Deploys SetRegistry contract to local Anvil instance for integration testing.
 
 use alloy::{
-    network::EthereumWallet,
-    node_bindings::Anvil,
+    network::{EthereumWallet, TransactionBuilder},
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     sol,
+    transports::http::Http,
 };
+use alloy_node_bindings::{Anvil, AnvilInstance};
 use std::sync::Arc;
+
+type HttpTransport = Http<reqwest::Client>;
 
 // Import the SetRegistry contract interface
 sol! {
@@ -78,7 +81,7 @@ const SET_REGISTRY_BYTECODE: &str = include_str!("../fixtures/SetRegistry.bin");
 /// Test SetRegistry deployment wrapper
 pub struct TestSetRegistry {
     /// Anvil instance (keeps it alive)
-    pub anvil: Anvil,
+    pub anvil: AnvilInstance,
     /// Contract address
     pub address: Address,
     /// Owner/deployer address
@@ -142,7 +145,7 @@ impl TestSetRegistry {
     }
 
     /// Deploy a mock SetRegistry contract
-    async fn deploy_mock_registry<P: Provider + Clone>(
+    async fn deploy_mock_registry<P: Provider<HttpTransport> + Clone>(
         provider: &P,
         owner: Address,
         sequencer: Address,
@@ -162,7 +165,7 @@ impl TestSetRegistry {
 
         // Deploy contract
         let tx = alloy::rpc::types::TransactionRequest::default()
-            .with_deploy_code(bytecode.into());
+            .with_deploy_code(bytecode);
 
         let pending = provider.send_transaction(tx).await?;
         let receipt = pending.get_receipt().await?;

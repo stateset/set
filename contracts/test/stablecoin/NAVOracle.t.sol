@@ -124,7 +124,7 @@ contract NAVOracleTest is Test {
         oracle.attestNAV(1010 * 1e18, 20240102, bytes32(0));
 
         assertEq(oracle.getCurrentNAVPerShare(), 1.01e18);
-        assertEq(oracle.getHistoryCount(), 1);
+        assertEq(oracle.getHistoryCount(), 2);
     }
 
     function test_RevertAttestZeroAssets() public {
@@ -263,7 +263,7 @@ contract NAVOracleTest is Test {
             oracle.attestNAV(1000 * 1e18 + i * 1e18, 20240100 + i, bytes32(0));
         }
 
-        assertEq(oracle.getHistoryCount(), 4); // 5 attestations = 4 historical
+        assertEq(oracle.getHistoryCount(), 5); // 5 attestations + initial = 5 historical
 
         INAVOracle.NAVReport[] memory history = oracle.getNAVHistory(3);
         assertEq(history.length, 3);
@@ -279,9 +279,9 @@ contract NAVOracleTest is Test {
         vm.prank(attestor);
         oracle.attestNAV(1001 * 1e18, 20240102, bytes32(0));
 
-        // Request 10 but only 1 in history
+        // Request 10 but only 2 in history (initial + first)
         INAVOracle.NAVReport[] memory history = oracle.getNAVHistory(10);
-        assertEq(history.length, 1);
+        assertEq(history.length, 2);
     }
 
     // =========================================================================

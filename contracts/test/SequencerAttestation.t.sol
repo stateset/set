@@ -286,9 +286,11 @@ contract SequencerAttestationTest is Test {
     }
 
     function test_VerifyTxPosition_UpdatesStats() public {
-        bytes32[] memory txHashes = new bytes32[](2);
+        bytes32[] memory txHashes = new bytes32[](4);
         txHashes[0] = keccak256("tx0");
         txHashes[1] = keccak256("tx1");
+        txHashes[2] = keccak256("tx2");
+        txHashes[3] = keccak256("tx3");
 
         (bytes32 root, bytes32[][] memory proofs) = _buildMerkleTree(txHashes);
 
@@ -296,14 +298,14 @@ contract SequencerAttestationTest is Test {
             blockHash,
             blockNumber,
             root,
-            2
+            4
         );
 
         attestation.commitOrdering(
             blockHash,
             blockNumber,
             root,
-            2,
+            4,
             signature
         );
 

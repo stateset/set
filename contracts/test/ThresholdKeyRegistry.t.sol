@@ -22,7 +22,7 @@ contract ThresholdKeyRegistryTest is Test {
     uint256 public initialThreshold = 2;
 
     // Valid 48-byte BLS public key (placeholder)
-    bytes public validPubKey = hex"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+    bytes public validPubKey = hex"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6";
 
     function setUp() public {
         vm.startPrank(owner);

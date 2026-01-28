@@ -309,6 +309,28 @@ contract SetRegistryTest is Test {
         );
     }
 
+    function test_CommitBatch_InvalidEventCount() public {
+        vm.prank(sequencer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetRegistry.InvalidEventCount.selector,
+                uint64(10),
+                uint32(9)
+            )
+        );
+        registry.commitBatch(
+            keccak256("batch1"),
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            9 // does not match sequence range
+        );
+    }
+
     function test_CommitBatch_EmptyEventsRoot() public {
         vm.prank(sequencer);
         vm.expectRevert(SetRegistry.EmptyEventsRoot.selector);
@@ -990,12 +1012,14 @@ contract SetRegistryTest is Test {
         bytes32 eventsRoot,
         bytes32 newStateRoot,
         uint64 seqStart,
-        uint64 seqEnd,
-        uint32 eventCount
+        uint64 seqEnd
     ) public {
         vm.assume(eventsRoot != bytes32(0));
         vm.assume(seqEnd >= seqStart);
         vm.assume(batchId != bytes32(0));
+        uint256 expectedCount = uint256(seqEnd) - uint256(seqStart) + 1;
+        vm.assume(expectedCount <= type(uint32).max);
+        uint32 eventCount = uint32(expectedCount);
 
         vm.prank(sequencer);
         registry.commitBatch(

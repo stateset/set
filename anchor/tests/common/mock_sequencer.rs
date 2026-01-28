@@ -4,8 +4,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 use wiremock::{
     matchers::{method, path, path_regex},
@@ -132,30 +131,30 @@ impl MockSequencerApi {
 
     /// Add pending commitments
     pub async fn add_pending_commitment(&self, commitment: TestBatchCommitment) {
-        let mut state = self.state.write().await;
+        let mut state = self.state.write().unwrap();
         state.pending_commitments.push(commitment);
     }
 
     /// Add multiple pending commitments
     pub async fn add_pending_commitments(&self, commitments: Vec<TestBatchCommitment>) {
-        let mut state = self.state.write().await;
+        let mut state = self.state.write().unwrap();
         state.pending_commitments.extend(commitments);
     }
 
     /// Clear all pending commitments
     pub async fn clear_pending(&self) {
-        let mut state = self.state.write().await;
+        let mut state = self.state.write().unwrap();
         state.pending_commitments.clear();
     }
 
     /// Get received anchor notifications
     pub async fn get_notifications(&self) -> Vec<(Uuid, AnchorNotificationRequest)> {
-        self.state.read().await.anchor_notifications.clone()
+        self.state.read().unwrap().anchor_notifications.clone()
     }
 
     /// Clear anchor notifications
     pub async fn clear_notifications(&self) {
-        let mut state = self.state.write().await;
+        let mut state = self.state.write().unwrap();
         state.anchor_notifications.clear();
     }
 
@@ -166,12 +165,7 @@ impl MockSequencerApi {
         Mock::given(method("GET"))
             .and(path("/v1/commitments/pending"))
             .respond_with(move |_req: &wiremock::Request| {
-                let state = state.clone();
-                let commitments = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        state.read().await.pending_commitments.clone()
-                    })
-                });
+                let commitments = state.read().unwrap().pending_commitments.clone();
 
                 let response = PendingCommitmentsResponse {
                     total: commitments.len(),
@@ -210,18 +204,11 @@ impl MockSequencerApi {
                 };
 
                 // Record the notification
-                let state = state.clone();
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let mut state = state.write().await;
-                        state.anchor_notifications.push((batch_id, notification));
+                let mut state = state.write().unwrap();
+                state.anchor_notifications.push((batch_id, notification));
 
-                        // Remove from pending
-                        state
-                            .pending_commitments
-                            .retain(|c| c.batch_id != batch_id);
-                    })
-                });
+                // Remove from pending
+                state.pending_commitments.retain(|c| c.batch_id != batch_id);
 
                 ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "status": "ok"
@@ -248,7 +235,7 @@ impl MockSequencerApi {
 
     /// Get number of pending commitments
     pub async fn pending_count(&self) -> usize {
-        self.state.read().await.pending_commitments.len()
+        self.state.read().unwrap().pending_commitments.len()
     }
 }
 

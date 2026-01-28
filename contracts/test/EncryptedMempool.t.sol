@@ -32,7 +32,7 @@ contract EncryptedMempoolTest is Test {
     address public keyper3;
 
     // Valid 48-byte BLS public key (placeholder)
-    bytes public validPubKey = hex"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+    bytes public validPubKey = hex"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6";
 
     // Sample encrypted payload
     bytes public samplePayload = hex"deadbeefcafebabe";
@@ -442,7 +442,7 @@ contract EncryptedMempoolTest is Test {
 
         mempool.executeDecryptedTx(txId);
 
-        EncryptedMempool.EncryptedTx memory etx = mempool.getEncryptedTx(txId);
+        etx = mempool.getEncryptedTx(txId);
         assertEq(uint256(etx.status), uint256(EncryptedMempool.EncryptedTxStatus.Failed));
 
         EncryptedMempool.DecryptedTx memory dtx = mempool.getDecryptedTx(txId);
@@ -627,7 +627,7 @@ contract EncryptedMempoolTest is Test {
         // Should be able to submit again
         vm.prank(user1);
         bytes32 txId = mempool.submitEncryptedTx{value: requiredFee}(
-            hex"newpayload",
+            abi.encodePacked("newpayload"),
             2,
             gasLimit,
             maxFeePerGas

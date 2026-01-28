@@ -344,13 +344,13 @@ contract wssUSDTest is Test {
     }
 
     function test_GetWssUSDBySSUSD() public view {
-        uint256 wssUSD = vault.getWssUSDBySSUSD(100 ether);
-        assertEq(wssUSD, 100 ether); // 1:1 initially
+        uint256 wssUSDAmount = vault.getWssUSDBySSUSD(100 ether);
+        assertEq(wssUSDAmount, 100 ether); // 1:1 initially
     }
 
     function test_GetSSUSDByWssUSD() public view {
-        uint256 ssUSD = vault.getSSUSDByWssUSD(100 ether);
-        assertEq(ssUSD, 100 ether); // 1:1 initially
+        uint256 ssUSDAmount = vault.getSSUSDByWssUSD(100 ether);
+        assertEq(ssUSDAmount, 100 ether); // 1:1 initially
     }
 
     // =========================================================================

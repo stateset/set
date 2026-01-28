@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::{primitives::{Address, U256}, providers::Provider};
+use alloy::{primitives::{Address, U256}, providers::Provider, transports::http::Http};
 use anyhow::Result;
 use chrono::Utc;
 use tokio::sync::RwLock;
@@ -14,8 +14,10 @@ use crate::{
     config::AnchorConfig,
     error::{AnchorError, AuthorizationError, ConfigError, L2Error, SequencerApiError, TransactionError},
     health::HealthState,
-    types::{AnchorNotification, AnchorResult, AnchorStats, BatchCommitment},
+    types::{AnchorNotification, AnchorResult, AnchorStats, BatchCommitment, CircuitBreaker, CircuitBreakerState, ErrorType},
 };
+
+type HttpTransport = Http<reqwest::Client>;
 
 /// Anchor service that bridges sequencer to on-chain registry
 pub struct AnchorService {
@@ -23,30 +25,51 @@ pub struct AnchorService {
     sequencer_client: SequencerApiClient,
     stats: Arc<RwLock<AnchorStats>>,
     health_state: Option<Arc<HealthState>>,
+    circuit_breaker: Arc<RwLock<CircuitBreaker>>,
 }
 
 impl AnchorService {
     /// Create a new anchor service
     pub fn new(config: AnchorConfig) -> Self {
-        let sequencer_client = SequencerApiClient::new(&config.sequencer_api_url);
+        let sequencer_client = SequencerApiClient::new_with_timeouts(
+            &config.sequencer_api_url,
+            Duration::from_secs(config.sequencer_request_timeout_secs),
+            Duration::from_secs(config.sequencer_connect_timeout_secs),
+        );
+        let mut circuit_breaker = CircuitBreaker::new(
+            config.circuit_breaker_failure_threshold,
+            config.circuit_breaker_reset_timeout_secs,
+        );
+        circuit_breaker.half_open_success_threshold = config.circuit_breaker_half_open_success_threshold;
 
         Self {
             config,
             sequencer_client,
             stats: Arc::new(RwLock::new(AnchorStats::default())),
             health_state: None,
+            circuit_breaker: Arc::new(RwLock::new(circuit_breaker)),
         }
     }
 
     /// Create anchor service with health state for monitoring
     pub fn with_health_state(config: AnchorConfig, health_state: Arc<HealthState>) -> Self {
-        let sequencer_client = SequencerApiClient::new(&config.sequencer_api_url);
+        let sequencer_client = SequencerApiClient::new_with_timeouts(
+            &config.sequencer_api_url,
+            Duration::from_secs(config.sequencer_request_timeout_secs),
+            Duration::from_secs(config.sequencer_connect_timeout_secs),
+        );
+        let mut circuit_breaker = CircuitBreaker::new(
+            config.circuit_breaker_failure_threshold,
+            config.circuit_breaker_reset_timeout_secs,
+        );
+        circuit_breaker.half_open_success_threshold = config.circuit_breaker_half_open_success_threshold;
 
         Self {
             config,
             sequencer_client,
             stats: health_state.stats.clone(),
             health_state: Some(health_state),
+            circuit_breaker: Arc::new(RwLock::new(circuit_breaker)),
         }
     }
 
@@ -59,6 +82,42 @@ impl AnchorService {
         if let Some(ref health) = self.health_state {
             health.record_error(&error).await;
         }
+    }
+
+    async fn update_circuit_breaker_state(&self, state: CircuitBreakerState) {
+        let mut stats = self.stats.write().await;
+        stats.circuit_breaker_state = state;
+    }
+
+    async fn record_success(&self, commitment: &BatchCommitment, anchor_time_ms: u64) {
+        let state = {
+            let mut breaker = self.circuit_breaker.write().await;
+            breaker.record_success();
+            breaker.state
+        };
+
+        let mut stats = self.stats.write().await;
+        stats.record_success(anchor_time_ms);
+        stats.total_events_anchored += commitment.event_count as u64;
+        stats.last_batch_id = Some(commitment.batch_id);
+        stats.circuit_breaker_state = state;
+    }
+
+    async fn record_failure(&self, error_type: ErrorType) {
+        let consecutive_failures = {
+            let mut stats = self.stats.write().await;
+            stats.record_failure(error_type);
+            stats.consecutive_failures
+        };
+
+        let state = {
+            let mut breaker = self.circuit_breaker.write().await;
+            breaker.record_failure(consecutive_failures);
+            breaker.state
+        };
+
+        let mut stats = self.stats.write().await;
+        stats.circuit_breaker_state = state;
     }
 
     /// Run the anchor service loop
@@ -96,13 +155,23 @@ impl AnchorService {
             Ok(chain_id) => chain_id,
             Err(e) => {
                 self.record_error(AnchorError::L2Connection(L2Error::RpcError(e.to_string()))).await;
-                {
-                    let mut stats = self.stats.write().await;
-                    stats.l2_connection_failures += 1;
-                }
+                self.record_failure(ErrorType::L2Connection).await;
                 return Err(e.into());
             }
         };
+
+        if self.config.expected_l2_chain_id > 0 && chain_id != self.config.expected_l2_chain_id {
+            self.record_error(AnchorError::L2Connection(L2Error::ChainIdMismatch {
+                expected: self.config.expected_l2_chain_id,
+                actual: chain_id,
+            })).await;
+            self.record_failure(ErrorType::L2Connection).await;
+            anyhow::bail!(
+                "L2 chain ID mismatch: expected {}, got {}",
+                self.config.expected_l2_chain_id,
+                chain_id
+            );
+        }
         info!(chain_id = chain_id, "Connected to Set Chain");
 
         let registry_address: Address = self.config.set_registry_address.parse()?;
@@ -153,6 +222,28 @@ impl AnchorService {
                 stats.total_cycles += 1;
             }
 
+            let (allow_request, breaker_state) = {
+                let mut breaker = self.circuit_breaker.write().await;
+                let allow = breaker.allow_request();
+                (allow, breaker.state)
+            };
+
+            if !allow_request {
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.circuit_breaker_state = breaker_state;
+                    stats.circuit_breaker_open_skips += 1;
+                }
+                warn!(
+                    state = breaker_state.as_str(),
+                    "Circuit breaker open; skipping anchor cycle"
+                );
+                tokio::time::sleep(Duration::from_secs(self.config.anchor_interval_secs)).await;
+                continue;
+            }
+
+            self.update_circuit_breaker_state(breaker_state).await;
+
             match self.anchor_pending(&registry).await {
                 Ok(results) => {
                     // Mark L2 as healthy on successful cycle
@@ -180,6 +271,7 @@ impl AnchorService {
                         "Anchor cycle failed: {}",
                         e
                     ))).await;
+                    self.record_failure(ErrorType::Other).await;
                     error!(error = %e, "Anchor cycle failed");
                 }
             }
@@ -189,7 +281,7 @@ impl AnchorService {
     }
 
     /// Anchor all pending commitments
-    async fn anchor_pending<P: Provider + Clone>(
+    async fn anchor_pending<P: Provider<HttpTransport> + Clone>(
         &self,
         registry: &RegistryClient<P>,
     ) -> Result<Vec<AnchorResult>> {
@@ -200,10 +292,7 @@ impl AnchorService {
                     self.record_error(AnchorError::L2Connection(L2Error::GasPriceError(
                         e.to_string(),
                     ))).await;
-                    {
-                        let mut stats = self.stats.write().await;
-                        stats.l2_connection_failures += 1;
-                    }
+                    self.record_failure(ErrorType::L2Connection).await;
                     warn!(error = %e, "Failed to fetch gas price");
                     return Ok(vec![]);
                 }
@@ -226,7 +315,7 @@ impl AnchorService {
         }
 
         // Fetch pending commitments from sequencer
-        let commitments = match self.sequencer_client.get_pending_commitments().await {
+        let mut commitments = match self.sequencer_client.get_pending_commitments().await {
             Ok(c) => {
                 // Mark sequencer as healthy on successful fetch
                 if let Some(ref health) = self.health_state {
@@ -239,10 +328,7 @@ impl AnchorService {
                 c
             }
             Err(e) => {
-                {
-                    let mut stats = self.stats.write().await;
-                    stats.sequencer_api_failures += 1;
-                }
+                self.record_failure(ErrorType::SequencerApi).await;
                 self.record_error(AnchorError::SequencerApi(
                     SequencerApiError::ConnectionFailed {
                         url: self.config.sequencer_api_url.clone(),
@@ -263,6 +349,18 @@ impl AnchorService {
             count = commitments.len(),
             "Found pending commitments"
         );
+
+        if self.config.max_commitments_per_cycle > 0 {
+            let limit = self.config.max_commitments_per_cycle as usize;
+            if commitments.len() > limit {
+                info!(
+                    limit = limit,
+                    total = commitments.len(),
+                    "Limiting commitments to max per cycle"
+                );
+                commitments.truncate(limit);
+            }
+        }
 
         let mut results = Vec::new();
 
@@ -287,7 +385,7 @@ impl AnchorService {
     }
 
     /// Anchor a single commitment with retries
-    async fn anchor_with_retry<P: Provider + Clone>(
+    async fn anchor_with_retry<P: Provider<HttpTransport> + Clone>(
         &self,
         registry: &RegistryClient<P>,
         commitment: &BatchCommitment,
@@ -298,11 +396,7 @@ impl AnchorService {
             let start = std::time::Instant::now();
             match self.anchor_commitment(registry, commitment).await {
                 Ok(result) => {
-                    // Update stats
-                    let mut stats = self.stats.write().await;
-                    stats.record_success(start.elapsed().as_millis() as u64);
-                    stats.total_events_anchored += commitment.event_count as u64;
-                    stats.last_batch_id = Some(commitment.batch_id);
+                    self.record_success(commitment, start.elapsed().as_millis() as u64).await;
 
                     return result;
                 }
@@ -327,8 +421,7 @@ impl AnchorService {
         }
 
         // All retries failed
-        let mut stats = self.stats.write().await;
-        stats.record_failure(crate::types::ErrorType::Transaction);
+        self.record_failure(ErrorType::Transaction).await;
 
         let error_message = last_error.unwrap_or_else(|| "unknown error".to_string());
         self.record_error(AnchorError::Transaction(TransactionError::SubmissionFailed(
@@ -346,7 +439,7 @@ impl AnchorService {
     }
 
     /// Anchor a single commitment
-    async fn anchor_commitment<P: Provider + Clone>(
+    async fn anchor_commitment<P: Provider<HttpTransport> + Clone>(
         &self,
         registry: &RegistryClient<P>,
         commitment: &BatchCommitment,

@@ -5,6 +5,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
+interface ITxRootOracle {
+    function getTxRoot(uint256 l2BlockNumber) external view returns (bytes32);
+}
+
 /**
  * @title ForcedInclusion
  * @notice L1 contract for censorship-resistant transaction inclusion on Set Chain
@@ -20,14 +24,6 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  * the sequencer attempts to censor specific transactions.
  */
 contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
-    // =========================================================================
-    // Interfaces
-    // =========================================================================
-
-    interface ITxRootOracle {
-        function getTxRoot(uint256 l2BlockNumber) external view returns (bytes32);
-    }
-
     // =========================================================================
     // Constants
     // =========================================================================

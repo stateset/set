@@ -382,7 +382,7 @@ contract NAVOracle is
     /**
      * @notice Check if NAV is fresh (not stale)
      */
-    function isNAVFresh() external view returns (bool) {
+    function isNAVFresh() public view returns (bool) {
         return block.timestamp <= _currentNAV.timestamp + maxStalenessSeconds;
     }
 

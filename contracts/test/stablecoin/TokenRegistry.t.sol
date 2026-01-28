@@ -97,7 +97,7 @@ contract TokenRegistryTest is Test {
 
         registry.registerToken(
             token3, "Token 3", "TK3", 8,
-            ITokenRegistry.TokenCategory.EXTERNAL,
+            ITokenRegistry.TokenCategory.UNKNOWN,
             ITokenRegistry.TrustLevel.UNVERIFIED,
             false, ""
         );
@@ -432,8 +432,9 @@ contract TokenRegistryTest is Test {
         assertEq(info.updatedAt, registerTime);
 
         // Advance time and update
-        vm.warp(block.timestamp + 1 days);
-        uint256 updateTime = block.timestamp;
+        uint256 updateTime = registerTime + 1 days;
+        vm.warp(updateTime);
+        vm.roll(block.number + 1);
 
         registry.updateTokenMetadata(token1, "New Token", "NTK", "");
 

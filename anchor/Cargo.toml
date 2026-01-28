@@ -52,6 +52,7 @@ wiremock = "0.6"
 tempfile = "3"
 once_cell = "1"
 serial_test = "3"
+tower = { version = "0.5", features = ["util"] }
 
 # Alloy node bindings for local testing
 alloy-node-bindings = "0.8"

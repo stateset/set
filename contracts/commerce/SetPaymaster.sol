@@ -89,12 +89,14 @@ contract SetPaymaster is
 
     event TierCreated(uint256 indexed tierId, string name, uint256 maxPerTx, uint256 maxPerDay);
     event TierUpdated(uint256 indexed tierId, uint256 maxPerTx, uint256 maxPerDay);
+    event TierStatusUpdated(uint256 indexed tierId, bool active);
     event MerchantSponsored(address indexed merchant, uint256 tierId);
     event MerchantRevoked(address indexed merchant);
     event GasSponsored(address indexed merchant, uint256 amount, OperationType operationType);
     event Deposited(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event OperatorUpdated(address indexed operator, bool authorized);
+    event MinDepositUpdated(uint256 minDeposit);
     event BatchSponsorshipCompleted(uint256 processed, uint256 succeeded, uint256 failed);
     event BatchSponsorshipFailed(address indexed merchant, string reason);
 
@@ -117,6 +119,7 @@ contract SetPaymaster is
     error InsufficientBalance();
     error NotOperator();
     error InvalidTier();
+    error InvalidTierLimits();
     error InvalidAddress();
     error ArrayLengthMismatch();
     error BatchTooLarge();
@@ -151,6 +154,9 @@ contract SetPaymaster is
         address _owner,
         address _treasury
     ) public initializer {
+        if (_owner == address(0) || _treasury == address(0)) {
+            revert InvalidAddress();
+        }
         __Ownable_init(_owner);
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
@@ -179,6 +185,9 @@ contract SetPaymaster is
         uint256 _maxPerDay,
         uint256 _maxPerMonth
     ) external onlyOwner returns (uint256 tierId) {
+        if (_maxPerTx > _maxPerDay || _maxPerDay > _maxPerMonth) {
+            revert InvalidTierLimits();
+        }
         tierId = nextTierId++;
 
         tiers[tierId] = SponsorshipTier({
@@ -205,6 +214,12 @@ contract SetPaymaster is
         uint256 _maxPerDay,
         uint256 _maxPerMonth
     ) external onlyOwner {
+        if (_tierId >= nextTierId) {
+            revert InvalidTier();
+        }
+        if (_maxPerTx > _maxPerDay || _maxPerDay > _maxPerMonth) {
+            revert InvalidTierLimits();
+        }
         SponsorshipTier storage tier = tiers[_tierId];
         tier.maxPerTransaction = _maxPerTx;
         tier.maxPerDay = _maxPerDay;
@@ -214,11 +229,28 @@ contract SetPaymaster is
     }
 
     /**
+     * @notice Enable or disable a tier
+     * @param _tierId Tier ID
+     * @param _active Whether the tier is active
+     */
+    function setTierActive(uint256 _tierId, bool _active) external onlyOwner {
+        if (_tierId >= nextTierId) {
+            revert InvalidTier();
+        }
+
+        tiers[_tierId].active = _active;
+        emit TierStatusUpdated(_tierId, _active);
+    }
+
+    /**
      * @notice Set operator authorization
      * @param _operator Operator address
      * @param _authorized Whether authorized
      */
     function setOperator(address _operator, bool _authorized) external onlyOwner {
+        if (_operator == address(0)) {
+            revert InvalidAddress();
+        }
         operators[_operator] = _authorized;
         emit OperatorUpdated(_operator, _authorized);
     }
@@ -228,7 +260,19 @@ contract SetPaymaster is
      * @param _treasury New treasury address
      */
     function setTreasury(address _treasury) external onlyOwner {
+        if (_treasury == address(0)) {
+            revert InvalidAddress();
+        }
         treasury = _treasury;
+    }
+
+    /**
+     * @notice Update minimum deposit amount
+     * @param _minDeposit New minimum deposit
+     */
+    function setMinDeposit(uint256 _minDeposit) external onlyOwner {
+        minDeposit = _minDeposit;
+        emit MinDepositUpdated(_minDeposit);
     }
 
     // =========================================================================
@@ -244,7 +288,10 @@ contract SetPaymaster is
         address _merchant,
         uint256 _tierId
     ) external onlyOwner {
-        if (!tiers[_tierId].active) {
+        if (_merchant == address(0)) {
+            revert InvalidAddress();
+        }
+        if (_tierId >= nextTierId || !tiers[_tierId].active) {
             revert InvalidTier();
         }
 
@@ -266,6 +313,9 @@ contract SetPaymaster is
      * @param _merchant Merchant address
      */
     function revokeMerchant(address _merchant) external onlyOwner {
+        if (_merchant == address(0)) {
+            revert InvalidAddress();
+        }
         merchantSponsorship[_merchant].active = false;
         emit MerchantRevoked(_merchant);
     }
@@ -580,7 +630,7 @@ contract SetPaymaster is
 
         for (uint256 i = 0; i < _merchants.length; i++) {
             if (_merchants[i] == address(0)) revert InvalidAddress();
-            if (!tiers[_tierIds[i]].active) {
+            if (_tierIds[i] >= nextTierId || !tiers[_tierIds[i]].active) {
                 revert InvalidTier();
             }
 
@@ -607,6 +657,7 @@ contract SetPaymaster is
         if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
 
         for (uint256 i = 0; i < _merchants.length; i++) {
+            if (_merchants[i] == address(0)) revert InvalidAddress();
             merchantSponsorship[_merchants[i]].active = false;
             emit MerchantRevoked(_merchants[i]);
         }
@@ -633,6 +684,11 @@ contract SetPaymaster is
         if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
 
         for (uint256 i = 0; i < _merchants.length; i++) {
+            if (_merchants[i] == address(0)) {
+                emit BatchSponsorshipFailed(_merchants[i], "Invalid merchant");
+                failed++;
+                continue;
+            }
             MerchantSponsorship storage sponsorship = merchantSponsorship[_merchants[i]];
 
             // Skip inactive merchants
@@ -719,6 +775,7 @@ contract SetPaymaster is
         if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
 
         for (uint256 i = 0; i < _merchants.length; i++) {
+            if (_merchants[i] == address(0)) revert InvalidAddress();
             MerchantSponsorship storage sponsorship = merchantSponsorship[_merchants[i]];
             uint256 refundAmount = _refundAmounts[i];
 
@@ -809,7 +866,11 @@ contract SetPaymaster is
     /**
      * @notice Get comprehensive details for multiple merchants
      * @param _merchants Array of merchant addresses
-     * @return details Packed merchant details (active, tierId, spentToday, spentThisMonth, totalSponsored)
+     * @return active Merchant active flags
+     * @return tierIds Merchant tier IDs
+     * @return spentToday Daily spend per merchant
+     * @return spentThisMonth Monthly spend per merchant
+     * @return totalSponsored Total sponsored per merchant
      */
     function batchGetMerchantDetails(
         address[] calldata _merchants
@@ -850,9 +911,10 @@ contract SetPaymaster is
     ) external onlyOwner {
         if (_merchants.length == 0) revert EmptyArray();
         if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
-        if (!tiers[_newTierId].active) revert InvalidTier();
+        if (_newTierId >= nextTierId || !tiers[_newTierId].active) revert InvalidTier();
 
         for (uint256 i = 0; i < _merchants.length; i++) {
+            if (_merchants[i] == address(0)) revert InvalidAddress();
             MerchantSponsorship storage s = merchantSponsorship[_merchants[i]];
             if (s.active) {
                 s.tierId = _newTierId;

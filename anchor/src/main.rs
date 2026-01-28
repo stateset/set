@@ -42,6 +42,11 @@ async fn main() -> Result<()> {
         interval = config.anchor_interval_secs,
         min_events = config.min_events_for_anchor,
         health_port = config.health_port,
+        expected_chain_id = config.expected_l2_chain_id,
+        max_commitments_per_cycle = config.max_commitments_per_cycle,
+        sequencer_timeout_secs = config.sequencer_request_timeout_secs,
+        sequencer_connect_timeout_secs = config.sequencer_connect_timeout_secs,
+        circuit_breaker_threshold = config.circuit_breaker_failure_threshold,
         "Configuration loaded"
     );
 

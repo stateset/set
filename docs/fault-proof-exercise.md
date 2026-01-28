@@ -3,6 +3,11 @@
 This document records fault proof exercises conducted on Set Chain to validate
 the dispute resolution mechanism.
 
+## How to use this log
+- Use UTC timestamps in YYYY-MM-DD and HH:MM.
+- Record exact transaction hashes and block numbers.
+- Attach logs and screenshots under `reports/`.
+
 ## Prerequisites
 
 Before running a fault proof exercise:
@@ -55,6 +60,8 @@ Use the fault proof exercise script:
 - L2 RPC:
 - Challenger version:
 - Network: Sepolia
+- Commit hash:
+- Release tag:
 
 **Dispute Game Details:**
 - Game Address:
@@ -63,6 +70,8 @@ Use the fault proof exercise script:
 - Created At:
 - Resolved At:
 - Outcome: Challenger Wins / Defender Wins
+- Bond amount:
+- Game duration:
 
 **Steps Performed:**
 1. [ ] Verified op-challenger was running and connected
@@ -86,6 +95,9 @@ Use the fault proof exercise script:
 
 **Lessons Learned:**
 -
+
+### Exercise 2: [DATE]
+Duplicate this section for subsequent exercises.
 
 ---
 

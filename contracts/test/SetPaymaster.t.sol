@@ -17,6 +17,7 @@ contract SetPaymasterTest is Test {
 
     event TierCreated(uint256 indexed tierId, string name, uint256 maxPerTx, uint256 maxPerDay);
     event TierUpdated(uint256 indexed tierId, uint256 maxPerTx, uint256 maxPerDay);
+    event TierStatusUpdated(uint256 indexed tierId, bool active);
     event MerchantSponsored(address indexed merchant, uint256 tierId);
     event MerchantRevoked(address indexed merchant);
     event GasSponsored(
@@ -27,6 +28,7 @@ contract SetPaymasterTest is Test {
     event Deposited(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event OperatorUpdated(address indexed operator, bool authorized);
+    event MinDepositUpdated(uint256 minDeposit);
 
     function setUp() public {
         // Deploy implementation
@@ -136,6 +138,12 @@ contract SetPaymasterTest is Test {
         assertTrue(active);
     }
 
+    function test_CreateTier_InvalidLimits() public {
+        vm.prank(owner);
+        vm.expectRevert(SetPaymaster.InvalidTierLimits.selector);
+        paymaster.createTier("Broken", 0.2 ether, 0.1 ether, 1 ether);
+    }
+
     function test_CreateTier_NotOwner() public {
         vm.prank(unauthorized);
         vm.expectRevert();
@@ -153,6 +161,22 @@ contract SetPaymasterTest is Test {
         assertEq(maxPerTx, 0.002 ether);
         assertEq(maxPerDay, 0.02 ether);
         assertEq(maxPerMonth, 0.2 ether);
+    }
+
+    function test_UpdateTier_InvalidTier() public {
+        vm.prank(owner);
+        vm.expectRevert(SetPaymaster.InvalidTier.selector);
+        paymaster.updateTier(99, 0.002 ether, 0.02 ether, 0.2 ether);
+    }
+
+    function test_SetTierActive() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit TierStatusUpdated(1, false);
+        paymaster.setTierActive(1, false);
+
+        (, , , , bool active) = paymaster.tiers(1);
+        assertFalse(active);
     }
 
     // =========================================================================
@@ -174,6 +198,14 @@ contract SetPaymasterTest is Test {
         vm.prank(unauthorized);
         vm.expectRevert();
         paymaster.setOperator(address(0x10), true);
+    }
+
+    function test_SetMinDeposit() public {
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit MinDepositUpdated(0.02 ether);
+        paymaster.setMinDeposit(0.02 ether);
+        assertEq(paymaster.minDeposit(), 0.02 ether);
     }
 
     // =========================================================================
@@ -199,6 +231,12 @@ contract SetPaymasterTest is Test {
         assertEq(spentToday, 0);
         assertEq(spentThisMonth, 0);
         assertEq(totalSponsored, 0);
+    }
+
+    function test_SponsorMerchant_InvalidAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(SetPaymaster.InvalidAddress.selector);
+        paymaster.sponsorMerchant(address(0), 1);
     }
 
     function test_SponsorMerchant_InvalidTier() public {
@@ -329,8 +367,8 @@ contract SetPaymasterTest is Test {
 
         vm.startPrank(operator);
 
-        // Use up most of daily limit
-        for (uint256 i = 0; i < 9; i++) {
+        // Use up daily limit
+        for (uint256 i = 0; i < 10; i++) {
             paymaster.executeSponsorship(
                 merchant,
                 0.001 ether,
@@ -338,15 +376,15 @@ contract SetPaymasterTest is Test {
             );
         }
 
-        // Next should fail - only 0.001 ether remaining
+        // Next should fail - daily limit exhausted
         vm.expectRevert(
             abi.encodeWithSelector(
                 SetPaymaster.ExceedsDailyLimit.selector,
-                0.002 ether,
-                0.001 ether
+                0.001 ether,
+                0
             )
         );
-        paymaster.executeSponsorship(merchant, 0.002 ether, SetPaymaster.OperationType.ORDER_CREATE);
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
 
         vm.stopPrank();
     }
@@ -355,13 +393,14 @@ contract SetPaymasterTest is Test {
         vm.prank(owner);
         paymaster.sponsorMerchant(merchant, 0); // Starter: 0.1 ether monthly limit
 
-        vm.startPrank(operator);
-
+        uint256 currentTime = block.timestamp;
         // Use up monthly limit over multiple "days"
         for (uint256 day = 0; day < 10; day++) {
-            // Simulate day passing
-            vm.warp(block.timestamp + 1 days);
+            currentTime += 1 days;
+            vm.warp(currentTime);
+            vm.roll(block.number + 1);
 
+            vm.startPrank(operator);
             for (uint256 i = 0; i < 10; i++) {
                 paymaster.executeSponsorship(
                     merchant,
@@ -369,13 +408,23 @@ contract SetPaymasterTest is Test {
                     SetPaymaster.OperationType.ORDER_CREATE
                 );
             }
+            vm.stopPrank();
         }
 
         // Should now be at monthly limit (0.1 ether)
         // Next day...
-        vm.warp(block.timestamp + 1 days);
+        currentTime += 2 days;
+        vm.warp(currentTime);
+        vm.roll(block.number + 1);
 
-        vm.expectRevert(); // Monthly limit exceeded
+        vm.startPrank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.ExceedsMonthlyLimit.selector,
+                0.001 ether,
+                0
+            )
+        );
         paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
 
         vm.stopPrank();
@@ -582,9 +631,9 @@ contract SetPaymasterTest is Test {
         assertEq(paymaster.getRemainingDailyAllowance(merchant), 0.01 ether);
 
         vm.prank(operator);
-        paymaster.executeSponsorship(merchant, 0.003 ether, SetPaymaster.OperationType.ORDER_CREATE);
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
 
-        assertEq(paymaster.getRemainingDailyAllowance(merchant), 0.007 ether);
+        assertEq(paymaster.getRemainingDailyAllowance(merchant), 0.009 ether);
     }
 
     function test_GetRemainingDailyAllowance_NotSponsored() public view {
@@ -657,6 +706,8 @@ contract SetPaymasterTest is Test {
         uint256 maxPerMonth
     ) public {
         vm.assume(maxPerTx > 0 && maxPerDay > 0 && maxPerMonth > 0);
+        vm.assume(maxPerTx <= maxPerDay);
+        vm.assume(maxPerDay <= maxPerMonth);
 
         vm.prank(owner);
         uint256 tierId = paymaster.createTier("Fuzz", maxPerTx, maxPerDay, maxPerMonth);

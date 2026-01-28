@@ -120,6 +120,7 @@ contract SetRegistry is
     error BatchAlreadyCommitted();
     error StateRootMismatch(bytes32 expected, bytes32 provided);
     error SequenceGap(uint64 expected, uint64 provided);
+    error InvalidEventCount(uint64 expected, uint32 provided);
     error InvalidProof();
     error BatchNotCommitted();
     error StarkProofAlreadyCommitted();
@@ -275,6 +276,10 @@ contract SetRegistry is
         // Basic validation
         if (_sequenceEnd < _sequenceStart) {
             revert InvalidSequenceRange();
+        }
+        uint64 expectedEventCount = _sequenceEnd - _sequenceStart + 1;
+        if (expectedEventCount > type(uint32).max || _eventCount != expectedEventCount) {
+            revert InvalidEventCount(expectedEventCount, _eventCount);
         }
         if (_eventsRoot == bytes32(0)) {
             revert EmptyEventsRoot();
@@ -436,6 +441,10 @@ contract SetRegistry is
         // Basic validation
         if (_sequenceEnd < _sequenceStart) {
             revert InvalidSequenceRange();
+        }
+        uint64 expectedEventCount = _sequenceEnd - _sequenceStart + 1;
+        if (expectedEventCount > type(uint32).max || _eventCount != expectedEventCount) {
+            revert InvalidEventCount(expectedEventCount, _eventCount);
         }
         if (_eventsRoot == bytes32(0)) {
             revert EmptyEventsRoot();

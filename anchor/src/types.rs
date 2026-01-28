@@ -94,6 +94,10 @@ pub struct AnchorStats {
     pub service_started: Option<DateTime<Utc>>,
     /// Total cycles completed
     pub total_cycles: u64,
+    /// Circuit breaker state
+    pub circuit_breaker_state: CircuitBreakerState,
+    /// Total cycles skipped due to open circuit breaker
+    pub circuit_breaker_open_skips: u64,
 }
 
 impl AnchorStats {
@@ -165,14 +169,35 @@ pub enum ErrorType {
 }
 
 /// Circuit breaker state
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CircuitBreakerState {
     /// Normal operation
+    #[default]
     Closed,
     /// Testing if service is recovered
     HalfOpen,
     /// Blocking operations
     Open,
+}
+
+impl CircuitBreakerState {
+    /// String representation for logs and JSON output
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CircuitBreakerState::Closed => "closed",
+            CircuitBreakerState::HalfOpen => "half-open",
+            CircuitBreakerState::Open => "open",
+        }
+    }
+
+    /// Metric representation for Prometheus (0=closed, 1=half-open, 2=open)
+    pub fn as_metric(&self) -> u64 {
+        match self {
+            CircuitBreakerState::Closed => 0,
+            CircuitBreakerState::HalfOpen => 1,
+            CircuitBreakerState::Open => 2,
+        }
+    }
 }
 
 /// Circuit breaker for resilience

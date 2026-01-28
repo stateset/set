@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./ThresholdKeyRegistry.sol";
 
 /**
@@ -459,8 +460,8 @@ contract EncryptedMempool is
         DecryptedTx storage dtx = decryptedTxs[_txId];
 
         if (etx.sender == address(0)) revert TxNotFound();
-        if (etx.status != EncryptedTxStatus.Decrypted) revert TxNotDecrypted();
         if (dtx.executed) revert TxAlreadyExecuted();
+        if (etx.status != EncryptedTxStatus.Decrypted) revert TxNotDecrypted();
 
         dtx.executed = true;
 
@@ -885,7 +886,7 @@ contract EncryptedMempool is
             return false;
         }
 
-        bytes32 messageHash = ECDSA.toEthSignedMessageHash(_message);
+        bytes32 messageHash = MessageHashUtils.toEthSignedMessageHash(_message);
 
         // Verify all signers are valid keypers and signatures match
         for (uint256 i = 0; i < _signers.length; i++) {

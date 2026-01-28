@@ -42,7 +42,7 @@ contract IntegrationTest is Test {
         SetRegistry registryImpl = new SetRegistry();
         bytes memory registryInitData = abi.encodeCall(
             SetRegistry.initialize,
-            (owner)
+            (owner, sequencer)
         );
         registryProxy = address(new ERC1967Proxy(address(registryImpl), registryInitData));
         registry = SetRegistry(registryProxy);
@@ -54,7 +54,7 @@ contract IntegrationTest is Test {
         SetPaymaster paymasterImpl = new SetPaymaster();
         bytes memory paymasterInitData = abi.encodeCall(
             SetPaymaster.initialize,
-            (owner)
+            (owner, owner)
         );
         paymasterProxy = address(new ERC1967Proxy(address(paymasterImpl), paymasterInitData));
         paymaster = SetPaymaster(payable(paymasterProxy));
@@ -88,7 +88,7 @@ contract IntegrationTest is Test {
         paymaster.deposit{value: 1 ether}();
 
         // Step 2: Operator sponsors merchant with Growth tier (tier 2)
-        vm.prank(operator);
+        vm.prank(owner);
         paymaster.sponsorMerchant(merchant, 2);
 
         // Step 3: Verify merchant is active
@@ -100,13 +100,25 @@ contract IntegrationTest is Test {
         vm.startPrank(operator);
 
         // Sponsor order creation
-        paymaster.executeSponsorship(merchant, 0.001 ether, 0); // ORDER_CREATE
+        paymaster.executeSponsorship(
+            merchant,
+            0.001 ether,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
 
         // Sponsor payment processing
-        paymaster.executeSponsorship(merchant, 0.0005 ether, 2); // PAYMENT_PROCESS
+        paymaster.executeSponsorship(
+            merchant,
+            0.0005 ether,
+            SetPaymaster.OperationType.PAYMENT_PROCESS
+        );
 
         // Sponsor commitment anchor
-        paymaster.executeSponsorship(merchant, 0.002 ether, 5); // COMMITMENT_ANCHOR
+        paymaster.executeSponsorship(
+            merchant,
+            0.002 ether,
+            SetPaymaster.OperationType.COMMITMENT_ANCHOR
+        );
 
         vm.stopPrank();
 
@@ -259,7 +271,13 @@ contract IntegrationTest is Test {
 
         // Try invalid batch (wrong prev state) - should fail
         vm.prank(sequencer);
-        vm.expectRevert(SetRegistry.InvalidPrevStateRoot.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetRegistry.StateRootMismatch.selector,
+                state3,
+                state1
+            )
+        );
         registry.commitBatch(
             keccak256("batch_invalid"),
             tenantId,
@@ -277,6 +295,9 @@ contract IntegrationTest is Test {
     function test_TimelockGovernanceFlow() public {
         // Step 1: Propose changing sequencer authorization
         address newSequencer = address(0x999);
+
+        vm.prank(owner);
+        registry.transferOwnership(address(timelock));
 
         bytes memory callData = abi.encodeCall(
             SetRegistry.setSequencerAuthorization,
@@ -337,19 +358,34 @@ contract IntegrationTest is Test {
      */
     function test_DailyLimitResetFlow() public {
         // Setup merchant
-        vm.prank(operator);
-        paymaster.sponsorMerchant(merchant, 1); // Starter tier: 0.1 ETH daily
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1); // Growth tier: 0.05 ETH daily
 
         // Spend up to daily limit
         vm.startPrank(operator);
 
-        // This should work (within limit)
-        paymaster.executeSponsorship(merchant, 0.05 ether, 0);
-        paymaster.executeSponsorship(merchant, 0.04 ether, 0);
+        uint256 perTx = 0.005 ether;
+        for (uint256 i = 0; i < 10; i++) {
+            paymaster.executeSponsorship(
+                merchant,
+                perTx,
+                SetPaymaster.OperationType.ORDER_CREATE
+            );
+        }
 
         // This should fail (exceeds daily limit)
-        vm.expectRevert(SetPaymaster.DailyLimitExceeded.selector);
-        paymaster.executeSponsorship(merchant, 0.02 ether, 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.ExceedsDailyLimit.selector,
+                perTx,
+                0
+            )
+        );
+        paymaster.executeSponsorship(
+            merchant,
+            perTx,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
 
         vm.stopPrank();
 
@@ -358,10 +394,14 @@ contract IntegrationTest is Test {
 
         // Should work again after reset
         vm.prank(operator);
-        paymaster.executeSponsorship(merchant, 0.05 ether, 0);
+        paymaster.executeSponsorship(
+            merchant,
+            perTx,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
 
         (, , uint256 spentToday, , ) = paymaster.getMerchantDetails(merchant);
-        assertEq(spentToday, 0.05 ether); // Reset to new day's spending
+        assertEq(spentToday, perTx); // Reset to new day's spending
     }
 
     /**
@@ -372,21 +412,26 @@ contract IntegrationTest is Test {
         vm.prank(merchant);
         paymaster.deposit{value: 0.5 ether}();
 
-        vm.prank(operator);
+        vm.prank(owner);
         paymaster.sponsorMerchant(merchant, 2);
 
         // Spend some
         vm.prank(operator);
-        paymaster.executeSponsorship(merchant, 0.1 ether, 0);
+        uint256 sponsorshipAmount = 0.01 ether;
+        paymaster.executeSponsorship(
+            merchant,
+            sponsorshipAmount,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
 
         // Issue refund (simulating overcharge correction)
         vm.prank(operator);
-        paymaster.refund(merchant, 0.02 ether);
+        paymaster.refundUnusedGas(merchant, 0.002 ether);
 
         // Verify refund recorded
         (, , uint256 spentToday, , uint256 totalSponsored) = paymaster.getMerchantDetails(merchant);
-        assertEq(spentToday, 0.08 ether);
-        assertEq(totalSponsored, 0.08 ether);
+        assertEq(spentToday, sponsorshipAmount - 0.002 ether);
+        assertEq(totalSponsored, sponsorshipAmount - 0.002 ether);
     }
 
     // =========================================================================
@@ -398,21 +443,29 @@ contract IntegrationTest is Test {
      */
     function test_MerchantDeactivationMidFlow() public {
         // Setup active merchant
-        vm.prank(operator);
+        vm.prank(owner);
         paymaster.sponsorMerchant(merchant, 2);
 
         // Execute one sponsorship
         vm.prank(operator);
-        paymaster.executeSponsorship(merchant, 0.01 ether, 0);
+        paymaster.executeSponsorship(
+            merchant,
+            0.01 ether,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
 
         // Deactivate merchant
         vm.prank(owner);
-        paymaster.deactivateMerchant(merchant);
+        paymaster.revokeMerchant(merchant);
 
         // Further sponsorships should fail
         vm.prank(operator);
-        vm.expectRevert(SetPaymaster.MerchantNotActive.selector);
-        paymaster.executeSponsorship(merchant, 0.01 ether, 0);
+        vm.expectRevert(SetPaymaster.NotSponsored.selector);
+        paymaster.executeSponsorship(
+            merchant,
+            0.01 ether,
+            SetPaymaster.OperationType.ORDER_CREATE
+        );
     }
 
     /**

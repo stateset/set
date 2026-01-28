@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod config_tests {
     use crate::config::AnchorConfig;
+    use serial_test::serial;
     use std::env;
 
     fn clear_env_vars() {
@@ -16,9 +17,17 @@ mod config_tests {
         env::remove_var("RETRY_DELAY_SECS");
         env::remove_var("MAX_GAS_PRICE_GWEI");
         env::remove_var("HEALTH_PORT");
+        env::remove_var("EXPECTED_L2_CHAIN_ID");
+        env::remove_var("MAX_COMMITMENTS_PER_CYCLE");
+        env::remove_var("SEQUENCER_REQUEST_TIMEOUT_SECS");
+        env::remove_var("SEQUENCER_CONNECT_TIMEOUT_SECS");
+        env::remove_var("CIRCUIT_BREAKER_FAILURE_THRESHOLD");
+        env::remove_var("CIRCUIT_BREAKER_RESET_TIMEOUT_SECS");
+        env::remove_var("CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD");
     }
 
     #[test]
+    #[serial]
     fn test_config_from_env_required_fields() {
         clear_env_vars();
 
@@ -39,6 +48,7 @@ mod config_tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_defaults() {
         clear_env_vars();
         env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
@@ -54,11 +64,19 @@ mod config_tests {
         assert_eq!(config.retry_delay_secs, 5);
         assert_eq!(config.max_gas_price_gwei, 0);
         assert_eq!(config.health_port, 9090);
+        assert_eq!(config.expected_l2_chain_id, 0);
+        assert_eq!(config.max_commitments_per_cycle, 0);
+        assert_eq!(config.sequencer_request_timeout_secs, 10);
+        assert_eq!(config.sequencer_connect_timeout_secs, 3);
+        assert_eq!(config.circuit_breaker_failure_threshold, 5);
+        assert_eq!(config.circuit_breaker_reset_timeout_secs, 60);
+        assert_eq!(config.circuit_breaker_half_open_success_threshold, 3);
 
         clear_env_vars();
     }
 
     #[test]
+    #[serial]
     fn test_config_custom_values() {
         clear_env_vars();
         env::set_var("SET_REGISTRY_ADDRESS", "0xabc");
@@ -71,6 +89,13 @@ mod config_tests {
         env::set_var("RETRY_DELAY_SECS", "10");
         env::set_var("MAX_GAS_PRICE_GWEI", "100");
         env::set_var("HEALTH_PORT", "8080");
+        env::set_var("EXPECTED_L2_CHAIN_ID", "84532001");
+        env::set_var("MAX_COMMITMENTS_PER_CYCLE", "25");
+        env::set_var("SEQUENCER_REQUEST_TIMEOUT_SECS", "15");
+        env::set_var("SEQUENCER_CONNECT_TIMEOUT_SECS", "4");
+        env::set_var("CIRCUIT_BREAKER_FAILURE_THRESHOLD", "7");
+        env::set_var("CIRCUIT_BREAKER_RESET_TIMEOUT_SECS", "90");
+        env::set_var("CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD", "2");
 
         let config = AnchorConfig::from_env().unwrap();
 
@@ -82,6 +107,13 @@ mod config_tests {
         assert_eq!(config.retry_delay_secs, 10);
         assert_eq!(config.max_gas_price_gwei, 100);
         assert_eq!(config.health_port, 8080);
+        assert_eq!(config.expected_l2_chain_id, 84532001);
+        assert_eq!(config.max_commitments_per_cycle, 25);
+        assert_eq!(config.sequencer_request_timeout_secs, 15);
+        assert_eq!(config.sequencer_connect_timeout_secs, 4);
+        assert_eq!(config.circuit_breaker_failure_threshold, 7);
+        assert_eq!(config.circuit_breaker_reset_timeout_secs, 90);
+        assert_eq!(config.circuit_breaker_half_open_success_threshold, 2);
 
         clear_env_vars();
     }
@@ -210,6 +242,13 @@ mod health_tests {
             retry_delay_secs: 5,
             max_gas_price_gwei: 0,
             health_port: 9090,
+            expected_l2_chain_id: 0,
+            max_commitments_per_cycle: 0,
+            sequencer_request_timeout_secs: 10,
+            sequencer_connect_timeout_secs: 3,
+            circuit_breaker_failure_threshold: 5,
+            circuit_breaker_reset_timeout_secs: 60,
+            circuit_breaker_half_open_success_threshold: 3,
         }
     }
 
@@ -301,6 +340,13 @@ mod service_tests {
             retry_delay_secs: 5,
             max_gas_price_gwei: 0,
             health_port: 9090,
+            expected_l2_chain_id: 0,
+            max_commitments_per_cycle: 0,
+            sequencer_request_timeout_secs: 10,
+            sequencer_connect_timeout_secs: 3,
+            circuit_breaker_failure_threshold: 5,
+            circuit_breaker_reset_timeout_secs: 60,
+            circuit_breaker_half_open_success_threshold: 3,
         }
     }
 

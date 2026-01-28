@@ -32,6 +32,8 @@ Prometheus metrics from `GET /metrics`:
 - `set_anchor_ready`
 - `set_anchor_errors_total{category="config|l2_connection|sequencer_api|transaction|authorization|internal"}`
 - `set_anchor_errors_total_sum`
+- `set_anchor_circuit_breaker_state`
+- `set_anchor_circuit_breaker_open_skips_total`
 
 Additional endpoints:
 - `GET /stats` (JSON stats for anchors, cycles, health timestamps)

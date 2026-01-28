@@ -7,7 +7,6 @@
 //! - GET /stats - JSON anchor statistics
 //! - GET /errors - Error statistics by category
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,7 +23,6 @@ use tokio::sync::RwLock;
 use tracing::info;
 
 use crate::config::AnchorConfig;
-use crate::error::ErrorSeverity;
 use crate::types::AnchorStats;
 
 /// Error counts by category for monitoring
@@ -212,6 +210,8 @@ pub struct StatsResponse {
     pub total_cycles: u64,
     pub service_started: Option<String>,
     pub uptime_secs: u64,
+    pub circuit_breaker_state: String,
+    pub circuit_breaker_open_skips: u64,
 }
 
 /// Errors response
@@ -292,6 +292,7 @@ async fn metrics_handler(State(state): State<Arc<HealthState>>) -> String {
         + error_counts.transaction_errors
         + error_counts.authorization_errors
         + error_counts.internal_errors;
+    let circuit_breaker_state = stats.circuit_breaker_state.as_metric();
 
     format!(
         r#"# HELP set_anchor_batches_total Total number of batches processed
@@ -359,6 +360,14 @@ set_anchor_errors_total{{category="internal"}} {}
 # HELP set_anchor_errors_total_sum Sum of all errors
 # TYPE set_anchor_errors_total_sum counter
 set_anchor_errors_total_sum {}
+
+# HELP set_anchor_circuit_breaker_state Circuit breaker state (0=closed, 1=half-open, 2=open)
+# TYPE set_anchor_circuit_breaker_state gauge
+set_anchor_circuit_breaker_state {}
+
+# HELP set_anchor_circuit_breaker_open_skips_total Total cycles skipped due to open circuit breaker
+# TYPE set_anchor_circuit_breaker_open_skips_total counter
+set_anchor_circuit_breaker_open_skips_total {}
 "#,
         stats.total_anchored,
         stats.total_failed,
@@ -381,6 +390,8 @@ set_anchor_errors_total_sum {}
         error_counts.authorization_errors,
         error_counts.internal_errors,
         total_errors,
+        circuit_breaker_state,
+        stats.circuit_breaker_open_skips,
     )
 }
 
@@ -424,6 +435,8 @@ async fn stats_handler(State(state): State<Arc<HealthState>>) -> Json<StatsRespo
         total_cycles: stats.total_cycles,
         service_started: stats.service_started.map(|t| t.to_rfc3339()),
         uptime_secs: uptime,
+        circuit_breaker_state: stats.circuit_breaker_state.as_str().to_string(),
+        circuit_breaker_open_skips: stats.circuit_breaker_open_skips,
     })
 }
 
@@ -481,7 +494,7 @@ mod tests {
     use crate::error::{AnchorError, L2Error};
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
+    use tower::util::ServiceExt;
 
     fn test_config() -> AnchorConfig {
         AnchorConfig {
@@ -495,6 +508,13 @@ mod tests {
             retry_delay_secs: 5,
             health_port: 9090,
             max_gas_price_gwei: 0,
+            expected_l2_chain_id: 0,
+            max_commitments_per_cycle: 0,
+            sequencer_request_timeout_secs: 10,
+            sequencer_connect_timeout_secs: 3,
+            circuit_breaker_failure_threshold: 5,
+            circuit_breaker_reset_timeout_secs: 60,
+            circuit_breaker_half_open_success_threshold: 3,
         }
     }
 

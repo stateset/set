@@ -46,6 +46,13 @@ fn test_config(sequencer_api_url: &str, l2_rpc_url: &str, registry_address: &str
         retry_delay_secs: 1,
         max_gas_price_gwei: 0,
         health_port: 0, // Random port
+        expected_l2_chain_id: 0,
+        max_commitments_per_cycle: 0,
+        sequencer_request_timeout_secs: 10,
+        sequencer_connect_timeout_secs: 3,
+        circuit_breaker_failure_threshold: 5,
+        circuit_breaker_reset_timeout_secs: 60,
+        circuit_breaker_half_open_success_threshold: 3,
     }
 }
 
@@ -147,7 +154,7 @@ async fn test_health_endpoint_returns_ok() {
     // Use axum test utilities
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
+    use tower::util::ServiceExt;
 
     let response = router
         .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
@@ -180,7 +187,7 @@ async fn test_ready_endpoint_not_ready_initially() {
 
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
+    use tower::util::ServiceExt;
 
     let response = router
         .oneshot(Request::builder().uri("/ready").body(Body::empty()).unwrap())
@@ -212,7 +219,7 @@ async fn test_ready_endpoint_becomes_ready() {
 
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
+    use tower::util::ServiceExt;
 
     let response = router
         .oneshot(Request::builder().uri("/ready").body(Body::empty()).unwrap())
@@ -254,7 +261,7 @@ async fn test_metrics_endpoint_format() {
 
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
+    use tower::util::ServiceExt;
 
     let response = router
         .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
@@ -303,7 +310,7 @@ async fn test_stats_endpoint_json() {
 
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
+    use tower::util::ServiceExt;
 
     let response = router
         .oneshot(Request::builder().uri("/stats").body(Body::empty()).unwrap())
@@ -350,6 +357,13 @@ async fn test_service_skips_below_threshold() {
         retry_delay_secs: 1,
         max_gas_price_gwei: 0,
         health_port: 0,
+        expected_l2_chain_id: 0,
+        max_commitments_per_cycle: 0,
+        sequencer_request_timeout_secs: 10,
+        sequencer_connect_timeout_secs: 3,
+        circuit_breaker_failure_threshold: 5,
+        circuit_breaker_reset_timeout_secs: 60,
+        circuit_breaker_half_open_success_threshold: 3,
     };
 
     // We can't run the full service without a real L2, but we can verify

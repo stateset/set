@@ -3,7 +3,6 @@
 //! This module provides structured error types for better error handling,
 //! monitoring, and debugging of the anchor service.
 
-use std::fmt;
 use thiserror::Error;
 
 /// Main error type for the anchor service
@@ -236,12 +235,6 @@ pub type AnchorResult<T> = std::result::Result<T, AnchorError>;
 pub trait ResultExt<T> {
     /// Convert to AnchorError with context
     fn anchor_context(self, context: &str) -> AnchorResult<T>;
-}
-
-impl<T> ResultExt<T> for anyhow::Result<T> {
-    fn anchor_context(self, context: &str) -> AnchorResult<T> {
-        self.map_err(|e| AnchorError::Internal(format!("{}: {}", context, e)))
-    }
 }
 
 impl<T, E: std::error::Error> ResultExt<T> for std::result::Result<T, E> {

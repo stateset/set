@@ -1,14 +1,17 @@
 //! Client for interacting with SetRegistry contract and sequencer API
 
+use std::time::Duration;
+
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     sol,
+    transports::http::Http,
 };
 use anyhow::Result;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::types::{AnchorNotification, BatchCommitment, PendingCommitmentsResponse};
@@ -53,6 +56,7 @@ sol!(
         {
             "type": "event",
             "name": "BatchCommitted",
+            "anonymous": false,
             "inputs": [
                 {"name": "batchId", "type": "bytes32", "indexed": true},
                 {"name": "tenantStoreKey", "type": "bytes32", "indexed": true},
@@ -66,14 +70,16 @@ sol!(
     ]"#
 );
 
+type HttpTransport = Http<reqwest::Client>;
+
 /// Client for SetRegistry contract interactions
 pub struct RegistryClient<P> {
-    contract: SetRegistry::SetRegistryInstance<(), P>,
+    contract: SetRegistry::SetRegistryInstance<HttpTransport, P>,
     provider: P,
     chain_id: u64,
 }
 
-impl<P: Provider + Clone> RegistryClient<P> {
+impl<P: Provider<HttpTransport> + Clone> RegistryClient<P> {
     /// Create a new registry client
     pub fn new(address: Address, provider: P, chain_id: u64) -> Self {
         let contract = SetRegistry::new(address, provider.clone());
@@ -150,7 +156,7 @@ impl<P: Provider + Clone> RegistryClient<P> {
 
     /// Get current gas price from provider
     pub async fn gas_price(&self) -> Result<U256> {
-        Ok(self.provider.get_gas_price().await?)
+        Ok(U256::from(self.provider.get_gas_price().await?))
     }
 }
 
@@ -161,11 +167,39 @@ pub struct SequencerApiClient {
 }
 
 impl SequencerApiClient {
+    const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 10;
+    const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 3;
+
     /// Create a new sequencer API client
     pub fn new(base_url: &str) -> Self {
+        Self::new_with_timeouts(
+            base_url,
+            Duration::from_secs(Self::DEFAULT_REQUEST_TIMEOUT_SECS),
+            Duration::from_secs(Self::DEFAULT_CONNECT_TIMEOUT_SECS),
+        )
+    }
+
+    /// Create a new sequencer API client with timeouts
+    pub fn new_with_timeouts(
+        base_url: &str,
+        request_timeout: Duration,
+        connect_timeout: Duration,
+    ) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(request_timeout)
+            .connect_timeout(connect_timeout)
+            .build()
+            .unwrap_or_else(|err| {
+                warn!(
+                    error = %err,
+                    "Failed to build sequencer HTTP client with timeouts; falling back to defaults"
+                );
+                reqwest::Client::new()
+            });
+
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::new(),
+            client,
         }
     }
 
@@ -220,7 +254,7 @@ impl SequencerApiClient {
 pub async fn create_provider(
     rpc_url: &str,
     private_key: &str,
-) -> Result<impl Provider + Clone> {
+) -> Result<impl Provider<HttpTransport> + Clone> {
     let signer: PrivateKeySigner = private_key.parse()?;
     let wallet = EthereumWallet::from(signer);
 

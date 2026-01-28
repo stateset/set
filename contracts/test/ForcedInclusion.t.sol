@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "../mev/ForcedInclusion.sol";
 
 contract MockL2OutputOracle {
@@ -33,6 +34,9 @@ contract MockTxRootOracle {
  * @notice Tests for L1 censorship resistance mechanism
  */
 contract ForcedInclusionTest is Test {
+    event L2OutputOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event OptimismPortalUpdated(address indexed oldPortal, address indexed newPortal);
+
     ForcedInclusion public forcedInclusion;
     MockL2OutputOracle public outputOracle;
     MockTxRootOracle public txRootOracle;
@@ -444,7 +448,9 @@ contract ForcedInclusionTest is Test {
     // =========================================================================
 
     function test_Constructor_RevertsZeroOwner() public {
-        vm.expectRevert(ForcedInclusion.InvalidAddress.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0))
+        );
         new ForcedInclusion(
             address(0),
             address(outputOracle),
@@ -483,7 +489,7 @@ contract ForcedInclusionTest is Test {
 
         vm.prank(owner);
         vm.expectEmit(true, true, false, false);
-        emit ForcedInclusion.L2OutputOracleUpdated(address(outputOracle), newOracle);
+        emit L2OutputOracleUpdated(address(outputOracle), newOracle);
         forcedInclusion.setL2OutputOracle(newOracle);
     }
 
@@ -492,7 +498,7 @@ contract ForcedInclusionTest is Test {
 
         vm.prank(owner);
         vm.expectEmit(true, true, false, false);
-        emit ForcedInclusion.OptimismPortalUpdated(optimismPortal, newPortal);
+        emit OptimismPortalUpdated(optimismPortal, newPortal);
         forcedInclusion.setOptimismPortal(newPortal);
     }
 
