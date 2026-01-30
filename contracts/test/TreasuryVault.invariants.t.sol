@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../stablecoin/TokenRegistry.sol";
 import "../stablecoin/NAVOracle.sol";
-import "../stablecoin/ssUSD.sol";
+import "../stablecoin/SSDC.sol";
 import "../stablecoin/TreasuryVault.sol";
 import "../stablecoin/interfaces/ITokenRegistry.sol";
 
@@ -32,7 +32,7 @@ contract MockUSDC is ERC20 {
  */
 contract TreasuryVaultHandler is Test {
     TreasuryVault public treasury;
-    ssUSD public ssusd;
+    SSDC public ssdc;
     NAVOracle public navOracle;
     MockUSDC public usdc;
     address public attestor;
@@ -47,13 +47,13 @@ contract TreasuryVaultHandler is Test {
 
     constructor(
         TreasuryVault _treasury,
-        ssUSD _ssusd,
+        SSDC _ssdc,
         NAVOracle _navOracle,
         MockUSDC _usdc,
         address _attestor
     ) {
         treasury = _treasury;
-        ssusd = _ssusd;
+        ssdc = _ssdc;
         navOracle = _navOracle;
         usdc = _usdc;
         attestor = _attestor;
@@ -82,13 +82,13 @@ contract TreasuryVaultHandler is Test {
 
     function requestRedemption(uint256 actorSeed, uint256 amount) external {
         address actor = actors[actorSeed % actors.length];
-        uint256 balance = ssusd.balanceOf(actor);
+        uint256 balance = ssdc.balanceOf(actor);
         if (balance == 0) return;
 
         amount = bound(amount, 1, balance);
 
         vm.startPrank(actor);
-        ssusd.approve(address(treasury), amount);
+        ssdc.approve(address(treasury), amount);
         try treasury.requestRedemption(amount, address(usdc)) returns (uint256 requestId) {
             redemptionRequests.push(requestId);
             totalRequestedRedemptions++;
@@ -125,7 +125,7 @@ contract TreasuryVaultHandler is Test {
 
     function updateNAV(uint256 newNAV) external {
         // Bound NAV to reasonable range
-        uint256 totalSupply = ssusd.totalSupply();
+        uint256 totalSupply = ssdc.totalSupply();
         if (totalSupply == 0) return;
 
         // NAV can be 50% to 200% of current
@@ -143,7 +143,7 @@ contract TreasuryVaultHandler is Test {
 contract TreasuryVaultInvariantTest is StdInvariant, Test {
     TokenRegistry public tokenRegistry;
     NAVOracle public navOracle;
-    ssUSD public ssusd;
+    SSDC public ssdc;
     TreasuryVault public treasury;
     MockUSDC public usdc;
     TreasuryVaultHandler public handler;
@@ -170,11 +170,11 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
             abi.encodeCall(NAVOracle.initialize, (owner, attestor, 24 hours))
         )));
 
-        // Deploy ssUSD
-        ssUSD ssusdImpl = new ssUSD();
-        ssusd = ssUSD(address(new ERC1967Proxy(
-            address(ssusdImpl),
-            abi.encodeCall(ssUSD.initialize, (owner, address(navOracle)))
+        // Deploy SSDC
+        SSDC ssdcImpl = new SSDC();
+        ssdc = SSDC(address(new ERC1967Proxy(
+            address(ssdcImpl),
+            abi.encodeCall(SSDC.initialize, (owner, address(navOracle)))
         )));
 
         // Deploy TreasuryVault
@@ -185,13 +185,13 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
                 owner,
                 address(tokenRegistry),
                 address(navOracle),
-                address(ssusd)
+                address(ssdc)
             ))
         )));
 
         // Wire up
-        ssusd.setTreasuryVault(address(treasury));
-        navOracle.setssUSD(address(ssusd));
+        ssdc.setTreasuryVault(address(treasury));
+        navOracle.setssUSD(address(ssdc));
 
         // Register USDC
         tokenRegistry.registerToken(
@@ -208,7 +208,7 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
         vm.stopPrank();
 
         // Create handler
-        handler = new TreasuryVaultHandler(treasury, ssusd, navOracle, usdc, attestor);
+        handler = new TreasuryVaultHandler(treasury, ssdc, navOracle, usdc, attestor);
 
         // Target handler for invariant testing
         targetContract(address(handler));
@@ -218,7 +218,7 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
      * @notice Invariant: Total shares should equal active shares + pending redemption shares
      */
     function invariant_SharesAccountingBalances() public view {
-        uint256 totalShares = ssusd.totalShares();
+        uint256 totalShares = ssdc.totalShares();
         uint256 pendingRedemptionShares = treasury.totalPendingRedemptionShares();
 
         // Total shares in circulation should be consistent
@@ -231,7 +231,7 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
      * @notice Invariant: Collateral value should cover outstanding ssUSD
      */
     function invariant_CollateralRatio() public view {
-        uint256 totalSupply = ssusd.totalSupply();
+        uint256 totalSupply = ssdc.totalSupply();
         if (totalSupply == 0) return;
 
         uint256 collateralValue = treasury.getTotalCollateralValue();

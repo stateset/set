@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../../stablecoin/TreasuryVault.sol";
 import "../../stablecoin/TokenRegistry.sol";
 import "../../stablecoin/NAVOracle.sol";
-import "../../stablecoin/ssUSD.sol";
+import "../../stablecoin/SSDC.sol";
 import "../../stablecoin/interfaces/ITreasuryVault.sol";
 
 /**

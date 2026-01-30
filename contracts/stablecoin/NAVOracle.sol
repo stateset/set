@@ -5,12 +5,12 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/INAVOracle.sol";
-import "./interfaces/IssUSD.sol";
+import "./interfaces/ISSDC.sol";
 
 /**
  * @title NAVOracle
  * @notice Oracle for T-Bill Net Asset Value attestation
- * @dev Company attests daily NAV of T-Bill holdings backing ssUSD
+ * @dev Company attests daily NAV of T-Bill holdings backing SSDC
  */
 contract NAVOracle is
     INAVOracle,
@@ -50,8 +50,8 @@ contract NAVOracle is
     /// @notice Maximum staleness for NAV (default 24 hours)
     uint256 public maxStalenessSeconds;
 
-    /// @notice ssUSD token address
-    address public ssUSD;
+    /// @notice SSDC token address
+    address public SSDC;
 
     /// @notice Configurable maximum NAV change per attestation (in basis points)
     uint256 public maxNavChangeBps;
@@ -109,6 +109,7 @@ contract NAVOracle is
     error InvalidThreshold();
     error ThresholdNotMet();
     error MultiSigRequired();
+    error SSDCNotSet();
 
     // =========================================================================
     // Modifiers
@@ -267,8 +268,8 @@ contract NAVOracle is
     ) internal {
         // Get total shares from ssUSD
         uint256 totalShares;
-        if (ssUSD != address(0)) {
-            totalShares = IssUSD(ssUSD).totalShares();
+        if (SSDC != address(0)) {
+            totalShares = ISSDC(SSDC).totalShares();
         }
 
         // Calculate new NAV per share
@@ -491,13 +492,13 @@ contract NAVOracle is
     }
 
     /**
-     * @notice Set ssUSD token address
-     * @param ssUSD_ New ssUSD address (cannot be zero)
+     * @notice Set SSDC token address
+     * @param SSDC_ New SSDC address (cannot be zero)
      */
-    function setssUSD(address ssUSD_) external onlyOwner {
-        if (ssUSD_ == address(0)) revert InvalidAddress();
-        ssUSD = ssUSD_;
-        emit ssUSDUpdated(ssUSD_);
+    function setSSDC(address SSDC_) external onlyOwner {
+        if (SSDC_ == address(0)) revert InvalidAddress();
+        SSDC = SSDC_;
+        emit SSDCUpdated(SSDC_);
     }
 
     /**
@@ -806,29 +807,28 @@ contract NAVOracle is
      * @return isFresh NAV is within staleness period
      * @return hasHistory Has historical data
      * @return hasAttestor Has at least one attestor
-     * @return ssUSDLinked ssUSD contract is linked
+     * @return SSDCLinked SSDC contract is linked
      * @return healthScore Overall health score (0-100)
      */
-    function getOracleHealth() external view returns (
+function getOracleHealth() external view returns (
         bool isFresh,
         bool hasHistory,
         bool hasAttestor,
-        bool ssUSDLinked,
+        bool SSDCLinked,
         uint256 healthScore
     ) {
         isFresh = block.timestamp <= _currentNAV.timestamp + maxStalenessSeconds;
         hasHistory = _navHistory.length > 0;
         hasAttestor = authorizedAttestors[_currentNAV.attestor];
-        ssUSDLinked = ssUSD != address(0);
+        SSDCLinked = ssUSD != address(0);
 
-        // Calculate health score
         healthScore = 0;
         if (isFresh) healthScore += 40;
         if (hasHistory) healthScore += 20;
         if (hasAttestor) healthScore += 20;
-        if (ssUSDLinked) healthScore += 20;
+        if (SSDCLinked) healthScore += 20;
 
-        return (isFresh, hasHistory, hasAttestor, ssUSDLinked, healthScore);
+        return (isFresh, hasHistory, hasAttestor, SSDCLinked, healthScore);
     }
 
     // =========================================================================

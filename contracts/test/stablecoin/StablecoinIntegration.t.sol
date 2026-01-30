@@ -6,8 +6,8 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../../stablecoin/TokenRegistry.sol";
 import "../../stablecoin/NAVOracle.sol";
-import "../../stablecoin/ssUSD.sol";
-import "../../stablecoin/wssUSD.sol";
+import "../../stablecoin/SSDC.sol";
+import "../../stablecoin/wSSDC.sol";
 import "../../stablecoin/TreasuryVault.sol";
 
 /**

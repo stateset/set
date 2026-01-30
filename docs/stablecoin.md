@@ -1,15 +1,15 @@
-# ssUSD Stablecoin System
+# SSDC Stablecoin System
 
 Set Chain's native stablecoin system provides a yield-bearing stablecoin backed by company-held U.S. Treasury Bills.
 
 ## Overview
 
-The ssUSD stablecoin system consists of:
+The SSDC stablecoin system consists of:
 
 | Token | Type | Yield | Use Case |
 |-------|------|-------|----------|
-| **ssUSD** | Rebasing | ~5% APY | Holding, payments |
-| **wssUSD** | Non-rebasing | Accrues in share price | DeFi, AMMs, lending |
+| **SSDC** | Rebasing | ~5% APY | Holding, payments |
+| **wSSDC** | Non-rebasing | Accrues in share price | DeFi, AMMs, lending |
 
 Both tokens represent the same underlying value. Users can wrap/unwrap between them freely.
 

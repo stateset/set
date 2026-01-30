@@ -10,7 +10,7 @@ import "../mev/ThresholdKeyRegistry.sol";
 import "../SetRegistry.sol";
 import "../stablecoin/TokenRegistry.sol";
 import "../stablecoin/NAVOracle.sol";
-import "../stablecoin/ssUSD.sol";
+import "../stablecoin/SSDC.sol";
 import "../stablecoin/TreasuryVault.sol";
 import "../stablecoin/interfaces/ITokenRegistry.sol";
 
@@ -353,7 +353,7 @@ contract SecurityFixesTest is Test {
 contract RedemptionAccountingTest is Test {
     TokenRegistry public tokenRegistry;
     NAVOracle public navOracle;
-    ssUSD public ssusd;
+    SSDC public ssdc;
     TreasuryVault public treasury;
     MockUSDC public usdc;
 
@@ -381,11 +381,11 @@ contract RedemptionAccountingTest is Test {
             abi.encodeCall(NAVOracle.initialize, (owner, attestor, 24 hours))
         )));
 
-        // Deploy ssUSD
-        ssUSD ssusdImpl = new ssUSD();
-        ssusd = ssUSD(address(new ERC1967Proxy(
-            address(ssusdImpl),
-            abi.encodeCall(ssUSD.initialize, (owner, address(navOracle)))
+        // Deploy SSDC
+        SSDC ssdcImpl = new SSDC();
+        ssdc = SSDC(address(new ERC1967Proxy(
+            address(ssdcImpl),
+            abi.encodeCall(SSDC.initialize, (owner, address(navOracle)))
         )));
 
         // Deploy TreasuryVault
@@ -396,13 +396,13 @@ contract RedemptionAccountingTest is Test {
                 owner,
                 address(tokenRegistry),
                 address(navOracle),
-                address(ssusd)
+                address(ssdc)
             ))
         )));
 
         // Wire up
-        ssusd.setTreasuryVault(address(treasury));
-        navOracle.setssUSD(address(ssusd));
+        ssdc.setTreasuryVault(address(treasury));
+        navOracle.setSSDC(address(ssdc));
 
         // Register USDC
         tokenRegistry.registerToken(
@@ -429,15 +429,15 @@ contract RedemptionAccountingTest is Test {
         usdc.approve(address(treasury), 1000 * 1e6);
         treasury.deposit(address(usdc), 1000 * 1e6, user1);
 
-        uint256 sharesBefore = ssusd.sharesOf(user1);
+        uint256 sharesBefore = ssdc.sharesOf(user1);
 
-        // Request redemption of 500 ssUSD
-        ssusd.approve(address(treasury), 500 * 1e18);
+        // Request redemption of 500 SSDC
+        ssdc.approve(address(treasury), 500 * 1e18);
         uint256 requestId = treasury.requestRedemption(500 * 1e18, address(usdc));
         vm.stopPrank();
 
         // Shares should be burned immediately
-        uint256 sharesAfter = ssusd.sharesOf(user1);
+        uint256 sharesAfter = ssdc.sharesOf(user1);
         assertTrue(sharesAfter < sharesBefore, "Shares should be burned at request time");
 
         // Check tracked redemption shares
@@ -487,19 +487,19 @@ contract RedemptionAccountingTest is Test {
         usdc.approve(address(treasury), 1000 * 1e6);
         treasury.deposit(address(usdc), 1000 * 1e6, user1);
 
-        uint256 sharesBefore = ssusd.sharesOf(user1);
+        uint256 sharesBefore = ssdc.sharesOf(user1);
 
         // Request redemption
-        ssusd.approve(address(treasury), 500 * 1e18);
+        ssdc.approve(address(treasury), 500 * 1e18);
         uint256 requestId = treasury.requestRedemption(500 * 1e18, address(usdc));
 
-        uint256 sharesAfterRequest = ssusd.sharesOf(user1);
+        uint256 sharesAfterRequest = ssdc.sharesOf(user1);
 
         // Cancel redemption
         treasury.cancelRedemption(requestId);
         vm.stopPrank();
 
-        uint256 sharesAfterCancel = ssusd.sharesOf(user1);
+        uint256 sharesAfterCancel = ssdc.sharesOf(user1);
 
         // Shares should be restored
         assertEq(sharesAfterCancel, sharesBefore, "Shares should be fully restored after cancel");
@@ -512,7 +512,7 @@ contract RedemptionAccountingTest is Test {
         treasury.deposit(address(usdc), 1000 * 1e6, user1);
 
         // Request two redemptions
-        ssusd.approve(address(treasury), 600 * 1e18);
+        ssdc.approve(address(treasury), 600 * 1e18);
         uint256 request1 = treasury.requestRedemption(300 * 1e18, address(usdc));
         uint256 request2 = treasury.requestRedemption(300 * 1e18, address(usdc));
         vm.stopPrank();

@@ -2,18 +2,18 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../stablecoin/wssUSD.sol";
-import "../stablecoin/ssUSD.sol";
+import "../stablecoin/wSSDC.sol";
+import "../stablecoin/SSDC.sol";
 import "../stablecoin/NAVOracle.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /**
- * @title wssUSDTest
- * @notice Tests for wrapped ssUSD vault
+ * @title wSSDCTest
+ * @notice Tests for wrapped SSDC vault
  */
-contract wssUSDTest is Test {
-    wssUSD public vault;
-    ssUSD public ssUSDToken;
+contract wSSDCTest is Test {
+    wSSDC public vault;
+    SSDC public ssdcToken;
     NAVOracle public oracle;
 
     address public owner = address(0x1);

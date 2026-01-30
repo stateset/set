@@ -5,13 +5,13 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../stablecoin/TokenRegistry.sol";
 import "../../stablecoin/NAVOracle.sol";
-import "../../stablecoin/ssUSD.sol";
-import "../../stablecoin/wssUSD.sol";
+import "../../stablecoin/SSDC.sol";
+import "../../stablecoin/wSSDC.sol";
 import "../../stablecoin/TreasuryVault.sol";
 
 /**
  * @title DeployStablecoin
- * @notice Deploys the full ssUSD stablecoin system
+ * @notice Deploys the full SSDC stablecoin system
  *
  * Usage:
  *   forge script script/stablecoin/DeployStablecoin.s.sol:DeployStablecoin \
@@ -30,8 +30,8 @@ contract DeployStablecoin is Script {
     // Deployed contracts
     TokenRegistry public tokenRegistry;
     NAVOracle public navOracle;
-    ssUSD public ssusd;
-    wssUSD public wssusd;
+    SSDC public ssdc;
+    wSSDC public wssdc;
     TreasuryVault public treasury;
 
     function run() external {
@@ -42,7 +42,7 @@ contract DeployStablecoin is Script {
         address usdcAddress = vm.envOr("USDC_ADDRESS", address(0));
         address usdtAddress = vm.envOr("USDT_ADDRESS", address(0));
 
-        console.log("Deploying ssUSD Stablecoin System");
+        console.log("Deploying SSDC Stablecoin System");
         console.log("=================================");
         console.log("Deployer:", deployer);
         console.log("Owner:", owner);
@@ -73,25 +73,25 @@ contract DeployStablecoin is Script {
         console.log("   Implementation:", address(oracleImpl));
         console.log("   Proxy:", address(navOracle));
 
-        // 3. Deploy ssUSD
-        console.log("3. Deploying ssUSD...");
-        ssUSD ssusdImpl = new ssUSD();
-        ssusd = ssUSD(address(new ERC1967Proxy(
-            address(ssusdImpl),
-            abi.encodeCall(ssUSD.initialize, (owner, address(navOracle)))
+        // 3. Deploy SSDC
+        console.log("3. Deploying SSDC...");
+        SSDC ssdcImpl = new SSDC();
+        ssdc = SSDC(address(new ERC1967Proxy(
+            address(ssdcImpl),
+            abi.encodeCall(SSDC.initialize, (owner, address(navOracle)))
         )));
-        console.log("   Implementation:", address(ssusdImpl));
-        console.log("   Proxy:", address(ssusd));
+        console.log("   Implementation:", address(ssdcImpl));
+        console.log("   Proxy:", address(ssdc));
 
-        // 4. Deploy wssUSD
-        console.log("4. Deploying wssUSD...");
-        wssUSD wssusdImpl = new wssUSD();
-        wssusd = wssUSD(address(new ERC1967Proxy(
-            address(wssusdImpl),
-            abi.encodeCall(wssUSD.initialize, (owner, address(ssusd)))
+        // 4. Deploy wSSDC
+        console.log("4. Deploying wSSDC...");
+        wSSDC wssdcImpl = new wSSDC();
+        wssdc = wSSDC(address(new ERC1967Proxy(
+            address(wssdcImpl),
+            abi.encodeCall(wSSDC.initialize, (owner, address(ssdc)))
         )));
-        console.log("   Implementation:", address(wssusdImpl));
-        console.log("   Proxy:", address(wssusd));
+        console.log("   Implementation:", address(wssdcImpl));
+        console.log("   Proxy:", address(wssdc));
 
         // 5. Deploy TreasuryVault
         console.log("5. Deploying TreasuryVault...");
@@ -102,7 +102,7 @@ contract DeployStablecoin is Script {
                 owner,
                 address(tokenRegistry),
                 address(navOracle),
-                address(ssusd)
+                address(ssdc)
             ))
         )));
         console.log("   Implementation:", address(treasuryImpl));
@@ -110,39 +110,39 @@ contract DeployStablecoin is Script {
 
         // 6. Wire up contracts
         console.log("6. Wiring contracts...");
-        ssusd.setTreasuryVault(address(treasury));
-        navOracle.setssUSD(address(ssusd));
-        console.log("   ssUSD.treasuryVault set");
-        console.log("   NAVOracle.ssUSD set");
+        ssdc.setTreasuryVault(address(treasury));
+        navOracle.setSSDC(address(ssdc));
+        console.log("   SSDC.treasuryVault set");
+        console.log("   NAVOracle.SSDC set");
 
         // 7. Register tokens in registry
         console.log("7. Registering tokens...");
 
-        // Register ssUSD
+        // Register SSDC
         tokenRegistry.registerToken(
-            address(ssusd),
-            "Set Stablecoin USD",
-            "ssUSD",
+            address(ssdc),
+            "StateSet Dollar Coin",
+            "SSDC",
             18,
             ITokenRegistry.TokenCategory.NATIVE,
             ITokenRegistry.TrustLevel.TRUSTED,
             false,
             ""
         );
-        console.log("   Registered ssUSD");
+        console.log("   Registered SSDC");
 
-        // Register wssUSD
+        // Register wSSDC
         tokenRegistry.registerToken(
-            address(wssusd),
-            "Wrapped Set Stablecoin USD",
-            "wssUSD",
+            address(wssdc),
+            "Wrapped StateSet Dollar Coin",
+            "wSSDC",
             18,
             ITokenRegistry.TokenCategory.NATIVE,
             ITokenRegistry.TrustLevel.TRUSTED,
             false,
             ""
         );
-        console.log("   Registered wssUSD");
+        console.log("   Registered wSSDC");
 
         // Register USDC if provided
         if (usdcAddress != address(0)) {
@@ -185,8 +185,8 @@ contract DeployStablecoin is Script {
         console.log("Contract Addresses:");
         console.log("  TokenRegistry:", address(tokenRegistry));
         console.log("  NAVOracle:", address(navOracle));
-        console.log("  ssUSD:", address(ssusd));
-        console.log("  wssUSD:", address(wssusd));
+        console.log("  SSDC:", address(ssdc));
+        console.log("  wSSDC:", address(wssdc));
         console.log("  TreasuryVault:", address(treasury));
         console.log("");
         console.log("Next Steps:");
@@ -200,7 +200,7 @@ contract DeployStablecoin is Script {
 
 /**
  * @title ConfigureStablecoin
- * @notice Post-deployment configuration for ssUSD system
+ * @notice Post-deployment configuration for SSDC system
  */
 contract ConfigureStablecoin is Script {
     function run() external {

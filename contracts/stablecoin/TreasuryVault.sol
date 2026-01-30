@@ -12,7 +12,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "./interfaces/ITreasuryVault.sol";
 import "./interfaces/ITokenRegistry.sol";
 import "./interfaces/INAVOracle.sol";
-import "./interfaces/IssUSD.sol";
+import "./interfaces/ISSDC.sol";
 
 /**
  * @title TreasuryVault
@@ -67,8 +67,8 @@ contract TreasuryVault is
     /// @notice NAV oracle
     INAVOracle public navOracle;
 
-    /// @notice ssUSD token
-    IssUSD public ssUSD;
+    /// @notice SSDC token
+    ISSDC public ssDC;
 
     /// @notice Collateral balances per token
     mapping(address => uint256) public collateralBalances;
@@ -194,13 +194,13 @@ contract TreasuryVault is
      * @param owner_ Owner address
      * @param tokenRegistry_ Token registry address
      * @param navOracle_ NAV oracle address
-     * @param ssUSD_ ssUSD token address
+     * @param ssdc_ SSDC token address
      */
     function initialize(
         address owner_,
         address tokenRegistry_,
         address navOracle_,
-        address ssUSD_
+        address ssdc_
     ) public initializer {
         __Ownable_init(owner_);
         __ReentrancyGuard_init();
@@ -209,7 +209,7 @@ contract TreasuryVault is
 
         tokenRegistry = ITokenRegistry(tokenRegistry_);
         navOracle = INAVOracle(navOracle_);
-        ssUSD = IssUSD(ssUSD_);
+        ssdc = ISSDC(ssdc_);
 
         // Default settings
         mintFee = 0; // 0%

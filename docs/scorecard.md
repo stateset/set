@@ -101,8 +101,8 @@ A 10/10 ecosystem score requires:
 | EncryptedMempool | `contracts/mev/EncryptedMempool.sol` |
 | TokenRegistry | `contracts/stablecoin/TokenRegistry.sol` |
 | NAVOracle | `contracts/stablecoin/NAVOracle.sol` |
-| ssUSD | `contracts/stablecoin/ssUSD.sol` |
-| wssUSD | `contracts/stablecoin/wssUSD.sol` |
+| SSDC | `contracts/stablecoin/SSDC.sol` |
+| wSSDC | `contracts/stablecoin/wSSDC.sol` |
 | TreasuryVault | `contracts/stablecoin/TreasuryVault.sol` |
 | Unit Tests | `contracts/test/SetRegistry.t.sol`, `contracts/test/SetPaymaster.t.sol` |
 | Timelock Tests | `contracts/test/SetTimelock.t.sol` |
