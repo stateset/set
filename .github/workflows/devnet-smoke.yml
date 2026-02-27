@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 20
     env:
       FOUNDRY_VERSION: nightly-2024-05-20
-      RUST_TOOLCHAIN: 1.78.0
+      RUST_TOOLCHAIN: 1.85.0
 
     steps:
       - name: Checkout

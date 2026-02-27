@@ -249,6 +249,7 @@ mod health_tests {
             circuit_breaker_failure_threshold: 5,
             circuit_breaker_reset_timeout_secs: 60,
             circuit_breaker_half_open_success_threshold: 3,
+        tx_confirmation_timeout_secs: 60,
         }
     }
 
@@ -347,6 +348,7 @@ mod service_tests {
             circuit_breaker_failure_threshold: 5,
             circuit_breaker_reset_timeout_secs: 60,
             circuit_breaker_half_open_success_threshold: 3,
+        tx_confirmation_timeout_secs: 60,
         }
     }
 

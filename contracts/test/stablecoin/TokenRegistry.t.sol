@@ -430,6 +430,7 @@ contract TokenRegistryTest is Test {
         ITokenRegistry.TokenInfo memory info = registry.getTokenInfo(token1);
         assertEq(info.addedAt, registerTime);
         assertEq(info.updatedAt, registerTime);
+        uint256 initialAddedAt = info.addedAt;
 
         // Advance time and update
         uint256 updateTime = registerTime + 1 days;
@@ -439,7 +440,7 @@ contract TokenRegistryTest is Test {
         registry.updateTokenMetadata(token1, "New Token", "NTK", "");
 
         info = registry.getTokenInfo(token1);
-        assertEq(info.addedAt, registerTime);
+        assertEq(info.addedAt, initialAddedAt);
         assertEq(info.updatedAt, updateTime);
 
         vm.stopPrank();

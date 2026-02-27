@@ -5,7 +5,14 @@
  */
 
 import { isAddress, getAddress } from "ethers";
-import { InvalidAddressError, InvalidAmountError, SDKError, SDKErrorCode } from "../errors";
+import {
+  InvalidAddressError,
+  InvalidAmountError,
+  InsufficientAllowanceError,
+  InsufficientBalanceError,
+  SDKError,
+  SDKErrorCode
+} from "../errors.js";
 
 /**
  * Validate and normalize an Ethereum address
@@ -186,8 +193,6 @@ export function assertSufficientBalance(
   tokenSymbol = "tokens",
   decimals = 18
 ): void {
-  const { InsufficientBalanceError } = require("../errors");
-
   if (available < required) {
     throw new InsufficientBalanceError(available, required, tokenSymbol, decimals);
   }
@@ -209,8 +214,6 @@ export function assertSufficientAllowance(
   tokenSymbol = "tokens",
   decimals = 18
 ): void {
-  const { InsufficientAllowanceError } = require("../errors");
-
   if (currentAllowance < required) {
     throw new InsufficientAllowanceError(currentAllowance, required, spender, tokenSymbol, decimals);
   }

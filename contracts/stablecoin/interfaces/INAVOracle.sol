@@ -35,7 +35,7 @@ interface INAVOracle {
 
     event StalenessUpdated(uint256 maxStalenessSeconds);
 
-    event ssUSDUpdated(address indexed ssUSD);
+    event SSDCUpdated(address indexed SSDC);
 
     event MaxNavChangeBpsUpdated(uint256 bps);
 
@@ -65,7 +65,7 @@ interface INAVOracle {
 
     function setMaxStaleness(uint256 seconds_) external;
 
-    function setssUSD(address ssUSD_) external;
+    function setSSDC(address SSDC_) external;
 
     function authorizedAttestors(address attestor) external view returns (bool);
 

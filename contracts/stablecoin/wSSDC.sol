@@ -142,21 +142,9 @@ contract wSSDC is
      * @return wSSDCAmount Amount of wSSDC received
      */
     function wrap(uint256 SSDCAmount) external whenNotPaused returns (uint256 wSSDCAmount) {
-        _checkWrapLimits(msg.sender, SSDCAmount);
-
-        // Check deposit cap
-        if (depositCap > 0 && totalDeposited + SSDCAmount > depositCap) {
-            revert DepositCapExceeded();
-        }
-
-        // Update rate limiting
-        _updateWrapTracking(msg.sender, SSDCAmount);
-
-        wSSDCAmount = deposit(SSDCAmount, msg.sender);
-        totalDeposited += SSDCAmount;
-
-        // Record snapshot if interval passed
-        _maybeRecordSnapshot();
+        _enforceDepositControls(msg.sender, SSDCAmount);
+        wSSDCAmount = super.deposit(SSDCAmount, msg.sender);
+        _recordDeposit(SSDCAmount);
 
         emit Wrapped(msg.sender, SSDCAmount, wSSDCAmount);
         return wSSDCAmount;
@@ -229,13 +217,6 @@ contract wSSDC is
     function unwrap(uint256 wSSDCAmount) external whenNotPaused returns (uint256 SSDCAmount) {
         SSDCAmount = redeem(wSSDCAmount, msg.sender, msg.sender);
 
-        // Update deposit tracking
-        if (totalDeposited >= SSDCAmount) {
-            totalDeposited -= SSDCAmount;
-        } else {
-            totalDeposited = 0;
-        }
-
         emit Unwrapped(msg.sender, wSSDCAmount, SSDCAmount);
         return SSDCAmount;
     }
@@ -263,6 +244,13 @@ contract wSSDC is
     }
 
     /**
+     * @notice Backward-compatible alias for getSSDCValue
+     */
+    function getssUSDValue(address account) external view returns (uint256 value) {
+        return convertToAssets(balanceOf(account));
+    }
+
+    /**
      * @notice Get wSSDC amount for given SSDC value
      * @param SSDCAmount SSDC amount
      * @return wSSDCAmount Equivalent wSSDC
@@ -272,12 +260,26 @@ contract wSSDC is
     }
 
     /**
+     * @notice Backward-compatible alias for getWSSDCBySSDC
+     */
+    function getWssUSDBySSUSD(uint256 ssUSDAmount) external view returns (uint256 wssUSDAmount) {
+        return convertToShares(ssUSDAmount);
+    }
+
+    /**
      * @notice Get SSDC amount for given wSSDC
      * @param wSSDCAmount wSSDC amount
      * @return SSDCAmount Equivalent SSDC
      */
     function getSSDCByWSSDC(uint256 wSSDCAmount) external view returns (uint256 SSDCAmount) {
         return convertToAssets(wSSDCAmount);
+    }
+
+    /**
+     * @notice Backward-compatible alias for getSSDCByWSSDC
+     */
+    function getSSUSDByWssUSD(uint256 wssUSDAmount) external view returns (uint256 ssUSDAmount) {
+        return convertToAssets(wssUSDAmount);
     }
 
     // =========================================================================
@@ -299,24 +301,22 @@ contract wSSDC is
         if (recipients.length != amounts.length) revert ArrayLengthMismatch();
         if (recipients.length > MAX_BATCH_SIZE) revert BatchTooLarge();
 
+        for (uint256 i = 0; i < amounts.length; i++) {
+            totalSSDC += amounts[i];
+        }
+        _enforceDepositControls(msg.sender, totalSSDC);
+
         for (uint256 i = 0; i < recipients.length; i++) {
             if (recipients[i] == address(0)) revert InvalidAddress();
             if (amounts[i] == 0) continue;
 
-            // Check deposit cap
-            if (depositCap > 0 && totalDeposited + amounts[i] > depositCap) {
-                revert DepositCapExceeded();
-            }
-
-            uint256 shares = deposit(amounts[i], recipients[i]);
-            totalDeposited += amounts[i];
-            totalSSDC += amounts[i];
+            uint256 shares = super.deposit(amounts[i], recipients[i]);
             totalWSSDC += shares;
 
             emit Wrapped(recipients[i], amounts[i], shares);
         }
 
-        _maybeRecordSnapshot();
+        _recordDeposit(totalSSDC);
         emit BatchWrapped(msg.sender, totalSSDC, totalWSSDC, recipients.length);
         return (totalSSDC, totalWSSDC);
     }
@@ -338,13 +338,6 @@ contract wSSDC is
 
             uint256 assets = redeem(amounts[i], msg.sender, msg.sender);
 
-            // Update deposit tracking
-            if (totalDeposited >= assets) {
-                totalDeposited -= assets;
-            } else {
-                totalDeposited = 0;
-            }
-
             totalWSSDC += amounts[i];
             totalSSDC += assets;
 
@@ -353,6 +346,43 @@ contract wSSDC is
 
         emit BatchUnwrapped(msg.sender, totalWSSDC, totalSSDC, amounts.length);
         return (totalWSSDC, totalSSDC);
+    }
+
+    function deposit(
+        uint256 assets,
+        address receiver
+    ) public override whenNotPaused returns (uint256 shares) {
+        _enforceDepositControls(msg.sender, assets);
+        shares = super.deposit(assets, receiver);
+        _recordDeposit(assets);
+    }
+
+    function mint(
+        uint256 shares,
+        address receiver
+    ) public override whenNotPaused returns (uint256 assets) {
+        uint256 estimatedAssets = previewMint(shares);
+        _enforceDepositControls(msg.sender, estimatedAssets);
+        assets = super.mint(shares, receiver);
+        _recordDeposit(assets);
+    }
+
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) public override whenNotPaused returns (uint256 shares) {
+        shares = super.withdraw(assets, receiver, owner);
+        _recordWithdrawal(assets);
+    }
+
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) public override whenNotPaused returns (uint256 assets) {
+        assets = super.redeem(shares, receiver, owner);
+        _recordWithdrawal(assets);
     }
 
     /**
@@ -834,6 +864,28 @@ contract wSSDC is
         }
 
         return (true, 0);
+    }
+
+    function _enforceDepositControls(address account, uint256 amount) internal {
+        if (amount == 0) return;
+        _checkWrapLimits(account, amount);
+        if (depositCap > 0 && totalDeposited + amount > depositCap) {
+            revert DepositCapExceeded();
+        }
+        _updateWrapTracking(account, amount);
+    }
+
+    function _recordDeposit(uint256 amount) internal {
+        totalDeposited += amount;
+        _maybeRecordSnapshot();
+    }
+
+    function _recordWithdrawal(uint256 amount) internal {
+        if (totalDeposited >= amount) {
+            totalDeposited -= amount;
+        } else {
+            totalDeposited = 0;
+        }
     }
 
     // =========================================================================

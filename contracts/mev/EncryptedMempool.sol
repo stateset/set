@@ -270,6 +270,8 @@ contract EncryptedMempool is
         uint256 _gasLimit,
         uint256 _maxFeePerGas
     ) external payable nonReentrant whenNotPaused returns (bytes32 txId) {
+        _advanceQueueHead();
+
         // Check queue size limit
         uint256 effectiveQueueSize = pendingQueue.length - nextQueuePosition;
         if (maxQueueSize > 0 && effectiveQueueSize >= maxQueueSize) {
@@ -360,6 +362,7 @@ contract EncryptedMempool is
         if (etx.status != EncryptedTxStatus.Pending) revert TxNotFound();
 
         etx.status = EncryptedTxStatus.Expired;
+        _advanceQueueHead();
 
         // Refund prepaid fee
         uint256 refund = (etx.gasLimit * etx.maxFeePerGas) + etx.valueDeposit;
@@ -478,6 +481,7 @@ contract EncryptedMempool is
 
         dtx.success = success;
         etx.status = success ? EncryptedTxStatus.Executed : EncryptedTxStatus.Failed;
+        _advanceQueueHead();
 
         if (success) {
             totalExecuted++;
@@ -520,6 +524,7 @@ contract EncryptedMempool is
                 }
             }
         }
+        _advanceQueueHead();
     }
 
     // =========================================================================
@@ -926,6 +931,26 @@ contract EncryptedMempool is
         }
 
         return true;
+    }
+
+    function _isTerminalStatus(EncryptedTxStatus _status) internal pure returns (bool) {
+        return (
+            _status == EncryptedTxStatus.Executed ||
+            _status == EncryptedTxStatus.Failed ||
+            _status == EncryptedTxStatus.Expired
+        );
+    }
+
+    function _advanceQueueHead() internal {
+        while (nextQueuePosition < pendingQueue.length) {
+            bytes32 txId = pendingQueue[nextQueuePosition];
+            if (!_isTerminalStatus(encryptedTxs[txId].status)) {
+                break;
+            }
+            unchecked {
+                nextQueuePosition++;
+            }
+        }
     }
 
     /**

@@ -5,7 +5,7 @@
  */
 
 import { Contract, JsonRpcProvider } from "ethers";
-import { GasEstimationError, SDKError, SDKErrorCode } from "../errors";
+import { GasEstimationError, SDKError, SDKErrorCode } from "../errors.js";
 
 /**
  * Gas estimation result
@@ -41,6 +41,20 @@ export interface GasEstimateOptions {
   maxPriorityFeePerGas?: bigint;
 }
 
+const GAS_SCALE = 10000n;
+
+function applyMultiplier(value: bigint, multiplier: number): bigint {
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, "Invalid gas multiplier", {
+      details: { multiplier }
+    });
+  }
+
+  const scaled = BigInt(Math.ceil(multiplier * Number(GAS_SCALE)));
+  // Round up to avoid under-provisioning gas/fees.
+  return (value * scaled + GAS_SCALE - 1n) / GAS_SCALE;
+}
+
 /**
  * Estimate gas for a contract function call
  * @param contract Contract instance
@@ -68,7 +82,7 @@ export async function estimateGas(
     const gasLimit = await contract[functionName].estimateGas(...args);
 
     // Apply buffer
-    const gasLimitWithBuffer = BigInt(Math.ceil(Number(gasLimit) * gasBuffer));
+    const gasLimitWithBuffer = applyMultiplier(gasLimit, gasBuffer);
 
     // Get fee data
     const feeData = await provider.getFeeData();
@@ -133,7 +147,7 @@ export function calculateRequiredFee(
   if (buffer === 1.0) {
     return fee;
   }
-  return BigInt(Math.ceil(Number(fee) * buffer));
+  return applyMultiplier(fee, buffer);
 }
 
 /**
@@ -143,7 +157,7 @@ export function calculateRequiredFee(
  * @returns Gas limit with buffer
  */
 export function applyGasBuffer(gasLimit: bigint, buffer = 1.2): bigint {
-  return BigInt(Math.ceil(Number(gasLimit) * buffer));
+  return applyMultiplier(gasLimit, buffer);
 }
 
 /**

@@ -458,14 +458,57 @@ export const wssUSDAbi = [
   },
   {
     type: "function",
-    name: "getssUSDValue",
+    name: "getSSDCValue",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
+  },
+  {
+    type: "event",
+    name: "Wrapped",
+    inputs: [
+      { name: "account", type: "address", indexed: true },
+      { name: "SSDCAmount", type: "uint256", indexed: false },
+      { name: "wSSDCAmount", type: "uint256", indexed: false }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "Unwrapped",
+    inputs: [
+      { name: "account", type: "address", indexed: true },
+      { name: "wSSDCAmount", type: "uint256", indexed: false },
+      { name: "SSDCAmount", type: "uint256", indexed: false }
+    ],
+    anonymous: false
   }
 ] as const;
 
 export const treasuryVaultAbi = [
+  {
+    type: "event",
+    name: "Deposited",
+    inputs: [
+      { name: "depositor", type: "address", indexed: true },
+      { name: "collateralToken", type: "address", indexed: true },
+      { name: "collateralAmount", type: "uint256", indexed: false },
+      { name: "ssUSDMinted", type: "uint256", indexed: false },
+      { name: "recipient", type: "address", indexed: true }
+    ],
+    anonymous: false
+  },
+  {
+    type: "event",
+    name: "RedemptionRequested",
+    inputs: [
+      { name: "requestId", type: "uint256", indexed: true },
+      { name: "requester", type: "address", indexed: true },
+      { name: "ssUSDAmount", type: "uint256", indexed: false },
+      { name: "collateralToken", type: "address", indexed: false }
+    ],
+    anonymous: false
+  },
   {
     type: "function",
     name: "deposit",
@@ -620,7 +663,7 @@ export const treasuryVaultAbi = [
   {
     type: "function",
     name: "getPendingRedemptionCount",
-    inputs: [{ name: "user", type: "address" }],
+    inputs: [],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
   },
@@ -643,6 +686,16 @@ export const erc20Abi = [
     ],
     outputs: [{ name: "", type: "bool" }],
     stateMutability: "nonpayable"
+  },
+  {
+    type: "function",
+    name: "allowance",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" }
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
   },
   {
     type: "function",

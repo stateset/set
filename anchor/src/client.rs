@@ -11,9 +11,11 @@ use alloy::{
     transports::http::Http,
 };
 use anyhow::Result;
+use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::error::TransactionError;
 use crate::types::{AnchorNotification, BatchCommitment, PendingCommitmentsResponse};
 
 // Generate contract bindings for SetRegistry
@@ -102,6 +104,7 @@ impl<P: Provider<HttpTransport> + Clone> RegistryClient<P> {
     pub async fn commit_batch(
         &self,
         commitment: &BatchCommitment,
+        confirmation_timeout_secs: u64,
     ) -> Result<(FixedBytes<32>, u64, u64)> {
         // Convert UUIDs to bytes32
         let batch_id = uuid_to_bytes32(&commitment.batch_id);
@@ -133,7 +136,21 @@ impl<P: Provider<HttpTransport> + Clone> RegistryClient<P> {
         );
 
         let pending = tx.send().await?;
-        let receipt = pending.get_receipt().await?;
+        let receipt = timeout(
+            Duration::from_secs(confirmation_timeout_secs),
+            pending.get_receipt(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("{}", TransactionError::ConfirmationTimeout))??;
+
+        if !receipt.status() {
+            return Err(anyhow::anyhow!(
+                "{}",
+                TransactionError::Reverted {
+                    reason: "receipt status was 0".to_string()
+                }
+            ));
+        }
 
         let tx_hash = receipt.transaction_hash;
         let block_number = receipt.block_number.unwrap_or(0);

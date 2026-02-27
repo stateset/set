@@ -53,7 +53,8 @@ fn test_config(sequencer_api_url: &str, l2_rpc_url: &str, registry_address: &str
         circuit_breaker_failure_threshold: 5,
         circuit_breaker_reset_timeout_secs: 60,
         circuit_breaker_half_open_success_threshold: 3,
-    }
+    tx_confirmation_timeout_secs: 60,
+        }
 }
 
 // =============================================================================
@@ -364,7 +365,8 @@ async fn test_service_skips_below_threshold() {
         circuit_breaker_failure_threshold: 5,
         circuit_breaker_reset_timeout_secs: 60,
         circuit_breaker_half_open_success_threshold: 3,
-    };
+    tx_confirmation_timeout_secs: 60,
+        };
 
     // We can't run the full service without a real L2, but we can verify
     // the pending commitments are fetched correctly

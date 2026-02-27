@@ -70,6 +70,10 @@ pub struct AnchorConfig {
     /// Circuit breaker successes required to close after half-open
     #[serde(default = "default_circuit_breaker_half_open_success_threshold")]
     pub circuit_breaker_half_open_success_threshold: u64,
+
+    /// Maximum seconds to wait for transaction confirmation
+    #[serde(default = "default_tx_confirmation_timeout_secs")]
+    pub tx_confirmation_timeout_secs: u64,
 }
 
 fn default_health_port() -> u16 {
@@ -124,9 +128,50 @@ fn default_circuit_breaker_half_open_success_threshold() -> u64 {
     3
 }
 
+fn default_tx_confirmation_timeout_secs() -> u64 {
+    60
+}
+
+fn parse_optional_u64(var: &str, default: u64) -> anyhow::Result<u64> {
+    match std::env::var(var) {
+        Ok(value) => value
+            .parse::<u64>()
+            .map_err(|e| anyhow::anyhow!("{} is invalid: {}", var, e)),
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_optional_u32(var: &str, default: u32) -> anyhow::Result<u32> {
+    match std::env::var(var) {
+        Ok(value) => value
+            .parse::<u32>()
+            .map_err(|e| anyhow::anyhow!("{} is invalid: {}", var, e)),
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_optional_u16(var: &str, default: u16) -> anyhow::Result<u16> {
+    match std::env::var(var) {
+        Ok(value) => value
+            .parse::<u16>()
+            .map_err(|e| anyhow::anyhow!("{} is invalid: {}", var, e)),
+        Err(_) => Ok(default),
+    }
+}
+
 impl AnchorConfig {
     /// Load configuration from environment variables
     pub fn from_env() -> anyhow::Result<Self> {
+        let expected_l2_chain_id = if let Ok(v) = std::env::var("EXPECTED_L2_CHAIN_ID") {
+            v.parse::<u64>()
+                .map_err(|e| anyhow::anyhow!("EXPECTED_L2_CHAIN_ID is invalid: {}", e))?
+        } else if let Ok(v) = std::env::var("L2_CHAIN_ID") {
+            v.parse::<u64>()
+                .map_err(|e| anyhow::anyhow!("L2_CHAIN_ID is invalid: {}", e))?
+        } else {
+            0
+        };
+
         Ok(Self {
             l2_rpc_url: std::env::var("L2_RPC_URL")
                 .unwrap_or_else(|_| default_l2_rpc()),
@@ -136,59 +181,41 @@ impl AnchorConfig {
                 .map_err(|_| anyhow::anyhow!("SEQUENCER_PRIVATE_KEY not set"))?,
             sequencer_api_url: std::env::var("SEQUENCER_API_URL")
                 .unwrap_or_else(|_| default_sequencer_api()),
-            anchor_interval_secs: std::env::var("ANCHOR_INTERVAL_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_interval),
-            min_events_for_anchor: std::env::var("MIN_EVENTS_FOR_ANCHOR")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_min_events),
-            max_retries: std::env::var("MAX_RETRIES")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_max_retries),
-            retry_delay_secs: std::env::var("RETRY_DELAY_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_retry_delay),
-            max_gas_price_gwei: std::env::var("MAX_GAS_PRICE_GWEI")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0),
-            health_port: std::env::var("HEALTH_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_health_port),
-            expected_l2_chain_id: std::env::var("EXPECTED_L2_CHAIN_ID")
-                .ok()
-                .or_else(|| std::env::var("L2_CHAIN_ID").ok())
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0),
-            max_commitments_per_cycle: std::env::var("MAX_COMMITMENTS_PER_CYCLE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_max_commitments_per_cycle),
-            sequencer_request_timeout_secs: std::env::var("SEQUENCER_REQUEST_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_sequencer_request_timeout_secs),
-            sequencer_connect_timeout_secs: std::env::var("SEQUENCER_CONNECT_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_sequencer_connect_timeout_secs),
-            circuit_breaker_failure_threshold: std::env::var("CIRCUIT_BREAKER_FAILURE_THRESHOLD")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_circuit_breaker_failure_threshold),
-            circuit_breaker_reset_timeout_secs: std::env::var("CIRCUIT_BREAKER_RESET_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_circuit_breaker_reset_timeout_secs),
-            circuit_breaker_half_open_success_threshold: std::env::var("CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_else(default_circuit_breaker_half_open_success_threshold),
+            anchor_interval_secs: parse_optional_u64("ANCHOR_INTERVAL_SECS", default_interval())?,
+            min_events_for_anchor: parse_optional_u32("MIN_EVENTS_FOR_ANCHOR", default_min_events())?,
+            max_retries: parse_optional_u32("MAX_RETRIES", default_max_retries())?,
+            retry_delay_secs: parse_optional_u64("RETRY_DELAY_SECS", default_retry_delay())?,
+            max_gas_price_gwei: parse_optional_u64("MAX_GAS_PRICE_GWEI", 0)?,
+            health_port: parse_optional_u16("HEALTH_PORT", default_health_port())?,
+            expected_l2_chain_id,
+            max_commitments_per_cycle: parse_optional_u32(
+                "MAX_COMMITMENTS_PER_CYCLE",
+                default_max_commitments_per_cycle(),
+            )?,
+            sequencer_request_timeout_secs: parse_optional_u64(
+                "SEQUENCER_REQUEST_TIMEOUT_SECS",
+                default_sequencer_request_timeout_secs(),
+            )?,
+            sequencer_connect_timeout_secs: parse_optional_u64(
+                "SEQUENCER_CONNECT_TIMEOUT_SECS",
+                default_sequencer_connect_timeout_secs(),
+            )?,
+            circuit_breaker_failure_threshold: parse_optional_u64(
+                "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                default_circuit_breaker_failure_threshold(),
+            )?,
+            circuit_breaker_reset_timeout_secs: parse_optional_u64(
+                "CIRCUIT_BREAKER_RESET_TIMEOUT_SECS",
+                default_circuit_breaker_reset_timeout_secs(),
+            )?,
+            circuit_breaker_half_open_success_threshold: parse_optional_u64(
+                "CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD",
+                default_circuit_breaker_half_open_success_threshold(),
+            )?,
+            tx_confirmation_timeout_secs: parse_optional_u64(
+                "TX_CONFIRMATION_TIMEOUT_SECS",
+                default_tx_confirmation_timeout_secs(),
+            )?,
         })
     }
 }

@@ -68,7 +68,7 @@ contract TreasuryVault is
     INAVOracle public navOracle;
 
     /// @notice SSDC token
-    ISSDC public ssDC;
+    ISSDC public ssUSD;
 
     /// @notice Collateral balances per token
     mapping(address => uint256) public collateralBalances;
@@ -209,7 +209,7 @@ contract TreasuryVault is
 
         tokenRegistry = ITokenRegistry(tokenRegistry_);
         navOracle = INAVOracle(navOracle_);
-        ssdc = ISSDC(ssdc_);
+        ssUSD = ISSDC(ssdc_);
 
         // Default settings
         mintFee = 0; // 0%
@@ -494,6 +494,13 @@ contract TreasuryVault is
      */
     function getPendingRedemptionCount() external view returns (uint256) {
         return pendingRedemptionCount;
+    }
+
+    /**
+     * @notice Backward-compatible alias for ssUSD token getter
+     */
+    function SSDC() external view returns (address) {
+        return address(ssUSD);
     }
 
     /**

@@ -102,7 +102,8 @@ export class SDKError extends Error {
  */
 export class InvalidAddressError extends SDKError {
   constructor(address: string, reason?: string) {
-    super(SDKErrorCode.INVALID_ADDRESS, `Invalid address: ${address}`, {
+    const suffix = reason ? ` (${reason})` : "";
+    super(SDKErrorCode.INVALID_ADDRESS, `Invalid address: ${address}${suffix}`, {
       details: { address, reason },
       suggestion: "Ensure the address is a valid Ethereum address (0x followed by 40 hex characters)"
     });
@@ -115,7 +116,8 @@ export class InvalidAddressError extends SDKError {
  */
 export class InvalidAmountError extends SDKError {
   constructor(amount: bigint | string | number, reason?: string) {
-    super(SDKErrorCode.INVALID_AMOUNT, `Invalid amount: ${amount}`, {
+    const suffix = reason ? ` (${reason})` : "";
+    super(SDKErrorCode.INVALID_AMOUNT, `Invalid amount: ${amount}${suffix}`, {
       details: { amount: String(amount), reason },
       suggestion: "Amount must be a positive number"
     });

@@ -4,7 +4,7 @@
  * Exponential backoff retry logic for network operations.
  */
 
-import { NetworkError, TimeoutError, SDKError, SDKErrorCode } from "../errors";
+import { NetworkError, TimeoutError, SDKError, SDKErrorCode } from "../errors.js";
 
 /**
  * Retry options

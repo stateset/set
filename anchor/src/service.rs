@@ -246,15 +246,6 @@ impl AnchorService {
 
             match self.anchor_pending(&registry).await {
                 Ok(results) => {
-                    // Mark L2 as healthy on successful cycle
-                    if let Some(ref health) = self.health_state {
-                        health.mark_l2_healthy().await;
-                    }
-                    {
-                        let mut stats = self.stats.write().await;
-                        stats.mark_l2_healthy();
-                    }
-
                     let successful = results.iter().filter(|r| r.success).count();
                     let failed = results.iter().filter(|r| !r.success).count();
 
@@ -285,18 +276,28 @@ impl AnchorService {
         &self,
         registry: &RegistryClient<P>,
     ) -> Result<Vec<AnchorResult>> {
-        if self.config.max_gas_price_gwei > 0 {
-            let gas_price = match registry.gas_price().await {
-                Ok(gas_price) => gas_price,
-                Err(e) => {
-                    self.record_error(AnchorError::L2Connection(L2Error::GasPriceError(
-                        e.to_string(),
-                    ))).await;
-                    self.record_failure(ErrorType::L2Connection).await;
-                    warn!(error = %e, "Failed to fetch gas price");
-                    return Ok(vec![]);
+        let gas_price = match registry.gas_price().await {
+            Ok(gas_price) => {
+                if let Some(ref health) = self.health_state {
+                    health.mark_l2_healthy().await;
                 }
-            };
+                {
+                    let mut stats = self.stats.write().await;
+                    stats.mark_l2_healthy();
+                }
+                gas_price
+            }
+            Err(e) => {
+                self.record_error(AnchorError::L2Connection(L2Error::GasPriceError(
+                    e.to_string(),
+                ))).await;
+                self.record_failure(ErrorType::L2Connection).await;
+                warn!(error = %e, "Failed to fetch gas price");
+                return Ok(vec![]);
+            }
+        };
+
+        if self.config.max_gas_price_gwei > 0 {
             let max_gas_price = U256::from(self.config.max_gas_price_gwei)
                 * U256::from(1_000_000_000u64);
 
@@ -452,7 +453,9 @@ impl AnchorService {
         );
 
         // Submit to chain
-        let (tx_hash, block_number, gas_used) = registry.commit_batch(commitment).await?;
+        let (tx_hash, block_number, gas_used) = registry
+            .commit_batch(commitment, self.config.tx_confirmation_timeout_secs)
+            .await?;
 
         let tx_hash_hex = format!("0x{}", hex::encode(tx_hash.as_slice()));
 

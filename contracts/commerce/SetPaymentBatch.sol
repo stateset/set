@@ -487,19 +487,28 @@ contract SetPaymentBatch is
             return (false, "Insufficient allowance");
         }
 
-        // Transfer tokens
-        try token.transferFrom(_payment.payer, _payment.payee, _payment.amount) {
-            // Mark as settled
-            settledIntents[_payment.intentId] = true;
-            usedNonces[_payment.payer][_payment.nonce] = true;
-
-            // Update daily volume
-            config.dailyVolume += _payment.amount;
-
-            return (true, "");
-        } catch {
+        // Transfer tokens. Handle both reverting tokens and non-reverting tokens
+        // that return `false` on failure.
+        (bool ok, bytes memory returndata) = address(token).call(
+            abi.encodeWithSelector(
+                IERC20.transferFrom.selector,
+                _payment.payer,
+                _payment.payee,
+                _payment.amount
+            )
+        );
+        if (!ok || (returndata.length > 0 && !abi.decode(returndata, (bool)))) {
             return (false, "Transfer failed");
         }
+
+        // Mark as settled
+        settledIntents[_payment.intentId] = true;
+        usedNonces[_payment.payer][_payment.nonce] = true;
+
+        // Update daily volume
+        config.dailyVolume += _payment.amount;
+
+        return (true, "");
     }
 
     // =========================================================================

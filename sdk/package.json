@@ -1,6 +1,6 @@
 {
   "name": "@setchain/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Set Chain SDK for SetRegistry and SetPaymaster",
   "license": "MIT",
   "type": "module",
@@ -9,9 +9,9 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test": "node ./tests/run-vitest.cjs run",
+    "test:watch": "node ./tests/run-vitest.cjs",
+    "test:coverage": "node ./tests/run-vitest.cjs run --coverage",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {

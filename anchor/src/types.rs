@@ -149,7 +149,7 @@ impl AnchorStats {
         if self.total_cycles == 0 {
             return 100.0;
         }
-        let successful = self.total_cycles - self.total_failed;
+        let successful = self.total_cycles.saturating_sub(self.total_failed);
         (successful as f64 / self.total_cycles as f64) * 100.0
     }
 

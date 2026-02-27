@@ -39,7 +39,7 @@ contract TreasuryVaultTest is Test {
     TreasuryVault public vault;
     TokenRegistry public tokenRegistry;
     NAVOracle public navOracle;
-    ssUSD public ssusd;
+    SSDC public ssusd;
 
     // Mock tokens
     MockCollateral public usdc;
@@ -76,11 +76,11 @@ contract TreasuryVaultTest is Test {
             abi.encodeCall(NAVOracle.initialize, (owner, attestor, 24 hours))
         )));
 
-        // Deploy ssUSD
-        ssUSD ssusdImpl = new ssUSD();
-        ssusd = ssUSD(address(new ERC1967Proxy(
+        // Deploy SSDC
+        SSDC ssusdImpl = new SSDC();
+        ssusd = SSDC(address(new ERC1967Proxy(
             address(ssusdImpl),
-            abi.encodeCall(ssUSD.initialize, (owner, address(navOracle)))
+            abi.encodeCall(SSDC.initialize, (owner, address(navOracle)))
         )));
 
         // Deploy TreasuryVault
@@ -97,7 +97,7 @@ contract TreasuryVaultTest is Test {
 
         // Wire up contracts
         ssusd.setTreasuryVault(address(vault));
-        navOracle.setssUSD(address(ssusd));
+        navOracle.setSSDC(address(ssusd));
 
         // Register USDC as collateral
         tokenRegistry.registerToken(
@@ -143,7 +143,7 @@ contract TreasuryVaultTest is Test {
         assertEq(vault.owner(), owner);
         assertEq(address(vault.tokenRegistry()), address(tokenRegistry));
         assertEq(address(vault.navOracle()), address(navOracle));
-        assertEq(address(vault.ssUSD()), address(ssusd));
+        assertEq(address(vault.SSDC()), address(ssusd));
         assertEq(vault.mintFee(), 0);
         assertEq(vault.redeemFee(), 10); // 0.1%
         assertEq(vault.redemptionDelay(), 1 hours);
@@ -339,7 +339,7 @@ contract TreasuryVaultTest is Test {
         vault.cancelRedemption(requestId);
         vm.stopPrank();
 
-        // ssUSD restored
+        // SSDC restored
         assertEq(ssusd.balanceOf(user1), balanceAfterRequest + 500 * 1e18);
 
         ITreasuryVault.RedemptionRequest memory request = vault.getRedemptionRequest(requestId);
@@ -401,7 +401,7 @@ contract TreasuryVaultTest is Test {
 
         uint256 usdcAfter = usdc.balanceOf(user1);
 
-        // 500 ssUSD - 0.1% fee = 499.5 USDC (but in 6 decimals)
+        // 500 SSDC - 0.1% fee = 499.5 USDC (but in 6 decimals)
         uint256 expectedUsdc = 500 * 1e6 - (500 * 1e6 * 10 / 10000);
         assertApproxEqRel(usdcAfter - usdcBefore, expectedUsdc, 0.01e18);
 

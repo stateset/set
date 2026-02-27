@@ -33,29 +33,29 @@ contract wSSDCTest is Test {
         address oracleProxy = address(new ERC1967Proxy(address(oracleImpl), oracleInitData));
         oracle = NAVOracle(oracleProxy);
 
-        // Deploy ssUSD
-        ssUSD ssUSDImpl = new ssUSD();
+        // Deploy SSDC
+        SSDC ssUSDImpl = new SSDC();
         bytes memory ssUSDInitData = abi.encodeCall(
-            ssUSD.initialize,
+            SSDC.initialize,
             (owner, address(oracle))
         );
         address ssUSDProxy = address(new ERC1967Proxy(address(ssUSDImpl), ssUSDInitData));
-        ssUSDToken = ssUSD(ssUSDProxy);
+        ssdcToken = SSDC(ssUSDProxy);
 
-        // Deploy wssUSD
-        wssUSD vaultImpl = new wssUSD();
+        // Deploy wSSDC
+        wSSDC vaultImpl = new wSSDC();
         bytes memory vaultInitData = abi.encodeCall(
-            wssUSD.initialize,
-            (owner, address(ssUSDToken))
+            wSSDC.initialize,
+            (owner, address(ssdcToken))
         );
         address vaultProxy = address(new ERC1967Proxy(address(vaultImpl), vaultInitData));
-        vault = wssUSD(vaultProxy);
+        vault = wSSDC(vaultProxy);
 
-        // Setup ssUSD - set treasury vault (use owner as mock treasury for testing)
-        ssUSDToken.setTreasuryVault(owner);
+        // Setup SSDC - set treasury vault (use owner as mock treasury for testing)
+        ssdcToken.setTreasuryVault(owner);
 
         // Configure oracle
-        oracle.setssUSD(address(ssUSDToken));
+        oracle.setSSDC(address(ssdcToken));
 
         vm.stopPrank();
     }
@@ -65,22 +65,22 @@ contract wSSDCTest is Test {
     // =========================================================================
 
     function test_Initialization() public view {
-        assertEq(vault.name(), "Wrapped Set Stablecoin USD");
-        assertEq(vault.symbol(), "wssUSD");
+        assertEq(vault.name(), "Wrapped StateSet Dollar Coin");
+        assertEq(vault.symbol(), "wSSDC");
         assertEq(vault.decimals(), 18);
         assertEq(vault.owner(), owner);
-        assertEq(address(vault.asset()), address(ssUSDToken));
+        assertEq(address(vault.asset()), address(ssdcToken));
     }
 
     function test_Initialize_RevertsZeroAddress() public {
-        wssUSD impl = new wssUSD();
+        wSSDC impl = new wSSDC();
 
         bytes memory initData = abi.encodeCall(
-            wssUSD.initialize,
-            (address(0), address(ssUSDToken))
+            wSSDC.initialize,
+            (address(0), address(ssdcToken))
         );
 
-        vm.expectRevert(wssUSD.InvalidAddress.selector);
+        vm.expectRevert(wSSDC.InvalidAddress.selector);
         new ERC1967Proxy(address(impl), initData);
     }
 
@@ -92,26 +92,26 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         uint256 wssUSDReceived = vault.wrap(100 ether);
         vm.stopPrank();
 
         assertEq(vault.balanceOf(user1), wssUSDReceived);
-        assertEq(ssUSDToken.balanceOf(user1), 0);
+        assertEq(ssdcToken.balanceOf(user1), 0);
     }
 
     function test_Unwrap() public {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         uint256 wssUSDAmount = vault.wrap(100 ether);
 
         uint256 ssUSDReceived = vault.unwrap(wssUSDAmount);
         vm.stopPrank();
 
         assertEq(vault.balanceOf(user1), 0);
-        assertEq(ssUSDToken.balanceOf(user1), ssUSDReceived);
+        assertEq(ssdcToken.balanceOf(user1), ssUSDReceived);
     }
 
     // =========================================================================
@@ -132,9 +132,9 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
 
-        vm.expectRevert(wssUSD.DepositCapExceeded.selector);
+        vm.expectRevert(wSSDC.DepositCapExceeded.selector);
         vault.wrap(100 ether);
         vm.stopPrank();
     }
@@ -147,12 +147,12 @@ contract wSSDCTest is Test {
         _mintssUSD(user2, 50 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 50 ether);
+        ssdcToken.approve(address(vault), 50 ether);
         vault.wrap(50 ether);
         vm.stopPrank();
 
         vm.startPrank(user2);
-        ssUSDToken.approve(address(vault), 50 ether);
+        ssdcToken.approve(address(vault), 50 ether);
         vault.wrap(50 ether);
         vm.stopPrank();
 
@@ -187,7 +187,7 @@ contract wSSDCTest is Test {
         vault.pause();
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
 
         vm.expectRevert();
         vault.wrap(100 ether);
@@ -198,7 +198,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         uint256 wssUSDAmount = vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -228,7 +228,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 50 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 50 ether);
+        ssdcToken.approve(address(vault), 50 ether);
         vault.wrap(50 ether);
         vm.stopPrank();
 
@@ -239,7 +239,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -253,7 +253,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -271,7 +271,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -298,7 +298,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -317,7 +317,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -335,7 +335,7 @@ contract wSSDCTest is Test {
         _mintssUSD(user1, 100 ether);
 
         vm.startPrank(user1);
-        ssUSDToken.approve(address(vault), 100 ether);
+        ssdcToken.approve(address(vault), 100 ether);
         vault.wrap(100 ether);
         vm.stopPrank();
 
@@ -361,6 +361,6 @@ contract wSSDCTest is Test {
         // Use owner as treasury to mint
         uint256 shares = (amount * 1e18) / oracle.getCurrentNAVPerShare();
         vm.prank(owner);
-        ssUSDToken.mintShares(to, shares);
+        ssdcToken.mintShares(to, shares);
     }
 }

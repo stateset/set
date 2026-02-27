@@ -452,7 +452,7 @@ contract RedemptionAccountingTest is Test {
         treasury.deposit(address(usdc), 1000 * 1e6, user1);
 
         // Request redemption
-        ssusd.approve(address(treasury), 500 * 1e18);
+        ssdc.approve(address(treasury), 500 * 1e18);
         uint256 requestId = treasury.requestRedemption(500 * 1e18, address(usdc));
         vm.stopPrank();
 

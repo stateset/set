@@ -16,7 +16,7 @@ export {
   validateBytes32,
   assertSufficientBalance,
   assertSufficientAllowance
-} from "./validation";
+} from "./validation.js";
 
 // Formatting utilities
 export {
@@ -37,7 +37,7 @@ export {
   formatDuration,
   shortenTxHash,
   type FormatBalanceOptions
-} from "./formatting";
+} from "./formatting.js";
 
 // Gas utilities
 export {
@@ -50,7 +50,7 @@ export {
   DEFAULT_GAS_LIMITS,
   type GasEstimate,
   type GasEstimateOptions
-} from "./gas";
+} from "./gas.js";
 
 // Retry utilities
 export {
@@ -61,7 +61,7 @@ export {
   pollUntil,
   DEFAULT_RETRY_OPTIONS,
   type RetryOptions
-} from "./retry";
+} from "./retry.js";
 
 // Event utilities
 export {
@@ -76,4 +76,4 @@ export {
   decodeIndexedArg,
   EVENT_SIGNATURES,
   type ParsedEvent
-} from "./events";
+} from "./events.js";

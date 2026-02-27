@@ -5,7 +5,7 @@
  */
 
 import { Contract, TransactionReceipt, Log, Interface, keccak256, toUtf8Bytes, LogDescription } from "ethers";
-import { EventParseError, SDKError, SDKErrorCode } from "../errors";
+import { EventParseError, SDKError, SDKErrorCode } from "../errors.js";
 
 /**
  * Parsed event result

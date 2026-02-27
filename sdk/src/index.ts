@@ -1,19 +1,19 @@
 import { Contract, JsonRpcProvider, Wallet, TransactionReceipt, Log, Interface } from "ethers";
 
 // Re-export errors
-export * from "./errors";
+export * from "./errors.js";
 
 // Re-export configuration
-export * from "./config";
+export * from "./config.js";
 
 // Re-export utilities
-export * from "./utils";
+export * from "./utils/index.js";
 
 // Re-export encryption module
-export * from "./encryption";
+export * from "./encryption.js";
 
 // Re-export stablecoin module
-export * as stablecoin from "./stablecoin";
+export * as stablecoin from "./stablecoin/index.js";
 
 // =========================================================================
 // TypeScript Interfaces for Set Chain Contracts
@@ -5603,7 +5603,7 @@ export function formatHealthStatus(health: SystemHealthStatus): string {
  * @param decimals Number of decimals (default 18)
  * @returns Formatted string representation
  */
-export function formatBalance(value: bigint, decimals: number = 18): string {
+function formatBalance(value: bigint, decimals: number = 18): string {
   const divisor = BigInt(10 ** decimals);
   const integerPart = value / divisor;
   const fractionalPart = value % divisor;
@@ -5624,7 +5624,7 @@ export function formatBalance(value: bigint, decimals: number = 18): string {
 /**
  * Event from a transaction receipt
  */
-export interface ParsedEvent {
+interface ParsedEvent {
   name: string;
   args: Record<string, any>;
   log: Log;
@@ -5637,7 +5637,7 @@ export interface ParsedEvent {
  * @param eventName Name of the event to find
  * @returns Parsed event or undefined if not found
  */
-export function findEvent(
+function findEvent(
   receipt: TransactionReceipt,
   contract: Contract,
   eventName: string
@@ -5677,7 +5677,7 @@ export function findEvent(
  * @param eventName Name of the event to find
  * @returns Array of parsed events
  */
-export function findAllEvents(
+function findAllEvents(
   receipt: TransactionReceipt,
   contract: Contract,
   eventName: string
@@ -6834,7 +6834,7 @@ export function createCachedWrapper(ttlMs: number = 30000): CachedContractWrappe
 /**
  * Retry configuration
  */
-export interface RetryConfig {
+interface RetryConfig {
   maxAttempts: number;
   initialDelayMs: number;
   maxDelayMs: number;
@@ -6844,7 +6844,7 @@ export interface RetryConfig {
 /**
  * Default retry configuration
  */
-export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxAttempts: 3,
   initialDelayMs: 1000,
   maxDelayMs: 10000,
@@ -6857,7 +6857,7 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
  * @param config Retry configuration
  * @returns Result of the function
  */
-export async function withRetry<T>(
+async function withRetry<T>(
   fn: () => Promise<T>,
   config: Partial<RetryConfig> = {}
 ): Promise<T> {
@@ -6891,7 +6891,7 @@ export async function withRetry<T>(
  * @param config Retry configuration
  * @returns Array of results
  */
-export async function withRetryAll<T>(
+async function withRetryAll<T>(
   fns: Array<() => Promise<T>>,
   config: Partial<RetryConfig> = {}
 ): Promise<T[]> {

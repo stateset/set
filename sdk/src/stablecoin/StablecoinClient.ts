@@ -12,7 +12,7 @@ import {
   wssUSDAbi,
   treasuryVaultAbi,
   erc20Abi
-} from "./abis";
+} from "./abis.js";
 import {
   StablecoinAddresses,
   StablecoinStats,
@@ -25,7 +25,7 @@ import {
   RedemptionResult,
   WrapResult,
   UnwrapResult
-} from "./types";
+} from "./types.js";
 import {
   SDKError,
   SDKErrorCode,
@@ -35,18 +35,17 @@ import {
   NAVStaleError,
   TransactionFailedError,
   wrapError
-} from "../errors";
+} from "../errors.js";
 import {
   validateAddress,
   validatePositiveAmount,
-  assertSufficientBalance,
-  assertSufficientAllowance
-} from "../utils/validation";
-import { formatBalance } from "../utils/formatting";
-import { estimateGas, DEFAULT_GAS_LIMITS } from "../utils/gas";
-import { withRetry } from "../utils/retry";
-import { findEvent, extractEventArg } from "../utils/events";
-import { getConfig, debugLog } from "../config";
+  assertSufficientBalance
+} from "../utils/validation.js";
+import { formatBalance } from "../utils/formatting.js";
+import { estimateGas } from "../utils/gas.js";
+import { withRetry } from "../utils/retry.js";
+import { extractEventArg, extractEventArgOrThrow } from "../utils/events.js";
+import { getConfig, debugLog } from "../config.js";
 
 /**
  * Extended user balance with formatted values
@@ -163,7 +162,12 @@ export class StablecoinClient {
       }
 
       // Parse events for minted amount
-      const ssUSDMinted = extractEventArg<bigint>(receipt, this.treasury, "Deposited", "ssUSDMinted") ?? 0n;
+      const ssUSDMinted = extractEventArgOrThrow<bigint>(
+        receipt,
+        this.treasury,
+        "Deposited",
+        "ssUSDMinted"
+      );
 
       debugLog("Stablecoin", `Deposit successful: ${formatBalance(ssUSDMinted, 18)} ssUSD minted`);
 
@@ -209,6 +213,14 @@ export class StablecoinClient {
       const balance = await withRetry(() => this.ssUSD.balanceOf(userAddress));
       assertSufficientBalance(balance, ssUSDAmount, "ssUSD", config.ssUSDDecimals);
 
+      // Check if preferred collateral is approved
+      const isApproved = await withRetry(() =>
+        this.tokenRegistry.isApprovedCollateral(validatedCollateral)
+      );
+      if (!isApproved) {
+        throw new InvalidCollateralError(validatedCollateral);
+      }
+
       // Check and update allowance
       const currentAllowance = await withRetry(() => this.ssUSD.allowance(userAddress, this.addresses.treasury));
       if (currentAllowance < ssUSDAmount) {
@@ -236,7 +248,12 @@ export class StablecoinClient {
       }
 
       // Parse events for request ID
-      const requestId = extractEventArg<bigint>(receipt, this.treasury, "RedemptionRequested", "requestId") ?? 0n;
+      const requestId = extractEventArgOrThrow<bigint>(
+        receipt,
+        this.treasury,
+        "RedemptionRequested",
+        "requestId"
+      );
 
       debugLog("Stablecoin", `Redemption request successful: ID ${requestId}`);
 
@@ -336,7 +353,15 @@ export class StablecoinClient {
       }
 
       // Parse events
-      const wssUSDReceived = extractEventArg<bigint>(receipt, this.wssUSD, "Wrapped", "wssUSDAmount") ?? 0n;
+      const wssUSDReceived = extractEventArg<bigint>(
+        receipt,
+        this.wssUSD,
+        "Wrapped",
+        "wSSDCAmount"
+      );
+      if (wssUSDReceived === null) {
+        throw new TransactionFailedError("Wrap event parsing failed", tx.hash);
+      }
 
       debugLog("Stablecoin", `Wrap successful: ${formatBalance(wssUSDReceived, 18)} wssUSD received`);
 
@@ -373,7 +398,15 @@ export class StablecoinClient {
       }
 
       // Parse events
-      const ssUSDReceived = extractEventArg<bigint>(receipt, this.wssUSD, "Unwrapped", "ssUSDAmount") ?? 0n;
+      const ssUSDReceived = extractEventArg<bigint>(
+        receipt,
+        this.wssUSD,
+        "Unwrapped",
+        "SSDCAmount"
+      );
+      if (ssUSDReceived === null) {
+        throw new TransactionFailedError("Unwrap event parsing failed", tx.hash);
+      }
 
       debugLog("Stablecoin", `Unwrap successful: ${formatBalance(ssUSDReceived, 18)} ssUSD received`);
 
@@ -401,7 +434,7 @@ export class StablecoinClient {
         withRetry(() => this.ssUSD.balanceOf(validatedAddress)),
         withRetry(() => this.ssUSD.sharesOf(validatedAddress)),
         withRetry(() => this.wssUSD.balanceOf(validatedAddress)),
-        withRetry(() => this.wssUSD.getssUSDValue(validatedAddress))
+        withRetry(() => this.wssUSD.getSSDCValue(validatedAddress))
       ]);
 
       return {

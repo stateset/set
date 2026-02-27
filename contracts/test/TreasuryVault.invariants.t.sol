@@ -191,7 +191,7 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
 
         // Wire up
         ssdc.setTreasuryVault(address(treasury));
-        navOracle.setssUSD(address(ssdc));
+        navOracle.setSSDC(address(ssdc));
 
         // Register USDC
         tokenRegistry.registerToken(
@@ -228,7 +228,7 @@ contract TreasuryVaultInvariantTest is StdInvariant, Test {
     }
 
     /**
-     * @notice Invariant: Collateral value should cover outstanding ssUSD
+     * @notice Invariant: Collateral value should cover outstanding SSDC
      */
     function invariant_CollateralRatio() public view {
         uint256 totalSupply = ssdc.totalSupply();

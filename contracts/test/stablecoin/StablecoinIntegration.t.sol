@@ -44,14 +44,14 @@ contract MockUSDT is ERC20 {
 
 /**
  * @title StablecoinIntegrationTest
- * @notice Integration tests for the ssUSD stablecoin system
+ * @notice Integration tests for the SSDC stablecoin system
  */
 contract StablecoinIntegrationTest is Test {
     // Contracts
     TokenRegistry public tokenRegistry;
     NAVOracle public navOracle;
-    ssUSD public ssusd;
-    wssUSD public wssusd;
+    SSDC public ssusd;
+    wSSDC public wssusd;
     TreasuryVault public treasury;
 
     // Mock tokens
@@ -89,18 +89,18 @@ contract StablecoinIntegrationTest is Test {
             abi.encodeCall(NAVOracle.initialize, (owner, attestor, 24 hours))
         )));
 
-        // Deploy ssUSD
-        ssUSD ssusdImpl = new ssUSD();
-        ssusd = ssUSD(address(new ERC1967Proxy(
+        // Deploy SSDC
+        SSDC ssusdImpl = new SSDC();
+        ssusd = SSDC(address(new ERC1967Proxy(
             address(ssusdImpl),
-            abi.encodeCall(ssUSD.initialize, (owner, address(navOracle)))
+            abi.encodeCall(SSDC.initialize, (owner, address(navOracle)))
         )));
 
-        // Deploy wssUSD
-        wssUSD wssusdImpl = new wssUSD();
-        wssusd = wssUSD(address(new ERC1967Proxy(
+        // Deploy wSSDC
+        wSSDC wssusdImpl = new wSSDC();
+        wssusd = wSSDC(address(new ERC1967Proxy(
             address(wssusdImpl),
-            abi.encodeCall(wssUSD.initialize, (owner, address(ssusd)))
+            abi.encodeCall(wSSDC.initialize, (owner, address(ssusd)))
         )));
 
         // Deploy TreasuryVault
@@ -117,7 +117,7 @@ contract StablecoinIntegrationTest is Test {
 
         // Wire up contracts
         ssusd.setTreasuryVault(address(treasury));
-        navOracle.setssUSD(address(ssusd));
+        navOracle.setSSDC(address(ssusd));
 
         // Register collateral tokens
         tokenRegistry.registerToken(
@@ -142,11 +142,11 @@ contract StablecoinIntegrationTest is Test {
             ""
         );
 
-        // Register ssUSD and wssUSD
+        // Register SSDC and wSSDC
         tokenRegistry.registerToken(
             address(ssusd),
             "Set Stablecoin USD",
-            "ssUSD",
+            "SSDC",
             18,
             ITokenRegistry.TokenCategory.NATIVE,
             ITokenRegistry.TrustLevel.TRUSTED,
@@ -157,7 +157,7 @@ contract StablecoinIntegrationTest is Test {
         tokenRegistry.registerToken(
             address(wssusd),
             "Wrapped Set Stablecoin USD",
-            "wssUSD",
+            "wSSDC",
             18,
             ITokenRegistry.TokenCategory.NATIVE,
             ITokenRegistry.TrustLevel.TRUSTED,
@@ -189,7 +189,7 @@ contract StablecoinIntegrationTest is Test {
         uint256 ssUSDMinted = treasury.deposit(address(usdc), depositAmount, user1);
         vm.stopPrank();
 
-        // Should mint 1000 ssUSD (1:1 with normalized amount)
+        // Should mint 1000 SSDC (1:1 with normalized amount)
         assertEq(ssUSDMinted, 1000 * 1e18);
         assertEq(ssusd.balanceOf(user1), 1000 * 1e18);
         assertEq(treasury.getCollateralBalance(address(usdc)), depositAmount);
@@ -298,16 +298,16 @@ contract StablecoinIntegrationTest is Test {
     }
 
     // =========================================================================
-    // wssUSD Tests
+    // wSSDC Tests
     // =========================================================================
 
     function test_WrapssUSD() public {
-        // Deposit and get ssUSD
+        // Deposit and get SSDC
         vm.startPrank(user1);
         usdc.approve(address(treasury), 1000 * 1e6);
         treasury.deposit(address(usdc), 1000 * 1e6, user1);
 
-        // Wrap ssUSD
+        // Wrap SSDC
         ssusd.approve(address(wssusd), 500 * 1e18);
         uint256 wssUSDReceived = wssusd.wrap(500 * 1e18);
         vm.stopPrank();
@@ -329,10 +329,10 @@ contract StablecoinIntegrationTest is Test {
         vm.prank(attestor);
         navOracle.attestNAV(1050 * 1e18, 20240101, bytes32(0));
 
-        // wssUSD balance unchanged
+        // wSSDC balance unchanged
         assertEq(wssusd.balanceOf(user1), wssUSDBalance);
 
-        // But ssUSD value increased
+        // But SSDC value increased
         uint256 ssUSDValue = wssusd.getssUSDValue(user1);
         assertApproxEqRel(ssUSDValue, 1050 * 1e18, 0.01e18);
     }
@@ -354,7 +354,7 @@ contract StablecoinIntegrationTest is Test {
         vm.prank(user1);
         uint256 ssUSDReceived = wssusd.unwrap(wssUSDBalance);
 
-        // Should receive more ssUSD than deposited
+        // Should receive more SSDC than deposited
         assertApproxEqRel(ssUSDReceived, 1050 * 1e18, 0.01e18);
     }
 
@@ -419,7 +419,7 @@ contract StablecoinIntegrationTest is Test {
         treasury.cancelRedemption(requestId);
         vm.stopPrank();
 
-        // ssUSD returned
+        // SSDC returned
         assertEq(ssusd.balanceOf(user1), ssUSDAfterRequest + 500 * 1e18);
 
         ITreasuryVault.RedemptionRequest memory request = treasury.getRedemptionRequest(requestId);
@@ -445,7 +445,7 @@ contract StablecoinIntegrationTest is Test {
         treasury.deposit(address(usdt), 5000 * 1e6, user2);
         vm.stopPrank();
 
-        // 3. User1 wraps half to wssUSD
+        // 3. User1 wraps half to wSSDC
         vm.startPrank(user1);
         ssusd.approve(address(wssusd), 5000 * 1e18);
         wssusd.wrap(5000 * 1e18);
@@ -456,26 +456,26 @@ contract StablecoinIntegrationTest is Test {
         navOracle.attestNAV(15750 * 1e18, 20240101, bytes32(0)); // 15000 * 1.05
 
         // 5. Verify balances
-        // User1 ssUSD: 5000 * 1.05 = 5250
+        // User1 SSDC: 5000 * 1.05 = 5250
         assertApproxEqRel(ssusd.balanceOf(user1), 5250 * 1e18, 0.01e18);
 
-        // User1 wssUSD value: 5000 * 1.05 = 5250 (balance unchanged)
+        // User1 wSSDC value: 5000 * 1.05 = 5250 (balance unchanged)
         assertApproxEqRel(wssusd.getssUSDValue(user1), 5250 * 1e18, 0.01e18);
 
-        // User2 ssUSD: 5000 * 1.05 = 5250
+        // User2 SSDC: 5000 * 1.05 = 5250
         assertApproxEqRel(ssusd.balanceOf(user2), 5250 * 1e18, 0.01e18);
 
         // 6. User2 transfers to User1
         vm.prank(user2);
         ssusd.transfer(user1, 1000 * 1e18);
 
-        // 7. User1 unwraps wssUSD
+        // 7. User1 unwraps wSSDC
         vm.startPrank(user1);
         uint256 wssUSDBalance = wssusd.balanceOf(user1);
         wssusd.unwrap(wssUSDBalance);
         vm.stopPrank();
 
-        // 8. User1 redeems some ssUSD
+        // 8. User1 redeems some SSDC
         vm.startPrank(user1);
         uint256 redeemAmount = 2000 * 1e18;
         ssusd.approve(address(treasury), redeemAmount);
@@ -503,7 +503,7 @@ contract StablecoinIntegrationTest is Test {
 
     function test_OnlyTreasuryCanMint() public {
         vm.prank(user1);
-        vm.expectRevert(ssUSD.NotTreasuryVault.selector);
+        vm.expectRevert(SSDC.NotTreasuryVault.selector);
         ssusd.mintShares(user1, 1000 * 1e18);
     }
 

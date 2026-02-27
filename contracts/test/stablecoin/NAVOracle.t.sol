@@ -40,7 +40,7 @@ contract NAVOracleTest is Test {
     function setUp() public {
         vm.startPrank(owner);
 
-        // Deploy mock ssUSD
+        // Deploy mock SSDC
         mockSsUSD = new MockssUSD();
 
         // Deploy NAVOracle
@@ -50,8 +50,8 @@ contract NAVOracleTest is Test {
             abi.encodeCall(NAVOracle.initialize, (owner, attestor, MAX_STALENESS))
         )));
 
-        // Set ssUSD
-        oracle.setssUSD(address(mockSsUSD));
+        // Set SSDC
+        oracle.setSSDC(address(mockSsUSD));
 
         vm.stopPrank();
     }
@@ -64,7 +64,7 @@ contract NAVOracleTest is Test {
         assertEq(oracle.owner(), owner);
         assertTrue(oracle.authorizedAttestors(attestor));
         assertEq(oracle.maxStalenessSeconds(), MAX_STALENESS);
-        assertEq(oracle.ssUSD(), address(mockSsUSD));
+        assertEq(oracle.SSDC(), address(mockSsUSD));
 
         // Initial NAV should be $1.00
         assertEq(oracle.getCurrentNAVPerShare(), 1e18);
@@ -80,7 +80,7 @@ contract NAVOracleTest is Test {
     // =========================================================================
 
     function test_AttestNAV() public {
-        // Set total shares (simulates ssUSD supply)
+        // Set total shares (simulates SSDC supply)
         mockSsUSD.setTotalShares(1000 * 1e18);
 
         vm.prank(attestor);
@@ -323,9 +323,9 @@ contract NAVOracleTest is Test {
         address newSsUSD = address(0x999);
 
         vm.prank(owner);
-        oracle.setssUSD(newSsUSD);
+        oracle.setSSDC(newSsUSD);
 
-        assertEq(oracle.ssUSD(), newSsUSD);
+        assertEq(oracle.SSDC(), newSsUSD);
     }
 
     function test_RevertNonOwnerAdmin() public {
@@ -339,7 +339,7 @@ contract NAVOracleTest is Test {
 
         vm.prank(unauthorized);
         vm.expectRevert();
-        oracle.setssUSD(address(0x999));
+        oracle.setSSDC(address(0x999));
     }
 
     // =========================================================================

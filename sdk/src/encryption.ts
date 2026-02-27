@@ -254,6 +254,18 @@ export class ThresholdEncryption {
    * @returns Encrypted payload
    */
   static encrypt(txParams: TransactionParams, publicKey: string): string {
+    const allowInsecure =
+      typeof globalThis !== "undefined" &&
+      typeof (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SET_SDK_ALLOW_INSECURE_ENCRYPTION !== "undefined" &&
+      (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SET_SDK_ALLOW_INSECURE_ENCRYPTION === "true";
+
+    if (!allowInsecure) {
+      throw new Error(
+        "ThresholdEncryption.encrypt is disabled because the bundled fallback is insecure. " +
+        "Integrate a real threshold encryption backend or set SET_SDK_ALLOW_INSECURE_ENCRYPTION=true for non-production demos."
+      );
+    }
+
     // Encode transaction parameters
     const abiCoder = new AbiCoder();
     const encoded = abiCoder.encode(

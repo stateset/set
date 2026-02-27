@@ -96,7 +96,6 @@ contract NAVOracle is
     error NAVChangeExceedsLimit();
     error InvalidReportDate();
     error ReportDateNotNew();
-    error ssUSDNotSet();
     error InvalidTotalAssets();
     error InvalidAddress();
     error InvalidStaleness();
@@ -177,6 +176,7 @@ contract NAVOracle is
     event AttestationExpiredEvent(bytes32 indexed attestationKey);
     event ThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
     event PendingExpiryUpdated(uint256 oldExpiry, uint256 newExpiry);
+    event ssUSDUpdated(address indexed ssUSD);
 
     /**
      * @notice Attest T-Bill NAV (multi-sig when threshold > 1)
@@ -496,9 +496,23 @@ contract NAVOracle is
      * @param SSDC_ New SSDC address (cannot be zero)
      */
     function setSSDC(address SSDC_) external onlyOwner {
-        if (SSDC_ == address(0)) revert InvalidAddress();
-        SSDC = SSDC_;
-        emit SSDCUpdated(SSDC_);
+        _setSSDC(SSDC_);
+    }
+
+    /**
+     * @notice Backward-compatible setter alias
+     * @dev Kept to avoid breaking older integrations/tests
+     */
+    function setssUSD(address ssUSD_) external onlyOwner {
+        _setSSDC(ssUSD_);
+    }
+
+    /**
+     * @notice Backward-compatible getter alias
+     * @dev Kept to avoid breaking older integrations/tests
+     */
+    function ssUSD() external view returns (address) {
+        return SSDC;
     }
 
     /**
@@ -595,8 +609,22 @@ contract NAVOracle is
 
         for (uint256 i = 0; i < attestors.length; i++) {
             if (attestors[i] == address(0)) revert InvalidAddress();
+            bool wasAuthorized = authorizedAttestors[attestors[i]];
             authorizedAttestors[attestors[i]] = authorized[i];
+
+            if (authorized[i] && !wasAuthorized) {
+                attestorCount++;
+            } else if (!authorized[i] && wasAuthorized) {
+                attestorCount--;
+            }
+
             emit AttestorUpdated(attestors[i], authorized[i]);
+        }
+
+        if (attestationThreshold > attestorCount && attestorCount > 0) {
+            uint256 oldThreshold = attestationThreshold;
+            attestationThreshold = attestorCount;
+            emit ThresholdUpdated(oldThreshold, attestorCount);
         }
     }
 
@@ -820,7 +848,7 @@ function getOracleHealth() external view returns (
         isFresh = block.timestamp <= _currentNAV.timestamp + maxStalenessSeconds;
         hasHistory = _navHistory.length > 0;
         hasAttestor = authorizedAttestors[_currentNAV.attestor];
-        SSDCLinked = ssUSD != address(0);
+        SSDCLinked = SSDC != address(0);
 
         healthScore = 0;
         if (isFresh) healthScore += 40;
@@ -841,4 +869,11 @@ function getOracleHealth() external view returns (
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyOwner {}
+
+    function _setSSDC(address ssdc_) internal {
+        if (ssdc_ == address(0)) revert InvalidAddress();
+        SSDC = ssdc_;
+        emit SSDCUpdated(ssdc_);
+        emit ssUSDUpdated(ssdc_);
+    }
 }

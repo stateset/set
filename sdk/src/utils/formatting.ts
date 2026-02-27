@@ -5,7 +5,7 @@
  */
 
 import { formatUnits, parseUnits } from "ethers";
-import { SDKError, SDKErrorCode } from "../errors";
+import { SDKError, SDKErrorCode } from "../errors.js";
 
 /**
  * Options for formatting balances

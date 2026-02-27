@@ -104,6 +104,12 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
     mapping(address => uint256) public userTxCount;
     mapping(address => uint256) public userLastReset;
 
+    /// @notice Per-user submission nonce to prevent tx ID collisions
+    mapping(address => uint256) public userSubmissionNonce;
+
+    /// @notice Refunds queued when direct ETH transfer fails
+    mapping(address => uint256) public pendingRefunds;
+
     // =========================================================================
     // Events
     // =========================================================================
@@ -138,6 +144,8 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
     event CircuitBreakerUpdated(uint256 maxPendingTxs, uint256 maxTxsPerUserPerHour);
     event L2OutputOracleUpdated(address indexed oldOracle, address indexed newOracle);
     event OptimismPortalUpdated(address indexed oldPortal, address indexed newPortal);
+    event RefundQueued(bytes32 indexed txId, address indexed recipient, uint256 amount);
+    event RefundWithdrawn(address indexed recipient, uint256 amount);
 
     // =========================================================================
     // Errors
@@ -150,6 +158,7 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
     error DeadlineNotReached();
     error InvalidInclusionProof();
     error TransferFailed();
+    error TxAlreadyExists();
     error CircuitBreakerTripped();
     error RateLimitExceeded();
     error InvalidAddress();
@@ -276,14 +285,18 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
         }
 
         // Generate unique ID
+        uint256 submissionNonce = ++userSubmissionNonce[msg.sender];
         txId = keccak256(abi.encodePacked(
             msg.sender,
             _target,
             _data,
             _gasLimit,
-            block.timestamp,
-            block.number
+            submissionNonce
         ));
+
+        if (forcedTransactions[txId].sender != address(0)) {
+            revert TxAlreadyExists();
+        }
 
         // Store forced transaction
         forcedTransactions[txId] = ForcedTx({
@@ -352,13 +365,9 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
         stats.totalBondsLocked -= bondAmount;
         stats.totalIncluded++;
 
-        (bool success, ) = forcedTx.sender.call{value: bondAmount}("");
-        if (!success) {
-            revert TransferFailed();
-        }
+        _refundOrQueue(_txId, forcedTx.sender, bondAmount);
 
         emit TransactionIncluded(_txId, _l2BlockNumber);
-        emit BondClaimed(_txId, forcedTx.sender, bondAmount);
     }
 
     /**
@@ -388,12 +397,26 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
         stats.totalBondsLocked -= bondAmount;
         stats.totalExpired++;
 
-        (bool success, ) = forcedTx.sender.call{value: bondAmount}("");
+        _refundOrQueue(_txId, forcedTx.sender, bondAmount);
+
+        emit TransactionExpired(_txId, forcedTx.sender, bondAmount);
+    }
+
+    /**
+     * @notice Withdraw queued refund for caller
+     */
+    function withdrawRefund() external nonReentrant {
+        uint256 amount = pendingRefunds[msg.sender];
+        if (amount == 0) revert TransferFailed();
+
+        pendingRefunds[msg.sender] = 0;
+        (bool success, ) = msg.sender.call{value: amount}("");
         if (!success) {
+            pendingRefunds[msg.sender] = amount;
             revert TransferFailed();
         }
 
-        emit TransactionExpired(_txId, forcedTx.sender, bondAmount);
+        emit RefundWithdrawn(msg.sender, amount);
     }
 
     // =========================================================================
@@ -598,6 +621,17 @@ contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
 
         // Increment count
         userTxCount[_user]++;
+    }
+
+    function _refundOrQueue(bytes32 _txId, address _recipient, uint256 _amount) internal {
+        (bool success, ) = _recipient.call{value: _amount}("");
+        if (success) {
+            emit BondClaimed(_txId, _recipient, _amount);
+            return;
+        }
+
+        pendingRefunds[_recipient] += _amount;
+        emit RefundQueued(_txId, _recipient, _amount);
     }
 
     /**

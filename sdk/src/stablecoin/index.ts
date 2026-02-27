@@ -35,7 +35,7 @@
  * ```
  */
 
-export { StablecoinClient, createStablecoinClient } from "./StablecoinClient";
+export { StablecoinClient, createStablecoinClient } from "./StablecoinClient.js";
 
 export {
   TokenCategory,
@@ -51,7 +51,7 @@ export {
   type RedemptionResult,
   type WrapResult,
   type UnwrapResult
-} from "./types";
+} from "./types.js";
 
 export {
   tokenRegistryAbi,
@@ -60,4 +60,4 @@ export {
   wssUSDAbi,
   treasuryVaultAbi,
   erc20Abi
-} from "./abis";
+} from "./abis.js";

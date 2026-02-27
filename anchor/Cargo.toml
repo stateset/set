@@ -1,6 +1,6 @@
 [package]
 name = "set-anchor"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Anchor service for Set Chain - bridges stateset-sequencer to on-chain SetRegistry"
 license = "MIT"
@@ -48,7 +48,7 @@ alloy-sol-macro = "0.8"
 [dev-dependencies]
 # Testing utilities
 tokio-test = "0.4"
-wiremock = "0.6"
+wiremock = "0.5"
 tempfile = "3"
 once_cell = "1"
 serial_test = "3"
