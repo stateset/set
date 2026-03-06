@@ -1,0 +1,27 @@
+[profile.default]
+src = "../stablecoin/v2"
+out = "../out_v2"
+libs = ["../lib"]
+test = "../test/stablecoin/v2"
+script = "../script"
+cache_path = "../cache_v2"
+remappings = [
+    "@openzeppelin/contracts/=../lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts-upgradeable/=../lib/openzeppelin-contracts-upgradeable/contracts/",
+    "forge-std/=../lib/forge-std/src/",
+]
+solc_version = "0.8.20"
+optimizer = true
+optimizer_runs = 100
+via_ir = true
+evm_version = "cancun"
+verbosity = 3
+fuzz = { runs = 256, max_test_rejects = 65536 }
+invariant = { runs = 256, depth = 15 }
+
+[profile.default.optimizer_details]
+yul = true
+
+[profile.default.optimizer_details.yul_details]
+stack_allocation = true
+optimizer_steps = "dhfoDgvulfnTUtnIf"

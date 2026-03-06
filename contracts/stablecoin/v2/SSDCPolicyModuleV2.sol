@@ -1,0 +1,163 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract SSDCPolicyModuleV2 is AccessControl {
+    bytes32 public constant POLICY_CONSUMER_ROLE = keccak256("POLICY_CONSUMER_ROLE");
+
+    struct AgentPolicy {
+        uint256 perTxLimitAssets;
+        uint256 dailyLimitAssets;
+        uint256 spentTodayAssets;
+        uint40 dayStart;
+        uint256 minAssetsFloor;
+        uint40 sessionExpiry;
+        bool enforceMerchantAllowlist;
+        bool exists;
+    }
+
+    mapping(address => AgentPolicy) public policies;
+    mapping(address => mapping(address => bool)) public merchantAllowlist;
+
+    error POLICY_NOT_SET();
+    error POLICY_LIMIT();
+    error POLICY_DAILY_LIMIT();
+    error POLICY_ALLOWLIST();
+    error POLICY_SESSION_EXPIRED();
+
+    event PolicyUpdated(
+        address indexed agent,
+        uint256 perTxLimitAssets,
+        uint256 dailyLimitAssets,
+        uint256 minAssetsFloor,
+        uint40 sessionExpiry,
+        bool enforceMerchantAllowlist
+    );
+
+    event MerchantAllowlistUpdated(address indexed agent, address indexed merchant, bool allowed);
+    event PolicySpendConsumed(address indexed agent, uint256 assetsConsumed, uint256 spentTodayAssets);
+
+    constructor(address admin) {
+        require(admin != address(0), "admin=0");
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(POLICY_CONSUMER_ROLE, admin);
+    }
+
+    function setPolicy(
+        address agent,
+        uint256 perTxLimitAssets,
+        uint256 dailyLimitAssets,
+        uint256 minAssetsFloor,
+        uint40 sessionExpiry,
+        bool enforceMerchantAllowlist
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        AgentPolicy storage policy = policies[agent];
+        policy.perTxLimitAssets = perTxLimitAssets;
+        policy.dailyLimitAssets = dailyLimitAssets;
+        policy.minAssetsFloor = minAssetsFloor;
+        policy.sessionExpiry = sessionExpiry;
+        policy.enforceMerchantAllowlist = enforceMerchantAllowlist;
+        policy.exists = true;
+
+        if (policy.dayStart == 0) {
+            policy.dayStart = uint40(block.timestamp);
+        }
+
+        emit PolicyUpdated(
+            agent,
+            perTxLimitAssets,
+            dailyLimitAssets,
+            minAssetsFloor,
+            sessionExpiry,
+            enforceMerchantAllowlist
+        );
+    }
+
+    function setMerchantAllowed(address agent, address merchant, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        merchantAllowlist[agent][merchant] = allowed;
+        emit MerchantAllowlistUpdated(agent, merchant, allowed);
+    }
+
+    function getMinAssetsFloor(address agent) external view returns (uint256) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            return 0;
+        }
+        return policy.minAssetsFloor;
+    }
+
+    function canSpend(address agent, address merchant, uint256 assets) external view returns (bool) {
+        return _canSpend(policies[agent], agent, merchant, assets);
+    }
+
+    function consumeSpend(address agent, address merchant, uint256 assets) external onlyRole(POLICY_CONSUMER_ROLE) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            revert POLICY_NOT_SET();
+        }
+
+        _rollDay(policy);
+
+        if (!_canSpend(policy, agent, merchant, assets)) {
+            if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
+                revert POLICY_LIMIT();
+            }
+            if (policy.dailyLimitAssets > 0 && policy.spentTodayAssets + assets > policy.dailyLimitAssets) {
+                revert POLICY_DAILY_LIMIT();
+            }
+            if (policy.enforceMerchantAllowlist && !merchantAllowlist[agent][merchant]) {
+                revert POLICY_ALLOWLIST();
+            }
+            if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
+                revert POLICY_SESSION_EXPIRED();
+            }
+            revert POLICY_LIMIT();
+        }
+
+        policy.spentTodayAssets += assets;
+
+        emit PolicySpendConsumed(agent, assets, policy.spentTodayAssets);
+    }
+
+    function _canSpend(
+        AgentPolicy storage policy,
+        address agent,
+        address merchant,
+        uint256 assets
+    ) internal view returns (bool) {
+        uint256 spentTodayAssets = _effectiveSpentToday(policy);
+
+        if (!policy.exists) {
+            return false;
+        }
+        if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
+            return false;
+        }
+        if (policy.dailyLimitAssets > 0 && spentTodayAssets + assets > policy.dailyLimitAssets) {
+            return false;
+        }
+        if (policy.enforceMerchantAllowlist && !merchantAllowlist[agent][merchant]) {
+            return false;
+        }
+        if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
+            return false;
+        }
+        return true;
+    }
+
+    function _rollDay(AgentPolicy storage policy) internal {
+        if (block.timestamp >= uint256(policy.dayStart) + 1 days) {
+            policy.dayStart = uint40(block.timestamp);
+            policy.spentTodayAssets = 0;
+        }
+    }
+
+    function _effectiveSpentToday(AgentPolicy storage policy) internal view returns (uint256) {
+        if (policy.dayStart == 0 || block.timestamp >= uint256(policy.dayStart) + 1 days) {
+            return 0;
+        }
+
+        return policy.spentTodayAssets;
+    }
+}
