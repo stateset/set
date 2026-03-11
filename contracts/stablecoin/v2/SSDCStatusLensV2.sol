@@ -15,7 +15,19 @@ contract SSDCStatusLensV2 {
         bool redeemWithdrawAllowed;
         bool requestRedeemAllowed;
         bool processQueueAllowed;
+        bool queueSkipsBlockedClaims;
         bool bridgingAllowed;
+        bool bridgeMintAllowed;
+        bool gatewayRequired;
+        uint256 bridgeOutstandingShares;
+        uint256 bridgeOutstandingLimitShares;
+        uint256 bridgeRemainingCapacityShares;
+        uint256 minBridgeLiquidityCoverageBps;
+        uint256 liabilityAssets;
+        uint256 settlementAssetsAvailable;
+        uint256 queueBufferAvailable;
+        uint256 queueReservedAssets;
+        uint256 liquidityCoverageBps;
         uint256 navRay;
     }
 
@@ -52,7 +64,24 @@ contract SSDCStatusLensV2 {
         status.redeemWithdrawAllowed = navUsable && !mintRedeemPaused;
         status.requestRedeemAllowed = navUsable && !mintRedeemPaused && !queuePaused;
         status.processQueueAllowed = navUsable && !mintRedeemPaused && !queuePaused;
+        status.queueSkipsBlockedClaims = queue.skipBlockedClaims();
         status.bridgingAllowed = !bridgePaused;
+        status.bridgeOutstandingShares = bridge.outstandingShares();
+        status.bridgeOutstandingLimitShares = bridge.maxOutstandingShares();
+        status.bridgeRemainingCapacityShares = bridge.remainingMintCapacityShares();
+        status.minBridgeLiquidityCoverageBps = vault.minBridgeLiquidityCoverageBps();
+        status.gatewayRequired = vault.gatewayRequired();
+        status.liabilityAssets = vault.totalAssets();
+        status.settlementAssetsAvailable = vault.availableSettlementAssets();
+        status.queueBufferAvailable = queue.availableAssets();
+        status.queueReservedAssets = queue.reservedAssets();
+        status.liquidityCoverageBps = vault.liquidityCoverageBps();
+        status.bridgeMintAllowed = !bridgePaused
+            && (
+                status.bridgeOutstandingLimitShares == 0
+                    || status.bridgeOutstandingShares < status.bridgeOutstandingLimitShares
+            )
+            && status.liquidityCoverageBps >= status.minBridgeLiquidityCoverageBps;
         status.navRay = navUsable ? navRay : 0;
     }
 }

@@ -5,11 +5,13 @@ import {SSDCV2TestBase, MockETHUSDOracle} from "./SSDCV2TestBase.sol";
 import {GroundingRegistryV2} from "../../../stablecoin/v2/GroundingRegistryV2.sol";
 import {SSDCClaimQueueV2} from "../../../stablecoin/v2/SSDCClaimQueueV2.sol";
 import {SSDCPolicyModuleV2} from "../../../stablecoin/v2/SSDCPolicyModuleV2.sol";
+import {SSDCVaultGatewayV2} from "../../../stablecoin/v2/SSDCVaultGatewayV2.sol";
 import {YieldEscrowV2} from "../../../stablecoin/v2/YieldEscrowV2.sol";
 import {YieldPaymasterV2} from "../../../stablecoin/v2/YieldPaymasterV2.sol";
 import {IETHUSDOracleV2} from "../../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
 
 contract AgentCommerceFlowV2Test is SSDCV2TestBase {
+    SSDCVaultGatewayV2 internal gateway;
     SSDCClaimQueueV2 internal queue;
     YieldEscrowV2 internal escrow;
     SSDCPolicyModuleV2 internal policy;
@@ -25,10 +27,11 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         super.setUp();
 
         vm.startPrank(admin);
+        gateway = new SSDCVaultGatewayV2(vault, admin);
         queue = new SSDCClaimQueueV2(vault, asset, admin);
-        escrow = new YieldEscrowV2(vault, nav, admin, protocolFeeCollector);
         policy = new SSDCPolicyModuleV2(admin);
         grounding = new GroundingRegistryV2(policy, nav, vault, admin);
+        escrow = new YieldEscrowV2(vault, nav, policy, grounding, admin, protocolFeeCollector);
 
         priceOracle = new MockETHUSDOracle();
         priceOracle.setPrice(3_000e18);
@@ -44,9 +47,14 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
             protocolFeeCollector
         );
 
+        vault.grantRole(vault.GATEWAY_ROLE(), address(gateway));
+        vault.grantRole(vault.GATEWAY_ROLE(), address(queue));
         vault.grantRole(vault.QUEUE_ROLE(), address(queue));
+        escrow.grantRole(escrow.FUNDER_ROLE(), address(gateway));
+        policy.grantRole(policy.POLICY_CONSUMER_ROLE(), address(escrow));
         policy.grantRole(policy.POLICY_CONSUMER_ROLE(), address(paymaster));
         grounding.setCollateralProvider(address(paymaster), true);
+        vault.setGatewayRequired(true);
 
         policy.setPolicy(
             user1,
@@ -62,20 +70,26 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
 
     function test_EndToEndAgentCommerceFlow() public {
         // 1) Buyer agent acquires shares
-        _mintAndDeposit(user1, 1_000 ether);
-
-        // 2) Buyer funds invoice escrow in shares
+        asset.mint(user1, 1_400 ether);
+        vm.startPrank(user1);
+        asset.approve(address(gateway), type(uint256).max);
+        gateway.deposit(1_000 ether, user1, 1_000 ether);
         YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
             assetsDue: 400 ether,
             expiry: uint40(block.timestamp + 1 days),
+            releaseAfter: uint40(block.timestamp + 12 hours),
             maxNavAge: uint40(48 hours),
-            maxSharesIn: type(uint256).max
+            maxSharesIn: type(uint256).max,
+            requiresFulfillment: true,
+            fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
+            requiredMilestones: 2,
+            disputeWindow: uint40(6 hours),
+        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
-
-        vm.startPrank(user1);
-        vault.approve(address(escrow), type(uint256).max);
-        uint256 escrowId = escrow.fundEscrow(merchant, terms, 2_000);
+        // 2) Buyer funds invoice escrow from settlement assets through the gateway.
+        (uint256 escrowId,,) = gateway.depositToEscrow(escrow, merchant, terms, 2_000, 400 ether);
         vm.stopPrank();
+        assertEq(policy.getCommittedAssets(user1), 400 ether);
 
         // 3) NAV moves up smoothly (yield accrual period)
         uint64 nextEpoch = nav.navEpoch() + 1;
@@ -84,8 +98,18 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         vm.warp(block.timestamp + 12 hours);
         priceOracle.setPrice(3_000e18);
 
-        // 4) Release escrow (principal + yield split)
+        // 4) Merchant completes the invoice across two fulfillment milestones and finalizes after the buyer challenge window expires.
+        vm.prank(merchant);
+        escrow.submitFulfillment(escrowId, YieldEscrowV2.FulfillmentType.DELIVERY, keccak256("delivery-proof-1"));
+
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(merchant);
+        escrow.submitFulfillment(escrowId, YieldEscrowV2.FulfillmentType.DELIVERY, keccak256("delivery-proof-2"));
+
+        vm.warp(block.timestamp + 6 hours);
+        vm.prank(merchant);
         escrow.release(escrowId);
+        assertEq(policy.getCommittedAssets(user1), 0);
         assertGt(vault.balanceOf(merchant), 0);
 
         // 5) Merchant requests redemption via async queue
@@ -121,10 +145,18 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         vm.stopPrank();
 
         uint256 feeBefore = vault.balanceOf(protocolFeeCollector);
+        uint256 gasUsed = 200_000;
+        uint256 gasPrice = 12 gwei;
+        bytes32 opKey = keccak256("commerce-gas");
+
         vm.prank(entryPoint);
-        uint256 chargedShares = paymaster.postOp(user1, 200_000, 12 gwei, merchant);
+        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice, merchant);
+
+        vm.prank(entryPoint);
+        uint256 chargedShares = paymaster.postOp(opKey, user1, gasUsed, gasPrice, merchant);
 
         assertGt(chargedShares, 0);
+        assertEq(chargedShares, previewShares);
         assertEq(vault.balanceOf(protocolFeeCollector), feeBefore + chargedShares);
 
         // 9) Grounding remains healthy above floor after charge

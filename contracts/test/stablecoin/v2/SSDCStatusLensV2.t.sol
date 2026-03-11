@@ -17,6 +17,7 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         vm.startPrank(admin);
         queue = new SSDCClaimQueueV2(vault, asset, admin);
         bridge = new WSSDCCrossChainBridgeV2(vault, nav, admin);
+        vault.grantRole(vault.BRIDGE_ROLE(), address(bridge));
         lens = new SSDCStatusLensV2(nav, vault, queue, bridge);
         vm.stopPrank();
     }
@@ -31,7 +32,19 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertTrue(status.redeemWithdrawAllowed);
         assertTrue(status.requestRedeemAllowed);
         assertTrue(status.processQueueAllowed);
+        assertFalse(status.queueSkipsBlockedClaims);
         assertTrue(status.bridgingAllowed);
+        assertTrue(status.bridgeMintAllowed);
+        assertEq(status.bridgeOutstandingShares, 0);
+        assertEq(status.bridgeOutstandingLimitShares, 0);
+        assertEq(status.bridgeRemainingCapacityShares, type(uint256).max);
+        assertEq(status.minBridgeLiquidityCoverageBps, 0);
+        assertFalse(status.gatewayRequired);
+        assertEq(status.liabilityAssets, 0);
+        assertEq(status.settlementAssetsAvailable, 0);
+        assertEq(status.queueBufferAvailable, 0);
+        assertEq(status.queueReservedAssets, 0);
+        assertEq(status.liquidityCoverageBps, 10_000);
         assertEq(status.navRay, RAY);
     }
 
@@ -108,5 +121,89 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertFalse(status.requestRedeemAllowed);
         assertFalse(status.processQueueAllowed);
         assertTrue(status.bridgingAllowed);
+    }
+
+    function test_StatusReportsQueueSkipPolicy() public {
+        vm.prank(admin);
+        queue.setSkipBlockedClaims(true);
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertTrue(status.queueSkipsBlockedClaims);
+        assertTrue(status.processQueueAllowed);
+    }
+
+    function test_StatusReportsGatewayRequirementAndVaultLiquidity() public {
+        _mintAndDeposit(user1, 25 ether);
+
+        vm.prank(admin);
+        vault.setGatewayRequired(true);
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertTrue(status.gatewayRequired);
+        assertEq(status.liabilityAssets, 25 ether);
+        assertEq(status.settlementAssetsAvailable, 25 ether);
+        assertEq(status.liquidityCoverageBps, 10_000);
+    }
+
+    function test_StatusReportsLiabilityCoverageGap() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertEq(status.liabilityAssets, 120 ether);
+        assertEq(status.settlementAssetsAvailable, 100 ether);
+        assertEq(status.liquidityCoverageBps, 8_333);
+        assertTrue(status.bridgeMintAllowed);
+    }
+
+    function test_StatusReportsBridgeMintCoverageGuard() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.startPrank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+        vault.setMinBridgeLiquidityCoverageBps(9_000);
+        vm.stopPrank();
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertEq(status.minBridgeLiquidityCoverageBps, 9_000);
+        assertEq(status.liquidityCoverageBps, 8_333);
+        assertFalse(status.bridgeMintAllowed);
+    }
+
+    function test_StatusReportsOutstandingBridgeCapacity() public {
+        vm.startPrank(admin);
+        bridge.setTrustedPeer(101, bytes32(uint256(0xBEEF)));
+        bridge.setMintLimit(10 ether);
+        bridge.receiveBridgeMint(101, bytes32(uint256(0xBEEF)), keccak256("m1"), user1, 4 ether);
+        vm.stopPrank();
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertEq(status.bridgeOutstandingShares, 4 ether);
+        assertEq(status.bridgeOutstandingLimitShares, 10 ether);
+        assertEq(status.bridgeRemainingCapacityShares, 6 ether);
+        assertTrue(status.bridgeMintAllowed);
+    }
+
+    function test_StatusBlocksBridgeMintWhenOutstandingLimitExhausted() public {
+        vm.startPrank(admin);
+        bridge.setTrustedPeer(101, bytes32(uint256(0xBEEF)));
+        bridge.setMintLimit(4 ether);
+        bridge.receiveBridgeMint(101, bytes32(uint256(0xBEEF)), keccak256("m2"), user1, 4 ether);
+        vm.stopPrank();
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertEq(status.bridgeOutstandingShares, 4 ether);
+        assertEq(status.bridgeRemainingCapacityShares, 0);
+        assertFalse(status.bridgeMintAllowed);
     }
 }

@@ -12,6 +12,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
         uint256 spentTodayAssets;
         uint40 dayStart;
         uint256 minAssetsFloor;
+        uint256 committedAssets;
         uint40 sessionExpiry;
         bool enforceMerchantAllowlist;
         bool exists;
@@ -25,6 +26,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     error POLICY_DAILY_LIMIT();
     error POLICY_ALLOWLIST();
     error POLICY_SESSION_EXPIRED();
+    error POLICY_COMMITMENT();
 
     event PolicyUpdated(
         address indexed agent,
@@ -37,6 +39,8 @@ contract SSDCPolicyModuleV2 is AccessControl {
 
     event MerchantAllowlistUpdated(address indexed agent, address indexed merchant, bool allowed);
     event PolicySpendConsumed(address indexed agent, uint256 assetsConsumed, uint256 spentTodayAssets);
+    event PolicyCommitmentReserved(address indexed agent, uint256 assetsReserved, uint256 committedAssets);
+    event PolicyCommitmentReleased(address indexed agent, uint256 assetsReleased, uint256 committedAssets);
 
     constructor(address admin) {
         require(admin != address(0), "admin=0");
@@ -79,12 +83,28 @@ contract SSDCPolicyModuleV2 is AccessControl {
         emit MerchantAllowlistUpdated(agent, merchant, allowed);
     }
 
-    function getMinAssetsFloor(address agent) external view returns (uint256) {
+    function getConfiguredMinAssetsFloor(address agent) external view returns (uint256) {
         AgentPolicy storage policy = policies[agent];
         if (!policy.exists) {
             return 0;
         }
         return policy.minAssetsFloor;
+    }
+
+    function getCommittedAssets(address agent) external view returns (uint256) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            return 0;
+        }
+        return policy.committedAssets;
+    }
+
+    function getMinAssetsFloor(address agent) external view returns (uint256) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            return 0;
+        }
+        return policy.minAssetsFloor + policy.committedAssets;
     }
 
     function canSpend(address agent, address merchant, uint256 assets) external view returns (bool) {
@@ -118,6 +138,35 @@ contract SSDCPolicyModuleV2 is AccessControl {
         policy.spentTodayAssets += assets;
 
         emit PolicySpendConsumed(agent, assets, policy.spentTodayAssets);
+    }
+
+    function reserveCommittedSpend(address agent, uint256 assets) external onlyRole(POLICY_CONSUMER_ROLE) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            revert POLICY_NOT_SET();
+        }
+
+        policy.committedAssets += assets;
+
+        emit PolicyCommitmentReserved(agent, assets, policy.committedAssets);
+    }
+
+    function releaseCommittedSpend(address agent, uint256 assets) external onlyRole(POLICY_CONSUMER_ROLE) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            revert POLICY_NOT_SET();
+        }
+
+        uint256 committedAssets = policy.committedAssets;
+        if (assets > committedAssets) {
+            revert POLICY_COMMITMENT();
+        }
+
+        unchecked {
+            policy.committedAssets = committedAssets - assets;
+        }
+
+        emit PolicyCommitmentReleased(agent, assets, policy.committedAssets);
     }
 
     function _canSpend(

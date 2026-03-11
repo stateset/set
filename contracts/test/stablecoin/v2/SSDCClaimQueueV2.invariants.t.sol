@@ -142,6 +142,7 @@ contract SSDCClaimQueueV2InvariantTest is StdInvariant, Test {
         nav.grantRole(nav.ORACLE_ROLE(), oracle);
 
         queue = new SSDCClaimQueueV2(vault, asset, admin);
+        vault.grantRole(vault.GATEWAY_ROLE(), address(queue));
         vault.grantRole(vault.QUEUE_ROLE(), address(queue));
         vm.stopPrank();
 

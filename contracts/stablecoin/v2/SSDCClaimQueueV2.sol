@@ -41,6 +41,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     uint256 public reservedAssets;
 
     bool public processQueuePermissionless;
+    bool public skipBlockedClaims;
     bool public queueOpsPaused;
 
     error MINT_REDEEM_PAUSED();
@@ -63,6 +64,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
 
     event BufferRefilled(address indexed from, uint256 amount);
     event QueuePermissionlessSet(bool permissionless);
+    event QueueSkipBlockedClaimsSet(bool enabled);
     event QueueOpsPausedSet(bool paused);
 
     constructor(wSSDCVaultV2 vault_, IERC20 settlementAsset_, address admin) ERC721("SSDC Claim", "SSDC_Claim") {
@@ -79,6 +81,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
         head = 1;
         nextClaimId = 1;
         processQueuePermissionless = true;
+        skipBlockedClaims = false;
     }
 
     function requestRedeem(uint256 shares, address receiver) external nonReentrant returns (uint256 claimId) {
@@ -142,12 +145,23 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
         uint256 cursor = head;
         uint256 maxId = nextClaimId;
         uint256 scansRemaining = _scanBudget(maxClaims);
+        bool canSkipBlockedClaims = skipBlockedClaims;
 
         while (cursor < maxId && processed < maxClaims && scansRemaining > 0) {
+            if (claims[cursor].status != Status.PENDING) {
+                unchecked {
+                    ++cursor;
+                    --scansRemaining;
+                }
+                continue;
+            }
+
             if (_tryProcessClaim(cursor)) {
                 unchecked {
                     ++processed;
                 }
+            } else if (!canSkipBlockedClaims) {
+                break;
             }
 
             unchecked {
@@ -190,6 +204,11 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     function setProcessQueuePermissionless(bool permissionless) external onlyRole(DEFAULT_ADMIN_ROLE) {
         processQueuePermissionless = permissionless;
         emit QueuePermissionlessSet(permissionless);
+    }
+
+    function setSkipBlockedClaims(bool enabled) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        skipBlockedClaims = enabled;
+        emit QueueSkipBlockedClaimsSet(enabled);
     }
 
     function setQueueOpsPaused(bool paused) external onlyRole(PAUSER_ROLE) {
@@ -247,12 +266,30 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
         }
 
         uint256 assetsNow = vault.convertToAssets(claimRef.sharesLocked);
-        if (availableAssets < assetsNow) {
+        uint256 vaultAssets = settlementAsset.balanceOf(address(vault));
+        uint256 assetsFromVault = assetsNow;
+        if (assetsFromVault > vaultAssets) {
+            assetsFromVault = vaultAssets;
+        }
+
+        uint256 neededFromBuffer = assetsNow - assetsFromVault;
+        if (availableAssets < neededFromBuffer) {
             return false;
         }
 
+        // Pull real settlement assets from the vault before falling back to the external queue buffer.
+        if (assetsFromVault > 0) {
+            uint256 sharesBurnedByWithdraw = vault.withdraw(assetsFromVault, address(this), address(this));
+            availableAssets += assetsFromVault;
+
+            if (sharesBurnedByWithdraw < claimRef.sharesLocked) {
+                vault.burnQueuedShares(claimRef.sharesLocked - sharesBurnedByWithdraw);
+            }
+        } else {
+            vault.burnQueuedShares(claimRef.sharesLocked);
+        }
+
         _reserve(assetsNow);
-        vault.burnQueuedShares(claimRef.sharesLocked);
 
         claimRef.assetsOwed = assetsNow;
         claimRef.sharesLocked = 0;

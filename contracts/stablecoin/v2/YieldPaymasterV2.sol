@@ -15,6 +15,14 @@ import {IETHUSDOracleV2} from "./interfaces/IETHUSDOracleV2.sol";
 contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProviderV2 {
     bytes32 public constant PAYMASTER_ADMIN_ROLE = keccak256("PAYMASTER_ADMIN_ROLE");
 
+    struct PendingCharge {
+        address agent;
+        uint256 maxGasCostWei;
+        uint256 maxShares;
+        address merchant;
+        uint64 preparedAtBlock;
+    }
+
     wSSDCVaultV2 public immutable vault;
     NAVControllerV2 public immutable navController;
     SSDCPolicyModuleV2 public immutable policyModule;
@@ -27,12 +35,18 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     address public feeCollector;
 
     mapping(address => uint256) public gasTankShares;
+    mapping(bytes32 => PendingCharge) public pendingCharges;
 
     error GROUNDED();
     error PRICE_STALE();
     error FLOOR();
     error INSUFFICIENT_SHARES();
     error NOT_ENTRYPOINT();
+    error VALIDATION_MISSING();
+    error VALIDATION_EXPIRED();
+    error AGENT_MISMATCH();
+    error MERCHANT_MISMATCH();
+    error GAS_BUDGET();
 
     event GasCharged(
         address indexed agent,
@@ -107,9 +121,12 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     }
 
     function topUpGasTank(uint256 shares) external nonReentrant {
-        vault.transferFrom(msg.sender, address(this), shares);
-        gasTankShares[msg.sender] += shares;
-        emit GasTankToppedUp(msg.sender, shares);
+        _topUpGasTank(msg.sender, shares);
+    }
+
+    function topUpGasTankFor(address agent, uint256 shares) external nonReentrant {
+        require(agent != address(0), "agent=0");
+        _topUpGasTank(agent, shares);
     }
 
     function withdrawGasTank(uint256 shares, address to) external nonReentrant {
@@ -125,10 +142,11 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     }
 
     function validatePaymasterUserOp(
+        bytes32 opKey,
         address agent,
         uint256 maxGasCostWei,
         address merchant
-    ) external view onlyEntryPoint returns (uint256 chargeShares) {
+    ) external onlyEntryPoint returns (uint256 chargeShares) {
         if (groundingRegistry.isGroundedNow(agent)) {
             revert GROUNDED();
         }
@@ -152,23 +170,53 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
         bool canSpend = policyModule.canSpend(agent, merchant, assetsCost);
         require(canSpend, "POLICY");
+
+        pendingCharges[opKey] = PendingCharge({
+            agent: agent,
+            maxGasCostWei: maxGasCostWei,
+            maxShares: chargeShares,
+            merchant: merchant,
+            preparedAtBlock: uint64(block.number)
+        });
     }
 
     function postOp(
+        bytes32 opKey,
         address agent,
         uint256 gasUsed,
         uint256 effectiveGasPrice,
         address merchant
     ) external onlyEntryPoint nonReentrant returns (uint256 sharesCharged) {
+        PendingCharge memory pending = pendingCharges[opKey];
+        if (pending.preparedAtBlock == 0) {
+            revert VALIDATION_MISSING();
+        }
+        if (pending.preparedAtBlock != block.number) {
+            revert VALIDATION_EXPIRED();
+        }
+        if (pending.agent != agent) {
+            revert AGENT_MISMATCH();
+        }
+        if (pending.merchant != merchant) {
+            revert MERCHANT_MISMATCH();
+        }
+        delete pendingCharges[opKey];
+
         if (groundingRegistry.isGroundedNow(agent)) {
             revert GROUNDED();
         }
 
         uint256 gasCostWei = gasUsed * effectiveGasPrice;
+        if (gasCostWei > pending.maxGasCostWei) {
+            revert GAS_BUDGET();
+        }
         uint256 assetsCost = _ethWeiToUsdAssets(gasCostWei);
         uint256 nav = navController.currentNAVRay();
 
         sharesCharged = RayMath.convertToSharesUp(assetsCost, nav);
+        if (sharesCharged > pending.maxShares) {
+            revert GAS_BUDGET();
+        }
 
         uint256 tankShares = gasTankShares[agent];
         if (sharesCharged > tankShares) {
@@ -208,5 +256,13 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         uint256 assetsCost = _ethWeiToUsdAssets(gasCostWei);
         uint256 nav = navController.currentNAVRay();
         return RayMath.convertToSharesUp(assetsCost, nav);
+    }
+
+    function _topUpGasTank(address agent, uint256 shares) internal {
+        vault.transferFrom(msg.sender, address(this), shares);
+        unchecked {
+            gasTankShares[agent] += shares;
+        }
+        emit GasTankToppedUp(agent, shares);
     }
 }

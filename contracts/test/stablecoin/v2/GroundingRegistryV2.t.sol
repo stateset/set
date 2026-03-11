@@ -71,4 +71,29 @@ contract GroundingRegistryV2Test is SSDCV2TestBase {
         assertTrue(grounding.isGroundedNow(user1));
         assertTrue(grounding.isGrounded(user1));
     }
+
+    function test_CurrentAssetsUsesEffectiveFloorIncludingCommitments() public {
+        vm.prank(admin);
+        policy.setPolicy(user1, 0, 0, 50 ether, 0, false);
+
+        vm.prank(admin);
+        policy.reserveCommittedSpend(user1, 30 ether);
+
+        (uint256 assetsNow, uint256 floor, uint256 navRay) = grounding.currentAssets(user1);
+
+        assertEq(assetsNow, 100 ether);
+        assertEq(floor, 80 ether);
+        assertEq(navRay, RAY);
+        assertFalse(grounding.isGroundedNow(user1));
+
+        vm.prank(admin);
+        policy.reserveCommittedSpend(user1, 30 ether);
+
+        (assetsNow, floor, navRay) = grounding.currentAssets(user1);
+
+        assertEq(assetsNow, 100 ether);
+        assertEq(floor, 110 ether);
+        assertEq(navRay, RAY);
+        assertTrue(grounding.isGroundedNow(user1));
+    }
 }

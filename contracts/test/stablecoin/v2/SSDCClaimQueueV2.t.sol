@@ -14,9 +14,30 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
         vm.prank(admin);
         queue = new SSDCClaimQueueV2(vault, asset, admin);
 
+        bytes32 gatewayRole = vault.GATEWAY_ROLE();
         bytes32 queueRole = vault.QUEUE_ROLE();
         vm.prank(admin);
+        vault.grantRole(gatewayRole, address(queue));
+        vm.prank(admin);
         vault.grantRole(queueRole, address(queue));
+    }
+
+    function test_ProcessQueueUsesVaultLiquidityBeforeBuffer() public {
+        _mintAndDeposit(user1, 60 ether);
+
+        vm.startPrank(user1);
+        vault.approve(address(queue), type(uint256).max);
+        uint256 claimId = queue.requestRedeem(25 ether, user1);
+        vm.stopPrank();
+
+        queue.processQueue(10);
+
+        (, , uint256 assetsOwed, , SSDCClaimQueueV2.Status status) = queue.claims(claimId);
+
+        assertEq(uint256(status), uint256(SSDCClaimQueueV2.Status.CLAIMABLE));
+        assertEq(assetsOwed, 25 ether);
+        assertEq(queue.reservedAssets(), 25 ether);
+        assertEq(asset.balanceOf(address(queue)), 25 ether);
     }
 
     function test_QueueSolvencyTracksClaimableAssets() public {
@@ -72,7 +93,7 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
         queue.refill(50 ether);
 
         uint256 beforeHead = queue.head();
-        queue.processQueue(5);
+        queue.processQueue(1);
         uint256 afterHead = queue.head();
         vm.stopPrank();
 
@@ -96,7 +117,7 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
         assertEq(headAfterSecond, id3 + 1);
     }
 
-    function test_ProcessQueueCanSkipOversizedHeadClaim() public {
+    function test_ProcessQueueStopsAtOversizedHeadClaimByDefault() public {
         _mintAndDeposit(user1, 120 ether);
 
         vm.startPrank(user1);
@@ -106,12 +127,47 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
         uint256 id3 = queue.requestRedeem(10 ether, user1);
         vm.stopPrank();
 
-        asset.mint(admin, 20 ether);
+        uint64 nextEpoch = nav.navEpoch() + 1;
         vm.startPrank(admin);
-        asset.approve(address(queue), type(uint256).max);
-        queue.refill(20 ether);
-        queue.processQueue(10);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+        nav.relayNAV(144e25, uint40(block.timestamp), 0, nextEpoch + 1);
         vm.stopPrank();
+
+        queue.processQueue(10);
+
+        (, , uint256 owed1, , SSDCClaimQueueV2.Status status1) = queue.claims(id1);
+        (, , uint256 owed2, , SSDCClaimQueueV2.Status status2) = queue.claims(id2);
+        (, , uint256 owed3, , SSDCClaimQueueV2.Status status3) = queue.claims(id3);
+
+        assertEq(uint256(status1), uint256(SSDCClaimQueueV2.Status.PENDING));
+        assertEq(owed1, 0);
+        assertEq(queue.head(), id1);
+
+        assertEq(uint256(status2), uint256(SSDCClaimQueueV2.Status.PENDING));
+        assertEq(uint256(status3), uint256(SSDCClaimQueueV2.Status.PENDING));
+        assertEq(owed2, 0);
+        assertEq(owed3, 0);
+        assertEq(queue.reservedAssets(), 0);
+    }
+
+    function test_ProcessQueueCanSkipOversizedHeadClaimWhenEnabled() public {
+        _mintAndDeposit(user1, 120 ether);
+
+        vm.startPrank(user1);
+        vault.approve(address(queue), type(uint256).max);
+        uint256 id1 = queue.requestRedeem(90 ether, user1);
+        uint256 id2 = queue.requestRedeem(10 ether, user1);
+        uint256 id3 = queue.requestRedeem(10 ether, user1);
+        vm.stopPrank();
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.startPrank(admin);
+        queue.setSkipBlockedClaims(true);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+        nav.relayNAV(144e25, uint40(block.timestamp), 0, nextEpoch + 1);
+        vm.stopPrank();
+
+        queue.processQueue(10);
 
         (, , uint256 owed1, , SSDCClaimQueueV2.Status status1) = queue.claims(id1);
         (, , uint256 owed2, , SSDCClaimQueueV2.Status status2) = queue.claims(id2);
@@ -123,8 +179,10 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
 
         assertEq(uint256(status2), uint256(SSDCClaimQueueV2.Status.CLAIMABLE));
         assertEq(uint256(status3), uint256(SSDCClaimQueueV2.Status.CLAIMABLE));
-        assertEq(owed2 + owed3, 20 ether);
-        assertEq(queue.reservedAssets(), 20 ether);
+        uint256 expectedSmallClaim = vault.convertToAssets(10 ether);
+        assertEq(owed2, expectedSmallClaim);
+        assertEq(owed3, expectedSmallClaim);
+        assertEq(queue.reservedAssets(), owed2 + owed3);
     }
 
     function testFuzz_HeadMonotonic(uint8 claimCount, uint8 processA, uint8 processB) public {

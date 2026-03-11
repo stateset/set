@@ -17,6 +17,7 @@ contract YieldPaymasterHandlerV2 {
     MockAsset public immutable asset;
 
     address public immutable merchant = address(0xBEEF);
+    uint256 public nextOpNonce;
 
     constructor(YieldPaymasterV2 paymaster_, wSSDCVaultV2 vault_, MockAsset asset_) {
         paymaster = paymaster_;
@@ -44,7 +45,13 @@ contract YieldPaymasterHandlerV2 {
     function opPostOp(uint256 gasUsedRaw, uint256 gasPriceWeiRaw) external {
         uint256 gasUsed = (gasUsedRaw % 3_000_000) + 21_000;
         uint256 gasPriceWei = (gasPriceWeiRaw % 500 gwei) + 1;
-        try paymaster.postOp(address(this), gasUsed, gasPriceWei, merchant) {} catch {}
+        bytes32 opKey = keccak256(abi.encodePacked(address(this), nextOpNonce));
+        unchecked {
+            ++nextOpNonce;
+        }
+        try paymaster.validatePaymasterUserOp(opKey, address(this), gasUsed * gasPriceWei, merchant) {
+            try paymaster.postOp(opKey, address(this), gasUsed, gasPriceWei, merchant) {} catch {}
+        } catch {}
     }
 }
 

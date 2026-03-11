@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {SSDCV2TestBase} from "./SSDCV2TestBase.sol";
-import {NAVControllerV2} from "../../../stablecoin/v2/NAVControllerV2.sol";
 import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 contract wSSDCVaultV2Test is SSDCV2TestBase {
@@ -41,10 +41,14 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         vm.startPrank(user1);
         asset.approve(address(vault), type(uint256).max);
 
-        vm.expectRevert(NAVControllerV2.NAV_STALE.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxDeposit.selector, user1, 1 ether, 0)
+        );
         vault.deposit(1 ether, user1);
 
-        vm.expectRevert(NAVControllerV2.NAV_STALE.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxWithdraw.selector, user1, 1 ether, 0)
+        );
         vault.withdraw(1 ether, user1, user1);
         vm.stopPrank();
     }
@@ -63,5 +67,100 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         uint256 sharesWithdraw = vault.previewWithdraw(assets);
 
         assertLe(sharesDeposit, sharesWithdraw);
+    }
+
+    function test_MaxWithdrawAndRedeemCapToSettlementLiquidity() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+
+        assertEq(vault.availableSettlementAssets(), 100 ether);
+        assertEq(vault.maxWithdraw(user1), 100 ether);
+        assertEq(vault.maxRedeem(user1), vault.convertToShares(100 ether));
+        assertLt(vault.maxRedeem(user1), vault.balanceOf(user1));
+    }
+
+    function test_WithdrawAndRedeemFailClosedOnLiquidityCap() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+
+        vm.startPrank(user1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxWithdraw.selector, user1, 101 ether, 100 ether)
+        );
+        vault.withdraw(101 ether, user1, user1);
+
+        uint256 maxRedeemShares = vault.maxRedeem(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxRedeem.selector,
+                user1,
+                maxRedeemShares + 1,
+                maxRedeemShares
+            )
+        );
+        vault.redeem(maxRedeemShares + 1, user1, user1);
+
+        vm.stopPrank();
+    }
+
+    function test_TotalAssetsTracksNavLiabilities() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+
+        assertEq(vault.availableSettlementAssets(), 100 ether);
+        assertEq(vault.totalAssets(), 120 ether);
+        assertEq(vault.totalLiabilityAssets(), 120 ether);
+        assertEq(vault.liquidityCoverageBps(), 8_333);
+    }
+
+    function test_BridgeMintCoverageGuardBlocksUnderbackedMint() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+
+        vm.prank(admin);
+        vault.setMinBridgeLiquidityCoverageBps(9_000);
+
+        assertEq(vault.previewLiquidityCoverageBpsAfterMint(1 ether), 8_250);
+
+        vm.prank(admin);
+        vm.expectRevert(wSSDCVaultV2.LIQUIDITY_COVERAGE.selector);
+        vault.mintBridgeShares(user2, 1 ether);
+    }
+
+    function test_BridgedShareProvenanceMovesWithTransfersAndBurns() public {
+        _mintAndDeposit(user1, 15 ether);
+
+        vm.prank(admin);
+        vault.mintBridgeShares(user1, 10 ether);
+
+        assertEq(vault.bridgedSharesBalance(user1), 10 ether);
+        assertEq(vault.bridgedSharesSupply(), 10 ether);
+
+        vm.prank(user1);
+        vault.transfer(user2, 12 ether);
+
+        assertEq(vault.bridgedSharesBalance(user1), 0);
+        assertEq(vault.bridgedSharesBalance(user2), 10 ether);
+        assertEq(vault.bridgedSharesSupply(), 10 ether);
+
+        vm.prank(admin);
+        uint256 bridgedBurned = vault.burnBridgeShares(user2, 4 ether);
+
+        assertEq(bridgedBurned, 4 ether);
+        assertEq(vault.bridgedSharesBalance(user2), 6 ether);
+        assertEq(vault.bridgedSharesSupply(), 6 ether);
     }
 }

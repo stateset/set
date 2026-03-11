@@ -54,10 +54,10 @@ contract BridgeHandlerV2 {
     }
 
     function opSetMintLimit(uint256 limitRaw) external {
-        uint256 currentMinted = bridge.minted(address(this));
-        uint256 limit = currentMinted + (limitRaw % 1_000_000 ether) + 1;
+        uint256 currentOutstanding = bridge.outstandingShares();
+        uint256 limit = currentOutstanding + (limitRaw % 1_000_000 ether) + 1;
 
-        try bridge.setMintLimit(address(this), limit) {} catch {}
+        try bridge.setMintLimit(limit) {} catch {}
         _trackEpoch();
     }
 
@@ -160,14 +160,14 @@ contract WSSDCCrossChainBridgeV2InvariantTest is StdInvariant, Test {
         nav.grantRole(nav.BRIDGE_ROLE(), address(bridge));
 
         bridge.setTrustedPeer(CHAIN, PEER);
-        bridge.setMintLimit(admin, 1_000_000 ether);
+        bridge.setMintLimit(1_000_000 ether);
         vm.stopPrank();
 
         handler = new BridgeHandlerV2(bridge, nav, vault, CHAIN, PEER);
 
         vm.startPrank(admin);
         bridge.grantRole(bridge.BRIDGE_ROLE(), address(handler));
-        bridge.setMintLimit(address(handler), 1_000_000 ether);
+        bridge.setMintLimit(1_000_000 ether);
         vm.stopPrank();
 
         targetContract(address(handler));
@@ -177,12 +177,16 @@ contract WSSDCCrossChainBridgeV2InvariantTest is StdInvariant, Test {
         assertGe(nav.navEpoch(), handler.lastEpochObserved());
     }
 
-    function invariant_handlerMintNeverExceedsLimit() public view {
-        uint256 limit = bridge.mintLimit(address(handler));
-        uint256 minted = bridge.minted(address(handler));
+    function invariant_outstandingMintNeverExceedsLimit() public view {
+        uint256 limit = bridge.maxOutstandingShares();
+        uint256 minted = bridge.outstandingShares();
         if (limit > 0) {
             assertLe(minted, limit);
         }
+    }
+
+    function invariant_bridgeOutstandingMatchesVaultProvenanceSupply() public view {
+        assertEq(bridge.outstandingShares(), vault.bridgedSharesSupply());
     }
 
     function invariant_handlerOutstandingBalanceTracksNetBridgeFlow() public view {
@@ -193,7 +197,9 @@ contract WSSDCCrossChainBridgeV2InvariantTest is StdInvariant, Test {
         assertEq(vault.balanceOf(address(handler)), mintedShares - bridgedOutShares);
     }
 
-    function invariant_handlerMintCounterTracksSuccessfulMints() public view {
-        assertEq(bridge.minted(address(handler)), handler.successfulMintedShares());
+    function invariant_outstandingSupplyTracksNetBridgeFlow() public view {
+        uint256 mintedShares = handler.successfulMintedShares();
+        uint256 bridgedOutShares = handler.successfulBridgedOutShares();
+        assertEq(bridge.outstandingShares(), mintedShares - bridgedOutShares);
     }
 }

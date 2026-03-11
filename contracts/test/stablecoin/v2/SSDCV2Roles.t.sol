@@ -53,6 +53,7 @@ contract SSDCV2RolesTest is SSDCV2TestBase {
 
         vault.grantRole(vault.PAUSER_ROLE(), pauser);
         vault.grantRole(vault.BRIDGE_ROLE(), address(bridge));
+        vault.grantRole(vault.GATEWAY_ROLE(), address(queue));
         vault.grantRole(vault.QUEUE_ROLE(), address(queue));
 
         queue.grantRole(queue.BUFFER_ROLE(), bufferOperator);
@@ -89,6 +90,14 @@ contract SSDCV2RolesTest is SSDCV2TestBase {
 
         vm.prank(attacker);
         vm.expectRevert();
+        queue.setSkipBlockedClaims(true);
+
+        vm.prank(bridgeOperator);
+        vm.expectRevert();
+        bridge.setMintLimit(1 ether);
+
+        vm.prank(attacker);
+        vm.expectRevert();
         paymaster.setEntryPoint(address(0x1234));
 
         vm.prank(attacker);
@@ -108,9 +117,12 @@ contract SSDCV2RolesTest is SSDCV2TestBase {
         vm.stopPrank();
         assertEq(queue.availableAssets(), 5 ether);
 
-        vm.prank(bridgeOperator);
+        vm.prank(admin);
         bridge.setTrustedPeer(101, bytes32(uint256(0xBEEF)));
-        assertEq(bridge.trustedPeer(101), bytes32(uint256(0xBEEF)));
+
+        vm.prank(bridgeOperator);
+        bridge.receiveBridgeMint(101, bytes32(uint256(0xBEEF)), keccak256("roles-mint"), user1, 1 ether);
+        assertEq(vault.balanceOf(user1), 1 ether);
 
         vm.prank(pauser);
         vault.setMintRedeemPaused(true);
@@ -123,5 +135,9 @@ contract SSDCV2RolesTest is SSDCV2TestBase {
         vm.prank(pauser);
         queue.setQueueOpsPaused(true);
         assertTrue(queue.queueOpsPaused());
+
+        vm.prank(admin);
+        queue.setSkipBlockedClaims(true);
+        assertTrue(queue.skipBlockedClaims());
     }
 }

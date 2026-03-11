@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {SSDCV2TestBase} from "./SSDCV2TestBase.sol";
 import {WSSDCCrossChainBridgeV2} from "../../../stablecoin/v2/WSSDCCrossChainBridgeV2.sol";
 import {NAVControllerV2} from "../../../stablecoin/v2/NAVControllerV2.sol";
+import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
     WSSDCCrossChainBridgeV2 internal bridge;
@@ -38,6 +39,20 @@ contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
         bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, msgId, user2, 40 ether);
 
         assertEq(vault.balanceOf(user2), 40 ether);
+        assertEq(vault.bridgedSharesBalance(user2), 40 ether);
+        assertEq(vault.bridgedSharesSupply(), 40 ether);
+        assertEq(bridge.outstandingShares(), 40 ether);
+    }
+
+    function test_BridgeOutIdsAreUniqueWithinBlock() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.startPrank(user1);
+        bytes32 msgId1 = bridge.bridgeOut(SRC_CHAIN, bytes32(uint256(uint160(user2))), 10 ether);
+        bytes32 msgId2 = bridge.bridgeOut(SRC_CHAIN, bytes32(uint256(uint160(user2))), 10 ether);
+        vm.stopPrank();
+
+        assertTrue(msgId1 != msgId2);
     }
 
     function test_RelayNAVRejectsOutOfOrderEpoch() public {
@@ -100,7 +115,7 @@ contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
 
     function test_MintLimitCapsBlastRadius() public {
         vm.prank(admin);
-        bridge.setMintLimit(admin, 10 ether);
+        bridge.setMintLimit(10 ether);
 
         vm.prank(admin);
         bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("ok"), user2, 10 ether);
@@ -108,5 +123,85 @@ contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
         vm.prank(admin);
         vm.expectRevert(WSSDCCrossChainBridgeV2.MINT_LIMIT.selector);
         bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("over"), user2, 1);
+    }
+
+    function test_BridgeOutReopensOutstandingMintCapacity() public {
+        vm.prank(admin);
+        bridge.setMintLimit(10 ether);
+
+        vm.prank(admin);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("m1"), user1, 10 ether);
+        assertEq(bridge.outstandingShares(), 10 ether);
+
+        vm.prank(user1);
+        bridge.bridgeOut(SRC_CHAIN, bytes32(uint256(uint160(user2))), 6 ether);
+        assertEq(bridge.outstandingShares(), 4 ether);
+
+        vm.prank(admin);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("m2"), user2, 6 ether);
+        assertEq(bridge.outstandingShares(), 10 ether);
+    }
+
+    function test_NativeBridgeOutDoesNotReopenOutstandingMintCapacity() public {
+        _mintAndDeposit(user1, 20 ether);
+
+        vm.prank(admin);
+        bridge.setMintLimit(10 ether);
+
+        vm.prank(admin);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("native-bypass-seed"), user2, 10 ether);
+        assertEq(bridge.outstandingShares(), 10 ether);
+
+        vm.prank(user1);
+        bridge.bridgeOut(SRC_CHAIN, bytes32(uint256(uint160(user3))), 5 ether);
+
+        assertEq(vault.bridgedSharesBalance(user1), 0);
+        assertEq(bridge.outstandingShares(), 10 ether);
+
+        vm.prank(admin);
+        vm.expectRevert(WSSDCCrossChainBridgeV2.MINT_LIMIT.selector);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("native-bypass-over"), user3, 1 ether);
+    }
+
+    function test_TransferredBridgedSharesKeepProvenanceOnBridgeOut() public {
+        vm.prank(admin);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("transfer-seed"), user1, 10 ether);
+
+        vm.prank(user1);
+        vault.transfer(user2, 4 ether);
+
+        assertEq(vault.bridgedSharesBalance(user1), 6 ether);
+        assertEq(vault.bridgedSharesBalance(user2), 4 ether);
+        assertEq(vault.bridgedSharesSupply(), 10 ether);
+
+        vm.prank(user2);
+        bridge.bridgeOut(SRC_CHAIN, bytes32(uint256(uint160(user3))), 4 ether);
+
+        assertEq(vault.bridgedSharesBalance(user2), 0);
+        assertEq(vault.bridgedSharesSupply(), 6 ether);
+        assertEq(bridge.outstandingShares(), 6 ether);
+    }
+
+    function test_BridgeOutNeverMakesOutstandingNegative() public {
+        _mintAndDeposit(user1, 20 ether);
+
+        vm.prank(user1);
+        bridge.bridgeOut(SRC_CHAIN, bytes32(uint256(uint160(user2))), 5 ether);
+
+        assertEq(bridge.outstandingShares(), 0);
+    }
+
+    function test_ReceiveBridgeMintRejectsCoverageBreach() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.startPrank(admin);
+        nav.relayNAV(12e26, uint40(block.timestamp), 0, nextEpoch);
+        vault.setMinBridgeLiquidityCoverageBps(9_000);
+        vm.stopPrank();
+
+        vm.prank(admin);
+        vm.expectRevert(wSSDCVaultV2.LIQUIDITY_COVERAGE.selector);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, keccak256("coverage"), user2, 1 ether);
     }
 }

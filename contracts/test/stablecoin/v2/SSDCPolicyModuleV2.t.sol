@@ -55,4 +55,38 @@ contract SSDCPolicyModuleV2Test is Test {
 
         assertFalse(policy.canSpend(agent, merchant, 1 ether));
     }
+
+    function test_CommittedSpendAdjustsEffectiveFloorAndCanRelease() public {
+        vm.prank(admin);
+        policy.setPolicy(agent, 100 ether, 100 ether, 50 ether, 0, false);
+
+        assertEq(policy.getConfiguredMinAssetsFloor(agent), 50 ether);
+        assertEq(policy.getCommittedAssets(agent), 0);
+        assertEq(policy.getMinAssetsFloor(agent), 50 ether);
+
+        vm.prank(consumer);
+        policy.reserveCommittedSpend(agent, 20 ether);
+
+        assertEq(policy.getConfiguredMinAssetsFloor(agent), 50 ether);
+        assertEq(policy.getCommittedAssets(agent), 20 ether);
+        assertEq(policy.getMinAssetsFloor(agent), 70 ether);
+
+        vm.prank(consumer);
+        policy.releaseCommittedSpend(agent, 5 ether);
+
+        assertEq(policy.getCommittedAssets(agent), 15 ether);
+        assertEq(policy.getMinAssetsFloor(agent), 65 ether);
+    }
+
+    function test_ReleaseCommittedSpendRevertsWhenAmountExceedsReserved() public {
+        vm.prank(admin);
+        policy.setPolicy(agent, 100 ether, 100 ether, 50 ether, 0, false);
+
+        vm.prank(consumer);
+        policy.reserveCommittedSpend(agent, 10 ether);
+
+        vm.prank(consumer);
+        vm.expectRevert(SSDCPolicyModuleV2.POLICY_COMMITMENT.selector);
+        policy.releaseCommittedSpend(agent, 11 ether);
+    }
 }

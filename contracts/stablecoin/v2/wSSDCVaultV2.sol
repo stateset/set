@@ -18,12 +18,58 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
 
     bool public mintRedeemPaused;
     bool public gatewayRequired;
+    uint256 public minBridgeLiquidityCoverageBps;
+    mapping(address => uint256) public bridgedSharesBalance;
+    uint256 public bridgedSharesSupply;
 
     error MINT_REDEEM_PAUSED();
     error GATEWAY_ONLY();
+    error LIQUIDITY_COVERAGE();
 
     event MintRedeemPauseSet(bool paused);
     event GatewayRequirementSet(bool required);
+    event MinBridgeLiquidityCoverageSet(uint256 minCoverageBps);
+
+    function availableSettlementAssets() public view returns (uint256) {
+        return ERC20(asset()).balanceOf(address(this));
+    }
+
+    function totalLiabilityAssets() public view returns (uint256) {
+        return RayMath.convertToAssetsDown(totalSupply(), _accountingNAVRay());
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return totalLiabilityAssets();
+    }
+
+    function liquidityCoverageBps() public view returns (uint256) {
+        uint256 liabilityAssets = totalLiabilityAssets();
+        if (liabilityAssets == 0) {
+            return 10_000;
+        }
+
+        uint256 liquidAssets = availableSettlementAssets();
+        if (liquidAssets >= liabilityAssets) {
+            return 10_000;
+        }
+
+        return (liquidAssets * 10_000) / liabilityAssets;
+    }
+
+    function previewLiquidityCoverageBpsAfterMint(uint256 additionalShares) public view returns (uint256) {
+        uint256 navRay = _accountingNAVRay();
+        uint256 postLiabilityAssets = RayMath.convertToAssetsDown(totalSupply() + additionalShares, navRay);
+        if (postLiabilityAssets == 0) {
+            return 10_000;
+        }
+
+        uint256 liquidAssets = availableSettlementAssets();
+        if (liquidAssets >= postLiabilityAssets) {
+            return 10_000;
+        }
+
+        return (liquidAssets * 10_000) / postLiabilityAssets;
+    }
 
     constructor(
         ERC20 settlementAsset,
@@ -68,11 +114,26 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         emit GatewayRequirementSet(required_);
     }
 
-    function mintBridgeShares(address to, uint256 shares) external onlyRole(BRIDGE_ROLE) {
-        _mint(to, shares);
+    function setMinBridgeLiquidityCoverageBps(uint256 minCoverageBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(minCoverageBps_ <= 10_000, "coverage>100%");
+        minBridgeLiquidityCoverageBps = minCoverageBps_;
+        emit MinBridgeLiquidityCoverageSet(minCoverageBps_);
     }
 
-    function burnBridgeShares(address from, uint256 shares) external onlyRole(BRIDGE_ROLE) {
+    function mintBridgeShares(address to, uint256 shares) external onlyRole(BRIDGE_ROLE) {
+        uint256 minCoverageBps = minBridgeLiquidityCoverageBps;
+        if (minCoverageBps > 0 && previewLiquidityCoverageBpsAfterMint(shares) < minCoverageBps) {
+            revert LIQUIDITY_COVERAGE();
+        }
+        _mint(to, shares);
+        unchecked {
+            bridgedSharesBalance[to] += shares;
+            bridgedSharesSupply += shares;
+        }
+    }
+
+    function burnBridgeShares(address from, uint256 shares) external onlyRole(BRIDGE_ROLE) returns (uint256 bridgedSharesBurned) {
+        bridgedSharesBurned = _bridgedSharesPortion(from, shares);
         _burn(from, shares);
     }
 
@@ -105,31 +166,41 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     }
 
     function maxDeposit(address receiver) public view override returns (uint256) {
-        if (mintRedeemPaused) {
+        (, bool navUsable) = _usableNAV();
+        if (mintRedeemPaused || !navUsable) {
             return 0;
         }
         return super.maxDeposit(receiver);
     }
 
     function maxMint(address receiver) public view override returns (uint256) {
-        if (mintRedeemPaused) {
+        (, bool navUsable) = _usableNAV();
+        if (mintRedeemPaused || !navUsable) {
             return 0;
         }
         return super.maxMint(receiver);
     }
 
     function maxWithdraw(address owner) public view override returns (uint256) {
-        if (mintRedeemPaused) {
+        (uint256 navRay, bool navUsable) = _usableNAV();
+        if (mintRedeemPaused || !navUsable) {
             return 0;
         }
-        return super.maxWithdraw(owner);
+
+        uint256 ownerAssets = RayMath.convertToAssetsDown(balanceOf(owner), navRay);
+        uint256 liquidAssets = availableSettlementAssets();
+        return ownerAssets < liquidAssets ? ownerAssets : liquidAssets;
     }
 
     function maxRedeem(address owner) public view override returns (uint256) {
-        if (mintRedeemPaused) {
+        (uint256 navRay, bool navUsable) = _usableNAV();
+        if (mintRedeemPaused || !navUsable) {
             return 0;
         }
-        return super.maxRedeem(owner);
+
+        uint256 ownerShares = balanceOf(owner);
+        uint256 liquidShares = RayMath.convertToSharesDown(availableSettlementAssets(), navRay);
+        return ownerShares < liquidShares ? ownerShares : liquidShares;
     }
 
     function decimals() public view override(ERC20, ERC4626) returns (uint8) {
@@ -152,6 +223,34 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         return RayMath.mulDivDown(shares, navRay, RayMath.RAY);
     }
 
+    function _update(address from, address to, uint256 value) internal override {
+        super._update(from, to, value);
+
+        if (value == 0 || from == address(0) || from == to) {
+            return;
+        }
+
+        uint256 bridgedValue = _bridgedSharesPortion(from, value);
+        if (bridgedValue == 0) {
+            return;
+        }
+
+        unchecked {
+            bridgedSharesBalance[from] -= bridgedValue;
+        }
+
+        if (to == address(0)) {
+            unchecked {
+                bridgedSharesSupply -= bridgedValue;
+            }
+            return;
+        }
+
+        unchecked {
+            bridgedSharesBalance[to] += bridgedValue;
+        }
+    }
+
     function _requireMintRedeemActive() internal view {
         if (mintRedeemPaused) {
             revert MINT_REDEEM_PAUSED();
@@ -161,6 +260,27 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     function _requireGatewayIfEnabled() internal view {
         if (gatewayRequired && !hasRole(GATEWAY_ROLE, msg.sender)) {
             revert GATEWAY_ONLY();
+        }
+    }
+
+    function _usableNAV() internal view returns (uint256 navRay, bool usable) {
+        bool stale;
+        (navRay, stale) = navController.tryCurrentNAVRay();
+        usable = !stale && navRay != 0;
+    }
+
+    function _accountingNAVRay() internal view returns (uint256 navRay) {
+        bool usable;
+        (navRay, usable) = _usableNAV();
+        if (!usable) {
+            return navController.nav0Ray();
+        }
+    }
+
+    function _bridgedSharesPortion(address account, uint256 shares) internal view returns (uint256 bridgedShares) {
+        bridgedShares = bridgedSharesBalance[account];
+        if (bridgedShares > shares) {
+            bridgedShares = shares;
         }
     }
 

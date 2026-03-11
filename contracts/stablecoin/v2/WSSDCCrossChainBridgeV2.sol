@@ -18,8 +18,9 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
     mapping(uint32 => bytes32) public trustedPeer;
     mapping(bytes32 => bool) public processed;
 
-    mapping(address => uint256) public mintLimit;
-    mapping(address => uint256) public minted;
+    mapping(address => uint256) public bridgeOutNonce;
+
+    uint256 public maxOutstandingShares;
 
     error BRIDGE_PAUSED();
     error UNTRUSTED_PEER();
@@ -28,7 +29,7 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
 
     event TrustedPeerSet(uint32 indexed chainId, bytes32 indexed peer);
     event BridgePausedSet(bool paused);
-    event MintLimitSet(address indexed bridge, uint256 limit);
+    event MintLimitSet(uint256 limit);
 
     event BridgeOut(
         bytes32 indexed msgId,
@@ -52,7 +53,7 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         _grantRole(PAUSER_ROLE, admin);
     }
 
-    function setTrustedPeer(uint32 chainId, bytes32 peer) external onlyRole(BRIDGE_ROLE) {
+    function setTrustedPeer(uint32 chainId, bytes32 peer) external onlyRole(DEFAULT_ADMIN_ROLE) {
         trustedPeer[chainId] = peer;
         emit TrustedPeerSet(chainId, peer);
     }
@@ -62,9 +63,22 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         emit BridgePausedSet(paused);
     }
 
-    function setMintLimit(address bridge, uint256 limit) external onlyRole(BRIDGE_ROLE) {
-        mintLimit[bridge] = limit;
-        emit MintLimitSet(bridge, limit);
+    function setMintLimit(uint256 limit) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        maxOutstandingShares = limit;
+        emit MintLimitSet(limit);
+    }
+
+    function remainingMintCapacityShares() external view returns (uint256) {
+        uint256 limit = maxOutstandingShares;
+        uint256 currentOutstanding = outstandingShares();
+        if (limit == 0 || currentOutstanding >= limit) {
+            return limit == 0 ? type(uint256).max : 0;
+        }
+        return limit - currentOutstanding;
+    }
+
+    function outstandingShares() public view returns (uint256) {
+        return vault.bridgedSharesSupply();
     }
 
     function bridgeOut(uint32 dstChain, bytes32 recipient, uint256 shares) external nonReentrant returns (bytes32 msgId) {
@@ -76,9 +90,13 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         }
 
         vault.burnBridgeShares(msg.sender, shares);
+        uint256 nonce = bridgeOutNonce[msg.sender];
+        unchecked {
+            bridgeOutNonce[msg.sender] = nonce + 1;
+        }
 
         msgId = keccak256(
-            abi.encodePacked(block.chainid, dstChain, msg.sender, recipient, shares, block.number, block.timestamp)
+            abi.encode(address(this), block.chainid, dstChain, msg.sender, recipient, shares, nonce)
         );
 
         emit BridgeOut(msgId, msg.sender, dstChain, recipient, shares);
@@ -103,13 +121,13 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
 
         processed[msgId] = true;
 
-        uint256 limit = mintLimit[msg.sender];
+        uint256 limit = maxOutstandingShares;
+        uint256 currentOutstanding = outstandingShares();
         if (limit > 0) {
-            uint256 nextMinted = minted[msg.sender] + shares;
-            if (nextMinted > limit) {
+            uint256 nextOutstanding = currentOutstanding + shares;
+            if (nextOutstanding > limit) {
                 revert MINT_LIMIT();
             }
-            minted[msg.sender] = nextMinted;
         }
 
         vault.mintBridgeShares(to, shares);
