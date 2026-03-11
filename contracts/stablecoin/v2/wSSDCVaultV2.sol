@@ -77,6 +77,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         address admin
     ) ERC20("Wrapped SSDC", "wSSDC") ERC4626(settlementAsset) {
         require(admin != address(0), "admin=0");
+        require(address(navController_) != address(0), "nav=0");
 
         navController = navController_;
         gatewayRequired = false;

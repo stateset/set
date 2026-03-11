@@ -9,6 +9,8 @@ import {wSSDCVaultV2} from "./wSSDCVaultV2.sol";
 import {ICollateralProviderV2} from "./interfaces/ICollateralProviderV2.sol";
 
 contract GroundingRegistryV2 is AccessControl {
+    uint256 public constant MAX_PROVIDERS = 16;
+
     SSDCPolicyModuleV2 public immutable policyModule;
     NAVControllerV2 public immutable navController;
     wSSDCVaultV2 public immutable vault;
@@ -54,6 +56,7 @@ contract GroundingRegistryV2 is AccessControl {
         uint256 indexPlusOne = collateralProviderIndexPlusOne[provider];
         if (enabled) {
             if (indexPlusOne == 0) {
+                require(collateralProviders.length < MAX_PROVIDERS, "max providers");
                 collateralProviders.push(provider);
                 collateralProviderIndexPlusOne[provider] = collateralProviders.length;
             }

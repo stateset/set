@@ -40,6 +40,8 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     uint256 public availableAssets;
     uint256 public reservedAssets;
 
+    uint256 public minClaimShares;
+
     bool public processQueuePermissionless;
     bool public skipBlockedClaims;
     bool public queueOpsPaused;
@@ -51,6 +53,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     error NOT_OWNER();
     error INSUFFICIENT_AVAILABLE();
     error INSUFFICIENT_RESERVED();
+    error BELOW_MIN_CLAIM();
 
     event RedeemRequested(
         uint256 indexed claimId,
@@ -66,6 +69,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     event QueuePermissionlessSet(bool permissionless);
     event QueueSkipBlockedClaimsSet(bool enabled);
     event QueueOpsPausedSet(bool paused);
+    event MinClaimSharesUpdated(uint256 minShares);
 
     constructor(wSSDCVaultV2 vault_, IERC20 settlementAsset_, address admin) ERC721("SSDC Claim", "SSDC_Claim") {
         require(admin != address(0), "admin=0");
@@ -87,6 +91,9 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     function requestRedeem(uint256 shares, address receiver) external nonReentrant returns (uint256 claimId) {
         _requireQueueOpsActive();
         _requireMintRedeemActive();
+        if (shares < minClaimShares && minClaimShares > 0) {
+            revert BELOW_MIN_CLAIM();
+        }
 
         vault.currentNAVRay();
         vault.transferFrom(msg.sender, address(this), shares);
@@ -214,6 +221,25 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     function setQueueOpsPaused(bool paused) external onlyRole(PAUSER_ROLE) {
         queueOpsPaused = paused;
         emit QueueOpsPausedSet(paused);
+    }
+
+    function setMinClaimShares(uint256 minShares) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        minClaimShares = minShares;
+        emit MinClaimSharesUpdated(minShares);
+    }
+
+    function pendingClaimCount() external view returns (uint256 count) {
+        uint256 maxId = nextClaimId;
+        for (uint256 i = head; i < maxId; ) {
+            if (claims[i].status == Status.PENDING) {
+                unchecked { ++count; }
+            }
+            unchecked { ++i; }
+        }
+    }
+
+    function queueDepth() external view returns (uint256) {
+        return nextClaimId - head;
     }
 
     function reserve(uint256 amount) external onlyRole(BUFFER_ROLE) {

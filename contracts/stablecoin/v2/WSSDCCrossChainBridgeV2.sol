@@ -26,6 +26,8 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
     error UNTRUSTED_PEER();
     error REPLAY();
     error MINT_LIMIT();
+    error INVALID_RECIPIENT();
+    error INVALID_SHARES();
 
     event TrustedPeerSet(uint32 indexed chainId, bytes32 indexed peer);
     event BridgePausedSet(bool paused);
@@ -85,6 +87,12 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         if (bridgePaused) {
             revert BRIDGE_PAUSED();
         }
+        if (shares == 0) {
+            revert INVALID_SHARES();
+        }
+        if (recipient == bytes32(0)) {
+            revert INVALID_RECIPIENT();
+        }
         if (trustedPeer[dstChain] == bytes32(0)) {
             revert UNTRUSTED_PEER();
         }
@@ -117,6 +125,13 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         }
         if (processed[msgId]) {
             revert REPLAY();
+        }
+
+        if (to == address(0)) {
+            revert INVALID_RECIPIENT();
+        }
+        if (shares == 0) {
+            revert INVALID_SHARES();
         }
 
         processed[msgId] = true;

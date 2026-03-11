@@ -139,6 +139,7 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         assertEq(asset.balanceOf(merchant), beforeAssets + assetsOwed);
 
         // 8) Buyer tops up gas tank from remaining shares; entrypoint charges gas in shares
+        priceOracle.setPrice(3_000e18);
         vm.startPrank(user1);
         vault.approve(address(paymaster), type(uint256).max);
         paymaster.topUpGasTank(100 ether);

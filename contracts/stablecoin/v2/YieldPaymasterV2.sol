@@ -14,6 +14,7 @@ import {IETHUSDOracleV2} from "./interfaces/IETHUSDOracleV2.sol";
 
 contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProviderV2 {
     bytes32 public constant PAYMASTER_ADMIN_ROLE = keccak256("PAYMASTER_ADMIN_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     struct PendingCharge {
         address agent;
@@ -31,14 +32,17 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     IETHUSDOracleV2 public ethUsdOracle;
     address public entryPoint;
 
+    bool public paymasterPaused;
     uint256 public maxPriceStaleness;
     address public feeCollector;
 
     mapping(address => uint256) public gasTankShares;
     mapping(bytes32 => PendingCharge) public pendingCharges;
 
+    error PAYMASTER_PAUSED();
     error GROUNDED();
     error PRICE_STALE();
+    error PRICE_ZERO();
     error FLOOR();
     error INSUFFICIENT_SHARES();
     error NOT_ENTRYPOINT();
@@ -60,6 +64,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     event MaxPriceStalenessUpdated(uint256 maxPriceStaleness);
     event FeeCollectorUpdated(address feeCollector);
     event EthUsdOracleUpdated(address oracle);
+    event PaymasterPausedSet(bool paused);
     event EntryPointUpdated(address entryPoint);
 
     constructor(
@@ -88,6 +93,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAYMASTER_ADMIN_ROLE, admin);
+        _grantRole(PAUSER_ROLE, admin);
     }
 
     modifier onlyEntryPoint() {
@@ -103,7 +109,13 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         emit EthUsdOracleUpdated(address(oracle));
     }
 
+    function setPaymasterPaused(bool paused) external onlyRole(PAUSER_ROLE) {
+        paymasterPaused = paused;
+        emit PaymasterPausedSet(paused);
+    }
+
     function setMaxPriceStaleness(uint256 staleness) external onlyRole(PAYMASTER_ADMIN_ROLE) {
+        require(staleness > 0, "staleness=0");
         maxPriceStaleness = staleness;
         emit MaxPriceStalenessUpdated(staleness);
     }
@@ -121,10 +133,12 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     }
 
     function topUpGasTank(uint256 shares) external nonReentrant {
+        if (paymasterPaused) revert PAYMASTER_PAUSED();
         _topUpGasTank(msg.sender, shares);
     }
 
     function topUpGasTankFor(address agent, uint256 shares) external nonReentrant {
+        if (paymasterPaused) revert PAYMASTER_PAUSED();
         require(agent != address(0), "agent=0");
         _topUpGasTank(agent, shares);
     }
@@ -147,6 +161,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         uint256 maxGasCostWei,
         address merchant
     ) external onlyEntryPoint returns (uint256 chargeShares) {
+        if (paymasterPaused) revert PAYMASTER_PAUSED();
         if (groundingRegistry.isGroundedNow(agent)) {
             revert GROUNDED();
         }
@@ -246,6 +261,9 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
     function _ethWeiToUsdAssets(uint256 weiAmount) internal view returns (uint256 assets) {
         (uint256 ethUsdPriceE18, uint256 updatedAt) = ethUsdOracle.latestPrice();
+        if (ethUsdPriceE18 == 0) {
+            revert PRICE_ZERO();
+        }
         if (block.timestamp - updatedAt > maxPriceStaleness) {
             revert PRICE_STALE();
         }

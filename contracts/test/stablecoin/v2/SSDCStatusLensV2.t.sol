@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {SSDCV2TestBase} from "./SSDCV2TestBase.sol";
+import {SSDCV2TestBase, MockETHUSDOracle} from "./SSDCV2TestBase.sol";
+import {GroundingRegistryV2} from "../../../stablecoin/v2/GroundingRegistryV2.sol";
 import {SSDCClaimQueueV2} from "../../../stablecoin/v2/SSDCClaimQueueV2.sol";
+import {SSDCPolicyModuleV2} from "../../../stablecoin/v2/SSDCPolicyModuleV2.sol";
 import {SSDCStatusLensV2} from "../../../stablecoin/v2/SSDCStatusLensV2.sol";
 import {WSSDCCrossChainBridgeV2} from "../../../stablecoin/v2/WSSDCCrossChainBridgeV2.sol";
+import {YieldEscrowV2} from "../../../stablecoin/v2/YieldEscrowV2.sol";
+import {YieldPaymasterV2} from "../../../stablecoin/v2/YieldPaymasterV2.sol";
+import {IETHUSDOracleV2} from "../../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
 
 contract SSDCStatusLensV2Test is SSDCV2TestBase {
     SSDCClaimQueueV2 internal queue;
     WSSDCCrossChainBridgeV2 internal bridge;
+    YieldEscrowV2 internal escrow;
+    YieldPaymasterV2 internal paymaster;
     SSDCStatusLensV2 internal lens;
 
     function setUp() public override {
@@ -18,7 +25,20 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         queue = new SSDCClaimQueueV2(vault, asset, admin);
         bridge = new WSSDCCrossChainBridgeV2(vault, nav, admin);
         vault.grantRole(vault.BRIDGE_ROLE(), address(bridge));
-        lens = new SSDCStatusLensV2(nav, vault, queue, bridge);
+
+        SSDCPolicyModuleV2 policy = new SSDCPolicyModuleV2(admin);
+        GroundingRegistryV2 grounding = new GroundingRegistryV2(policy, nav, vault, admin);
+        escrow = new YieldEscrowV2(vault, nav, policy, grounding, admin, admin);
+
+        MockETHUSDOracle priceOracle = new MockETHUSDOracle();
+        priceOracle.setPrice(3_000e18);
+        paymaster = new YieldPaymasterV2(
+            vault, nav, policy, grounding,
+            IETHUSDOracleV2(address(priceOracle)),
+            address(0x4337), admin, admin
+        );
+
+        lens = new SSDCStatusLensV2(nav, vault, queue, bridge, escrow, paymaster);
         vm.stopPrank();
     }
 
@@ -40,6 +60,8 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertEq(status.bridgeRemainingCapacityShares, type(uint256).max);
         assertEq(status.minBridgeLiquidityCoverageBps, 0);
         assertFalse(status.gatewayRequired);
+        assertFalse(status.escrowOpsPaused);
+        assertFalse(status.paymasterPaused);
         assertEq(status.liabilityAssets, 0);
         assertEq(status.settlementAssetsAvailable, 0);
         assertEq(status.queueBufferAvailable, 0);

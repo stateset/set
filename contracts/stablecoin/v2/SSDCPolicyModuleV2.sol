@@ -56,6 +56,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
         uint40 sessionExpiry,
         bool enforceMerchantAllowlist
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(agent != address(0), "agent=0");
         AgentPolicy storage policy = policies[agent];
         policy.perTxLimitAssets = perTxLimitAssets;
         policy.dailyLimitAssets = dailyLimitAssets;
@@ -79,6 +80,8 @@ contract SSDCPolicyModuleV2 is AccessControl {
     }
 
     function setMerchantAllowed(address agent, address merchant, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(agent != address(0), "agent=0");
+        require(merchant != address(0), "merchant=0");
         merchantAllowlist[agent][merchant] = allowed;
         emit MerchantAllowlistUpdated(agent, merchant, allowed);
     }
@@ -120,17 +123,17 @@ contract SSDCPolicyModuleV2 is AccessControl {
         _rollDay(policy);
 
         if (!_canSpend(policy, agent, merchant, assets)) {
-            if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
-                revert POLICY_LIMIT();
-            }
-            if (policy.dailyLimitAssets > 0 && policy.spentTodayAssets + assets > policy.dailyLimitAssets) {
-                revert POLICY_DAILY_LIMIT();
+            if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
+                revert POLICY_SESSION_EXPIRED();
             }
             if (policy.enforceMerchantAllowlist && !merchantAllowlist[agent][merchant]) {
                 revert POLICY_ALLOWLIST();
             }
-            if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
-                revert POLICY_SESSION_EXPIRED();
+            if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
+                revert POLICY_LIMIT();
+            }
+            if (policy.dailyLimitAssets > 0 && _effectiveSpentToday(policy) + assets > policy.dailyLimitAssets) {
+                revert POLICY_DAILY_LIMIT();
             }
             revert POLICY_LIMIT();
         }

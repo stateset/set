@@ -795,7 +795,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         uint256 escrowId = escrow.fundEscrow(user2, terms, 0);
         vm.stopPrank();
 
-        vm.prank(user2);
+        vm.prank(user3);
         vm.expectRevert(YieldEscrowV2.SETTLEMENT_AUTH.selector);
         escrow.release(escrowId);
     }

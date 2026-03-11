@@ -12,6 +12,7 @@ import "../../stablecoin/v2/SSDCVaultGatewayV2.sol";
 import "../../stablecoin/v2/WSSDCCrossChainBridgeV2.sol";
 import "../../stablecoin/v2/YieldEscrowV2.sol";
 import "../../stablecoin/v2/YieldPaymasterV2.sol";
+import "../../stablecoin/v2/SSDCV2CircuitBreaker.sol";
 import "../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
 import "../../stablecoin/v2/wSSDCVaultV2.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -29,6 +30,7 @@ contract DeploySSDCV2 is Script {
     YieldPaymasterV2 public paymaster;
     WSSDCCrossChainBridgeV2 public bridge;
     SSDCStatusLensV2 public lens;
+    SSDCV2CircuitBreaker public breaker;
 
     function run() external {
         uint256 deployerPk = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -97,7 +99,8 @@ contract DeploySSDCV2 is Script {
         );
 
         bridge = new WSSDCCrossChainBridgeV2(vault, nav, admin);
-        lens = new SSDCStatusLensV2(nav, vault, queue, bridge);
+        lens = new SSDCStatusLensV2(nav, vault, queue, bridge, escrow, paymaster);
+        breaker = new SSDCV2CircuitBreaker(nav, vault, queue, bridge, escrow, paymaster, admin);
 
         if (admin == deployer) {
             nav.grantRole(nav.ORACLE_ROLE(), oracleOperator);
@@ -127,6 +130,14 @@ contract DeploySSDCV2 is Script {
             grounding.setCollateralProvider(address(paymaster), true);
             vault.setGatewayRequired(gatewayRequired);
 
+            // Wire circuit breaker pause roles
+            nav.grantRole(nav.PAUSER_ROLE(), address(breaker));
+            vault.grantRole(vault.PAUSER_ROLE(), address(breaker));
+            queue.grantRole(queue.PAUSER_ROLE(), address(breaker));
+            bridge.grantRole(bridge.PAUSER_ROLE(), address(breaker));
+            escrow.grantRole(escrow.PAUSER_ROLE(), address(breaker));
+            paymaster.grantRole(paymaster.PAUSER_ROLE(), address(breaker));
+
             console2.log("Role wiring complete (admin == deployer)");
         } else {
             console2.log("Admin differs from deployer; skipping role grants requiring admin privileges");
@@ -146,5 +157,6 @@ contract DeploySSDCV2 is Script {
         console2.log("YieldPaymasterV2", address(paymaster));
         console2.log("WSSDCCrossChainBridgeV2", address(bridge));
         console2.log("SSDCStatusLensV2", address(lens));
+        console2.log("SSDCV2CircuitBreaker", address(breaker));
     }
 }

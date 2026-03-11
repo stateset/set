@@ -28,6 +28,7 @@ contract NAVControllerV2 is AccessControl {
 
     error NAV_STALE();
     error NAV_BELOW_MIN();
+    error NAV_OVERFLOW();
     error EPOCH();
     error NAV_JUMP();
     error INVALID_CONFIG();
@@ -63,7 +64,7 @@ contract NAVControllerV2 is AccessControl {
             minNavRay_ == 0 ||
             maxStaleness_ == 0 ||
             targetSmoothingWindow_ == 0 ||
-            maxRateAbsRay_ < 0
+            maxRateAbsRay_ <= 0
         ) {
             revert INVALID_CONFIG();
         }
@@ -199,7 +200,7 @@ contract NAVControllerV2 is AccessControl {
     }
 
     function setNavBounds(uint256 minNavRay_, int256 maxRateAbsRay_, uint256 maxNavJumpBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (minNavRay_ == 0 || maxRateAbsRay_ < 0) {
+        if (minNavRay_ == 0 || maxRateAbsRay_ <= 0) {
             revert INVALID_CONFIG();
         }
 
@@ -241,8 +242,15 @@ contract NAVControllerV2 is AccessControl {
             dt = maxStaleness;
         }
 
-        int256 projectedNav = int256(nav0Ray_) + (ratePerSecondRay_ * int256(dt));
+        if (nav0Ray_ > uint256(type(int256).max)) {
+            revert NAV_OVERFLOW();
+        }
+        int256 rateDelta = ratePerSecondRay_ * int256(dt);
+        int256 projectedNav = int256(nav0Ray_) + rateDelta;
         if (projectedNav < int256(minNavRay)) {
+            return (0, stale, true);
+        }
+        if (projectedNav < 0) {
             return (0, stale, true);
         }
 

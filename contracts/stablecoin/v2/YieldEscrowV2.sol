@@ -12,6 +12,7 @@ import {wSSDCVaultV2} from "./wSSDCVaultV2.sol";
 contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     bytes32 public constant FUNDER_ROLE = keccak256("FUNDER_ROLE");
     bytes32 public constant ARBITER_ROLE = keccak256("ARBITER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     enum EscrowStatus {
         NONE,
@@ -141,12 +142,15 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     uint16 public reserveBps;
     address public reserveRecipient;
 
+    bool public escrowOpsPaused;
+
     uint256 public nextEscrowId;
     mapping(uint256 => Escrow) public escrows;
     mapping(uint256 => uint8) public escrowRequiredMilestones;
     mapping(uint256 => uint8) public escrowCompletedMilestones;
     mapping(uint256 => uint8) public escrowDisputedMilestones;
 
+    error ESCROW_OPS_PAUSED();
     error INVOICE_EXPIRED();
     error NAV_TOO_STALE();
     error SHARES_SLIPPAGE();
@@ -233,6 +237,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         DisputeResolution resolution,
         uint40 resolvedAt
     );
+    event EscrowOpsPausedSet(bool paused);
     event ProtocolFeeUpdated(uint16 protocolFeeBps, address feeRecipient);
     event ReserveConfigUpdated(uint16 reserveBps, address reserveRecipient);
 
@@ -259,6 +264,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(FUNDER_ROLE, admin);
         _grantRole(ARBITER_ROLE, admin);
+        _grantRole(PAUSER_ROLE, admin);
 
         nextEscrowId = 1;
     }
@@ -274,6 +280,11 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         emit ProtocolFeeUpdated(protocolFeeBps_, feeRecipient_);
     }
 
+    function setEscrowOpsPaused(bool paused) external onlyRole(PAUSER_ROLE) {
+        escrowOpsPaused = paused;
+        emit EscrowOpsPausedSet(paused);
+    }
+
     function setReserveConfig(uint16 reserveBps_, address reserveRecipient_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (reserveBps_ > 10_000 || reserveRecipient_ == address(0)) {
             revert INVALID_BPS();
@@ -283,6 +294,22 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         reserveRecipient = reserveRecipient_;
 
         emit ReserveConfigUpdated(reserveBps_, reserveRecipient_);
+    }
+
+    function getEscrow(uint256 escrowId)
+        external
+        view
+        returns (
+            Escrow memory escrowData,
+            uint8 requiredMilestones,
+            uint8 completedMilestones,
+            uint8 disputedMilestone
+        )
+    {
+        escrowData = escrows[escrowId];
+        requiredMilestones = escrowRequiredMilestones[escrowId];
+        completedMilestones = escrowCompletedMilestones[escrowId];
+        disputedMilestone = escrowDisputedMilestones[escrowId];
     }
 
     function previewReleaseSplit(uint256 escrowId) external view returns (ReleaseSplit memory split) {
@@ -334,7 +361,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         preview.disputeWindowEndsAt = _disputeWindowEndsAt(escrow);
     }
 
-    function fundEscrow(address merchant, InvoiceTerms calldata terms, uint16 buyerBps) external returns (uint256 escrowId) {
+    function fundEscrow(address merchant, InvoiceTerms calldata terms, uint16 buyerBps) external nonReentrant returns (uint256 escrowId) {
         return _fundEscrow(msg.sender, msg.sender, msg.sender, merchant, terms, buyerBps);
     }
 
@@ -344,7 +371,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         address merchant,
         InvoiceTerms calldata terms,
         uint16 buyerBps
-    ) external onlyRole(FUNDER_ROLE) returns (uint256 escrowId) {
+    ) external onlyRole(FUNDER_ROLE) nonReentrant returns (uint256 escrowId) {
         return _fundEscrow(buyer, msg.sender, refundRecipient, merchant, terms, buyerBps);
     }
 
@@ -356,6 +383,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         InvoiceTerms calldata terms,
         uint16 buyerBps
     ) internal returns (uint256 escrowId) {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         require(buyer != address(0), "buyer=0");
         if (merchant == address(0)) {
             revert INVALID_MERCHANT();
@@ -478,6 +508,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     }
 
     function release(uint256 escrowId) external nonReentrant {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         Escrow storage escrow = escrows[escrowId];
         if (escrow.status == EscrowStatus.NONE || escrow.sharesHeld == 0) {
             revert ESCROW_EMPTY();
@@ -549,7 +582,10 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             vault.transfer(feeRecipient, split.feeShares);
         }
 
-        assert(merchantShares + split.buyerYieldShares + split.reserveShares + split.feeShares == split.totalShares);
+        require(
+            merchantShares + split.buyerYieldShares + split.reserveShares + split.feeShares == split.totalShares,
+            "split invariant"
+        );
 
         emit EscrowReleased(
             escrowId,
@@ -565,6 +601,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     }
 
     function refund(uint256 escrowId) external nonReentrant {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         Escrow storage escrow = escrows[escrowId];
         if (escrow.status == EscrowStatus.NONE || escrow.sharesHeld == 0) {
             revert ESCROW_EMPTY();
@@ -889,8 +928,11 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     }
 
     function _challengeWindowExpired(Escrow storage escrow) internal view returns (bool) {
-        if (!escrow.requiresFulfillment || escrow.fulfilledAt == 0 || escrow.disputeWindow == 0) {
+        if (!escrow.requiresFulfillment || escrow.fulfilledAt == 0) {
             return false;
+        }
+        if (escrow.disputeWindow == 0) {
+            return true;
         }
 
         return block.timestamp >= uint256(escrow.fulfilledAt) + uint256(escrow.disputeWindow);
