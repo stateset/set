@@ -83,6 +83,15 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         return vault.bridgedSharesSupply();
     }
 
+    /// @notice Preflight check: can a bridge-out of `shares` to `dstChain` proceed?
+    ///         Returns false if bridge is paused, peer is untrusted, or shares are zero.
+    function canBridge(uint32 dstChain, uint256 shares) external view returns (bool) {
+        if (bridgePaused) return false;
+        if (shares == 0) return false;
+        if (trustedPeer[dstChain] == bytes32(0)) return false;
+        return true;
+    }
+
     function bridgeOut(uint32 dstChain, bytes32 recipient, uint256 shares) external nonReentrant returns (bytes32 msgId) {
         if (bridgePaused) {
             revert BRIDGE_PAUSED();

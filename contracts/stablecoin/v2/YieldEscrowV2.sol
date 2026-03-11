@@ -64,7 +64,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         bool requiresFulfillment;
         FulfillmentType fulfillmentType;
         uint8 requiredMilestones;
-        uint40 disputeWindow;
+        uint40 challengeWindow;    // time after fulfillment for buyer to dispute
+        uint40 arbiterDeadline;    // time after dispute for arbiter to resolve
         DisputeResolution disputeTimeoutResolution;
     }
 
@@ -87,7 +88,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         DisputeResolution resolution;
         uint40 resolvedAt;
         bytes32 resolutionEvidence;
-        uint40 disputeWindow;
+        uint40 challengeWindow;
+        uint40 arbiterDeadline;
         DisputeResolution timeoutResolution;
         uint40 disputedAt;
         SettlementMode settlementMode;
@@ -182,6 +184,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     error RESOLUTION_ALREADY_SET();
     error MERCHANT_RELEASE_LOCKED();
     error INVALID_EVIDENCE();
+    error TIMEOUT_NOT_READY();
+    error INVALID_WINDOW_CONFIG();
 
     event EscrowFunded(
         uint256 indexed escrowId,
@@ -236,6 +240,12 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         bytes32 indexed evidenceHash,
         DisputeResolution resolution,
         uint40 resolvedAt
+    );
+    event EscrowTimeoutExecuted(
+        uint256 indexed escrowId,
+        address indexed executor,
+        SettlementMode indexed settlementMode,
+        DisputeResolution resolution
     );
     event EscrowOpsPausedSet(bool paused);
     event ProtocolFeeUpdated(uint16 protocolFeeBps, address feeRecipient);
@@ -417,12 +427,17 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
                 revert INVALID_MILESTONE_COUNT();
             }
         }
-        if (terms.disputeWindow == 0) {
+        // If both windows are 0, no timeout resolution allowed
+        if (terms.challengeWindow == 0 && terms.arbiterDeadline == 0) {
             if (terms.disputeTimeoutResolution != DisputeResolution.NONE) {
                 revert INVALID_TIMEOUT_RESOLUTION();
             }
-        } else if (terms.disputeTimeoutResolution == DisputeResolution.NONE) {
-            revert INVALID_TIMEOUT_RESOLUTION();
+        } else {
+            // If arbiterDeadline is set, must have a timeout resolution
+            if (terms.arbiterDeadline > 0 && terms.disputeTimeoutResolution == DisputeResolution.NONE) {
+                revert INVALID_TIMEOUT_RESOLUTION();
+            }
+            // challengeWindow can be set independently (for merchant auto-release)
         }
 
         uint256 navAge = block.timestamp - uint256(navController.t0());
@@ -488,7 +503,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             resolution: DisputeResolution.NONE,
             resolvedAt: 0,
             resolutionEvidence: bytes32(0),
-            disputeWindow: terms.disputeWindow,
+            challengeWindow: terms.challengeWindow,
+            arbiterDeadline: terms.arbiterDeadline,
             timeoutResolution: terms.disputeTimeoutResolution,
             disputedAt: 0,
             settlementMode: SettlementMode.NONE,
@@ -772,6 +788,83 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         emit EscrowResolved(escrowId, msg.sender, evidenceHash, resolution, escrow.resolvedAt);
     }
 
+    /// @notice Execute a timed-out dispute when the arbiter failed to act within the arbiterDeadline.
+    ///         Applies the pre-configured disputeTimeoutResolution (RELEASE or REFUND).
+    ///         Callable by anyone once the arbiter deadline has expired.
+    function executeTimeout(uint256 escrowId) external nonReentrant {
+        Escrow storage escrow = escrows[escrowId];
+        if (escrow.status == EscrowStatus.NONE || escrow.sharesHeld == 0) {
+            revert ESCROW_EMPTY();
+        }
+        if (escrow.status != EscrowStatus.FUNDED) {
+            revert ESCROW_COMPLETE();
+        }
+        if (!escrow.disputed) {
+            revert DISPUTE_REQUIRED();
+        }
+        if (escrow.resolution != DisputeResolution.NONE) {
+            revert RESOLUTION_ALREADY_SET();
+        }
+        if (!_arbiterDeadlineExpired(escrow)) {
+            revert TIMEOUT_NOT_READY();
+        }
+
+        DisputeResolution timeoutRes = escrow.timeoutResolution;
+        if (timeoutRes == DisputeResolution.NONE) {
+            revert INVALID_TIMEOUT_RESOLUTION();
+        }
+
+        if (timeoutRes == DisputeResolution.RELEASE) {
+            // Execute as release
+            if (block.timestamp < escrow.releaseAfter) {
+                revert RELEASE_LOCKED();
+            }
+
+            SettlementMode settlementMode = SettlementMode.DISPUTE_TIMEOUT_RELEASE;
+            uint256 nav = navController.currentNAVRay();
+            uint256 S = escrow.sharesHeld;
+            uint256 committedAssets = escrow.committedAssets;
+            ReleaseSplit memory split =
+                _previewReleaseSplit(S, escrow.principalAssetsSnapshot, escrow.buyerBps, nav);
+            uint256 merchantShares = split.principalShares + split.merchantYieldShares;
+
+            if (committedAssets > 0) {
+                policyModule.releaseCommittedSpend(escrow.buyer, committedAssets);
+            }
+            escrow.sharesHeld = 0;
+            escrow.committedAssets = 0;
+            escrow.status = EscrowStatus.RELEASED;
+            escrow.settlementMode = settlementMode;
+            escrow.settledAt = uint40(block.timestamp);
+
+            if (merchantShares > 0) vault.transfer(escrow.merchant, merchantShares);
+            if (split.buyerYieldShares > 0) vault.transfer(escrow.buyer, split.buyerYieldShares);
+            if (split.reserveShares > 0) vault.transfer(reserveRecipient, split.reserveShares);
+            if (split.feeShares > 0) vault.transfer(feeRecipient, split.feeShares);
+
+            emit EscrowTimeoutExecuted(escrowId, msg.sender, settlementMode, timeoutRes);
+        } else {
+            // Execute as refund
+            SettlementMode settlementMode = SettlementMode.DISPUTE_TIMEOUT_REFUND;
+            uint256 sharesHeld = escrow.sharesHeld;
+            uint256 committedAssets = escrow.committedAssets;
+            address refundRecipient = escrow.refundRecipient;
+
+            if (committedAssets > 0) {
+                policyModule.releaseCommittedSpend(escrow.buyer, committedAssets);
+            }
+            escrow.sharesHeld = 0;
+            escrow.committedAssets = 0;
+            escrow.status = EscrowStatus.REFUNDED;
+            escrow.settlementMode = settlementMode;
+            escrow.settledAt = uint40(block.timestamp);
+
+            vault.transfer(refundRecipient, sharesHeld);
+
+            emit EscrowTimeoutExecuted(escrowId, msg.sender, settlementMode, timeoutRes);
+        }
+    }
+
     function _requireSettlementAuthority(Escrow storage escrow) internal view returns (bool isArbiter) {
         isArbiter = hasRole(ARBITER_ROLE, msg.sender);
         if (msg.sender != escrow.buyer && !isArbiter) {
@@ -825,11 +918,11 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         if (!_isFunded(escrow) || !escrow.disputed || escrow.resolution != DisputeResolution.NONE) {
             return false;
         }
-        if (escrow.disputeWindow == 0) {
+        if (escrow.arbiterDeadline == 0) {
             return true;
         }
 
-        return !_disputeWindowExpired(escrow);
+        return !_arbiterDeadlineExpired(escrow);
     }
 
     function _canBuyerReleasePreview(Escrow storage escrow) internal view returns (bool) {
@@ -931,19 +1024,25 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         if (!escrow.requiresFulfillment || escrow.fulfilledAt == 0) {
             return false;
         }
-        if (escrow.disputeWindow == 0) {
+        if (escrow.challengeWindow == 0) {
             return true;
         }
 
-        return block.timestamp >= uint256(escrow.fulfilledAt) + uint256(escrow.disputeWindow);
+        return block.timestamp >= uint256(escrow.fulfilledAt) + uint256(escrow.challengeWindow);
     }
 
-    function _disputeWindowExpired(Escrow storage escrow) internal view returns (bool) {
-        if (escrow.disputedAt == 0 || escrow.disputeWindow == 0) {
+    /// @dev Returns true when the arbiter's deadline to resolve a dispute has expired.
+    function _arbiterDeadlineExpired(Escrow storage escrow) internal view returns (bool) {
+        if (escrow.disputedAt == 0 || escrow.arbiterDeadline == 0) {
             return false;
         }
 
-        return block.timestamp >= uint256(escrow.disputedAt) + uint256(escrow.disputeWindow);
+        return block.timestamp >= uint256(escrow.disputedAt) + uint256(escrow.arbiterDeadline);
+    }
+
+    /// @dev Kept for backwards compatibility in release/refund timeout paths.
+    function _disputeWindowExpired(Escrow storage escrow) internal view returns (bool) {
+        return _arbiterDeadlineExpired(escrow);
     }
 
     function _challengeWindowEndsAt(Escrow storage escrow) internal view returns (uint40) {
@@ -951,11 +1050,11 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             return 0;
         }
 
-        return _windowEndsAt(escrow.fulfilledAt, escrow.disputeWindow);
+        return _windowEndsAt(escrow.fulfilledAt, escrow.challengeWindow);
     }
 
     function _disputeWindowEndsAt(Escrow storage escrow) internal view returns (uint40) {
-        return _windowEndsAt(escrow.disputedAt, escrow.disputeWindow);
+        return _windowEndsAt(escrow.disputedAt, escrow.arbiterDeadline);
     }
 
     function _windowEndsAt(uint40 startedAt, uint40 window) internal pure returns (uint40) {

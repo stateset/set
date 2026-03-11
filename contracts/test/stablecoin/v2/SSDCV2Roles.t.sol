@@ -74,7 +74,7 @@ contract SSDCV2RolesTest is SSDCV2TestBase {
 
         vm.prank(attacker);
         vm.expectRevert();
-        nav.updateNAV(101e25, unauthorizedEpoch);
+        nav.updateNAV(101e25, int256(0), unauthorizedEpoch);
 
         vm.prank(attacker);
         vm.expectRevert();
@@ -108,7 +108,7 @@ contract SSDCV2RolesTest is SSDCV2TestBase {
     function test_RoleHoldersCanOperate() public {
         uint64 nextEpoch = nav.navEpoch() + 1;
         vm.prank(oracleOperator);
-        nav.updateNAV(101e25, nextEpoch);
+        nav.updateNAV(101e25, int256(0), nextEpoch);
 
         asset.mint(bufferOperator, 10 ether);
         vm.startPrank(bufferOperator);

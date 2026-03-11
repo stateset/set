@@ -49,8 +49,8 @@ contract YieldPaymasterHandlerV2 {
         unchecked {
             ++nextOpNonce;
         }
-        try paymaster.validatePaymasterUserOp(opKey, address(this), gasUsed * gasPriceWei, merchant) {
-            try paymaster.postOp(opKey, address(this), gasUsed, gasPriceWei, merchant) {} catch {}
+        try paymaster.validatePaymasterUserOp(opKey, address(this), gasUsed * gasPriceWei) {
+            try paymaster.postOp(opKey, address(this), gasUsed, gasPriceWei) {} catch {}
         } catch {}
     }
 }
@@ -82,8 +82,8 @@ contract YieldPaymasterV2InvariantTest is StdInvariant, Test {
             9e26,
             1e23,
             48 hours,
-            24 hours,
-            2_000
+            2_000,
+            3
         );
         vault = new wSSDCVaultV2(asset, nav, admin);
         policy = new SSDCPolicyModuleV2(admin);

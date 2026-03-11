@@ -27,7 +27,8 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
         uint256 nav0Ray,
         uint40 t0,
         int256 ratePerSecondRay,
-        uint256 attestedNAVRay
+        uint256 attestedNAVRay,
+        int256 forwardRateRay
     );
 
     event RedeemRequested(
@@ -144,12 +145,13 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
     }
 
     function test_Event_NAVUpdated() public {
-        uint256 navCurrent = nav.currentNAVRay();
         uint64 nextEpoch = nav.navEpoch() + 1;
-        uint256 attested = navCurrent + 12_345_678_900_000_000_000_000;
+        uint256 attested = RAY + 12_345_678_900_000_000_000_000;
+        int256 forwardRate = int256(1e20);
 
-        int256 expectedRate = (int256(attested) - int256(navCurrent)) / int256(nav.targetSmoothingWindow());
+        // Snap-to-current model: nav0Ray snaps to attested, rate is clamped forward rate
         int256 maxRate = nav.maxRateAbsRay();
+        int256 expectedRate = forwardRate;
         if (expectedRate > maxRate) {
             expectedRate = maxRate;
         } else if (expectedRate < -maxRate) {
@@ -157,10 +159,10 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
         }
 
         vm.expectEmit(true, false, false, true, address(nav));
-        emit NAVUpdated(nextEpoch, navCurrent, uint40(block.timestamp), expectedRate, attested);
+        emit NAVUpdated(nextEpoch, attested, uint40(block.timestamp), expectedRate, attested, forwardRate);
 
         vm.prank(oracle);
-        nav.updateNAV(attested, nextEpoch);
+        nav.updateNAV(attested, forwardRate, nextEpoch);
     }
 
     function test_Event_QueueLifecycle() public {
@@ -225,8 +227,9 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user1);
@@ -270,8 +273,9 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user2);
@@ -298,8 +302,9 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 2,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user1);
@@ -337,8 +342,9 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user1);
@@ -370,8 +376,9 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user1);
@@ -432,7 +439,7 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
         bytes32 opKey = keccak256("event-gas");
 
         vm.prank(entryPoint);
-        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice, user2);
+        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice);
 
         assertEq(previewShares, sharesCharged);
 
@@ -440,7 +447,7 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
         emit GasCharged(user1, sharesCharged, gasUsed, gasPrice);
 
         vm.prank(entryPoint);
-        paymaster.postOp(opKey, user1, gasUsed, gasPrice, user2);
+        paymaster.postOp(opKey, user1, gasUsed, gasPrice);
     }
 
     function test_Event_BridgeNavRelayed() public {

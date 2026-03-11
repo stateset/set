@@ -56,8 +56,8 @@ contract SSDCV2TestBase is Test {
             9e26,
             1e23,
             48 hours,
-            24 hours,
-            2_000
+            2_000,
+            3 // staleRecoveryJumpMultiplier
         );
         vault = new wSSDCVaultV2(asset, nav, admin);
 
@@ -75,6 +75,6 @@ contract SSDCV2TestBase is Test {
 
     function _updateNav(uint256 attestedNavRay, uint64 epoch) internal {
         vm.prank(oracle);
-        nav.updateNAV(attestedNavRay, epoch);
+        nav.updateNAV(attestedNavRay, int256(0), epoch);
     }
 }

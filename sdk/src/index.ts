@@ -15,6 +15,9 @@ export * from "./encryption.js";
 // Re-export stablecoin module
 export * as stablecoin from "./stablecoin/index.js";
 
+// Re-export V2 agent module
+export * as agent from "./stablecoin/v2/index.js";
+
 // =========================================================================
 // TypeScript Interfaces for Set Chain Contracts
 // =========================================================================

@@ -82,7 +82,12 @@ contract GroundingRegistryV2 is AccessControl {
 
         uint256 providerCount = collateralProviders.length;
         for (uint256 i = 0; i < providerCount; ) {
-            shares += ICollateralProviderV2(collateralProviders[i]).collateralSharesOf(agent);
+            try ICollateralProviderV2(collateralProviders[i]).collateralSharesOf(agent) returns (uint256 providerShares) {
+                shares += providerShares;
+            } catch {
+                // Reverting provider treated as 0 shares (conservative assumption).
+                // Governance should disable faulty providers via setCollateralProvider().
+            }
             unchecked {
                 ++i;
             }
@@ -95,6 +100,9 @@ contract GroundingRegistryV2 is AccessControl {
         assetsNow = RayMath.convertToAssetsDown(totalShares(agent), navRay);
     }
 
+    /// @notice Returns true when agent is BELOW collateral floor (restricted from operations).
+    /// @dev Grounded = true means the agent has insufficient collateral. The name derives from
+    /// "grounded" as in "grounded from flying" (restricted), NOT "well-grounded" (stable).
     function isGroundedNow(address agent) public view returns (bool grounded) {
         (uint256 assetsNow, uint256 minAssetsFloor, ) = currentAssets(agent);
         return assetsNow < minAssetsFloor;

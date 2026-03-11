@@ -12,10 +12,9 @@ contract EntryPointMockV2 {
         YieldPaymasterV2 paymaster,
         bytes32 opKey,
         address agent,
-        uint256 maxGasCostWei,
-        address merchant
+        uint256 maxGasCostWei
     ) external returns (uint256) {
-        return paymaster.validatePaymasterUserOp(opKey, agent, maxGasCostWei, merchant);
+        return paymaster.validatePaymasterUserOp(opKey, agent, maxGasCostWei);
     }
 
     function callPostOp(
@@ -23,10 +22,9 @@ contract EntryPointMockV2 {
         bytes32 opKey,
         address agent,
         uint256 gasUsed,
-        uint256 effectiveGasPrice,
-        address merchant
+        uint256 effectiveGasPrice
     ) external returns (uint256) {
-        return paymaster.postOp(opKey, agent, gasUsed, effectiveGasPrice, merchant);
+        return paymaster.postOp(opKey, agent, gasUsed, effectiveGasPrice);
     }
 
     function validateAndPost(
@@ -35,11 +33,10 @@ contract EntryPointMockV2 {
         address agent,
         uint256 maxGasCostWei,
         uint256 gasUsed,
-        uint256 effectiveGasPrice,
-        address merchant
+        uint256 effectiveGasPrice
     ) external returns (uint256 previewShares, uint256 chargedShares) {
-        previewShares = paymaster.validatePaymasterUserOp(opKey, agent, maxGasCostWei, merchant);
-        chargedShares = paymaster.postOp(opKey, agent, gasUsed, effectiveGasPrice, merchant);
+        previewShares = paymaster.validatePaymasterUserOp(opKey, agent, maxGasCostWei);
+        chargedShares = paymaster.postOp(opKey, agent, gasUsed, effectiveGasPrice);
     }
 }
 
@@ -107,8 +104,7 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
             user1,
             gasCostWei,
             gasUsed,
-            gasPrice,
-            user2
+            gasPrice
         );
 
         assertEq(chargedShares, previewShares);
@@ -118,7 +114,7 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
     function test_PostOpCanFailIfActualExceedsValidatedBudget() public {
         uint256 validatedCost = 50_000 * 10 gwei;
         bytes32 opKey = keccak256("budget");
-        entryPoint.callValidate(paymaster, opKey, user1, validatedCost, user2);
+        entryPoint.callValidate(paymaster, opKey, user1, validatedCost);
 
         vm.prank(admin);
         policy.setPolicy(
@@ -131,12 +127,12 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
         );
 
         vm.expectRevert(YieldPaymasterV2.GAS_BUDGET.selector);
-        entryPoint.callPostOp(paymaster, opKey, user1, 100_000, 20 gwei, user2);
+        entryPoint.callPostOp(paymaster, opKey, user1, 100_000, 20 gwei);
     }
 
     function test_PostOpRequiresValidation() public {
         vm.expectRevert(YieldPaymasterV2.VALIDATION_MISSING.selector);
-        entryPoint.callPostOp(paymaster, keccak256("missing"), user1, 100_000, 20 gwei, user2);
+        entryPoint.callPostOp(paymaster, keccak256("missing"), user1, 100_000, 20 gwei);
     }
 
     function test_EntryPointRotationInvalidatesOldEntryPoint() public {
@@ -146,9 +142,9 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
         paymaster.setEntryPoint(address(newEntryPoint));
 
         vm.expectRevert(YieldPaymasterV2.NOT_ENTRYPOINT.selector);
-        entryPoint.callValidate(paymaster, keccak256("old-entry"), user1, 0.001 ether, user2);
+        entryPoint.callValidate(paymaster, keccak256("old-entry"), user1, 0.001 ether);
 
-        uint256 shares = newEntryPoint.callValidate(paymaster, keccak256("new-entry"), user1, 0.001 ether, user2);
+        uint256 shares = newEntryPoint.callValidate(paymaster, keccak256("new-entry"), user1, 0.001 ether);
         assertGt(shares, 0);
     }
 
@@ -157,11 +153,11 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
         bytes32 opKey1 = keccak256("batch-1");
         bytes32 opKey2 = keccak256("batch-2");
 
-        uint256 preview1 = entryPoint.callValidate(paymaster, opKey1, user1, 120_000 * gasPrice, user2);
-        uint256 preview2 = entryPoint.callValidate(paymaster, opKey2, user1, 180_000 * gasPrice, user3);
+        uint256 preview1 = entryPoint.callValidate(paymaster, opKey1, user1, 120_000 * gasPrice);
+        uint256 preview2 = entryPoint.callValidate(paymaster, opKey2, user1, 180_000 * gasPrice);
 
-        uint256 charged1 = entryPoint.callPostOp(paymaster, opKey1, user1, 100_000, gasPrice, user2);
-        uint256 charged2 = entryPoint.callPostOp(paymaster, opKey2, user1, 150_000, gasPrice, user3);
+        uint256 charged1 = entryPoint.callPostOp(paymaster, opKey1, user1, 100_000, gasPrice);
+        uint256 charged2 = entryPoint.callPostOp(paymaster, opKey2, user1, 150_000, gasPrice);
 
         assertLe(charged1, preview1);
         assertLe(charged2, preview2);

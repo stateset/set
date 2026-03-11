@@ -58,34 +58,46 @@ contract NAVControllerV2Test is SSDCV2TestBase {
         uint256 attestedNavRay = 105e25;
         uint64 nextEpoch = nav.navEpoch() + 1;
         vm.prank(oracle);
-        nav.updateNAV(attestedNavRay, nextEpoch);
+        nav.updateNAV(attestedNavRay, int256(0), nextEpoch);
 
         assertEq(nav.currentNAVRay(), attestedNavRay);
         assertEq(nav.ratePerSecondRay(), 0);
     }
 
-    function test_NAVContinuityAtUpdate() public {
-        _updateNav(11e26, nav.navEpoch() + 1);
+    function test_NAVSnapsToAttestedValue() public {
+        // With snap-to-current model, NAV should immediately snap to the attested value
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        uint256 attested = 11e26; // 1.1 RAY
+        _updateNav(attested, nextEpoch);
+        assertEq(nav.currentNAVRay(), attested);
 
-        vm.warp(block.timestamp + 2 hours);
-        uint256 beforeNav = nav.currentNAVRay();
+        // Forward rate is applied going forward
+        int256 forwardRate = int256(1e20); // positive rate
+        nextEpoch = nav.navEpoch() + 1;
+        vm.prank(oracle);
+        nav.updateNAV(attested, forwardRate, nextEpoch);
+        assertEq(nav.currentNAVRay(), attested);
+        assertEq(nav.ratePerSecondRay(), forwardRate);
 
-        _updateNav(105e25, nav.navEpoch() + 1);
-        uint256 afterNav = nav.currentNAVRay();
-
-        assertEq(beforeNav, afterNav);
+        // After time, NAV moves by rate
+        vm.warp(block.timestamp + 100);
+        uint256 expected = attested + uint256(forwardRate) * 100;
+        assertEq(nav.currentNAVRay(), expected);
     }
 
-    function test_SignedDeltaHandlesNegativeYield() public {
-        _updateNav(95e25, nav.navEpoch() + 1);
-        assertLt(nav.ratePerSecondRay(), 0);
+    function test_ForwardRateNegative() public {
+        int256 negativeRate = -int256(1e20);
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(oracle);
+        nav.updateNAV(RAY, negativeRate, nextEpoch);
+        assertEq(nav.ratePerSecondRay(), negativeRate);
     }
 
     function test_UpdateNAVRevertsOnOutOfOrderEpoch() public {
         uint64 currentEpoch = nav.navEpoch();
         vm.prank(oracle);
         vm.expectRevert(NAVControllerV2.EPOCH.selector);
-        nav.updateNAV(RAY, currentEpoch);
+        nav.updateNAV(RAY, int256(0), currentEpoch);
     }
 
     function test_RelayNAVRejectsFutureTimestamp() public {

@@ -20,7 +20,6 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         address agent;
         uint256 maxGasCostWei;
         uint256 maxShares;
-        address merchant;
         uint64 preparedAtBlock;
     }
 
@@ -49,7 +48,6 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     error VALIDATION_MISSING();
     error VALIDATION_EXPIRED();
     error AGENT_MISMATCH();
-    error MERCHANT_MISMATCH();
     error GAS_BUDGET();
 
     event GasCharged(
@@ -158,8 +156,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     function validatePaymasterUserOp(
         bytes32 opKey,
         address agent,
-        uint256 maxGasCostWei,
-        address merchant
+        uint256 maxGasCostWei
     ) external onlyEntryPoint returns (uint256 chargeShares) {
         if (paymasterPaused) revert PAYMASTER_PAUSED();
         if (groundingRegistry.isGroundedNow(agent)) {
@@ -183,14 +180,10 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
             revert FLOOR();
         }
 
-        bool canSpend = policyModule.canSpend(agent, merchant, assetsCost);
-        require(canSpend, "POLICY");
-
         pendingCharges[opKey] = PendingCharge({
             agent: agent,
             maxGasCostWei: maxGasCostWei,
             maxShares: chargeShares,
-            merchant: merchant,
             preparedAtBlock: uint64(block.number)
         });
     }
@@ -199,8 +192,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         bytes32 opKey,
         address agent,
         uint256 gasUsed,
-        uint256 effectiveGasPrice,
-        address merchant
+        uint256 effectiveGasPrice
     ) external onlyEntryPoint nonReentrant returns (uint256 sharesCharged) {
         PendingCharge memory pending = pendingCharges[opKey];
         if (pending.preparedAtBlock == 0) {
@@ -212,14 +204,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         if (pending.agent != agent) {
             revert AGENT_MISMATCH();
         }
-        if (pending.merchant != merchant) {
-            revert MERCHANT_MISMATCH();
-        }
         delete pendingCharges[opKey];
-
-        if (groundingRegistry.isGroundedNow(agent)) {
-            revert GROUNDED();
-        }
 
         uint256 gasCostWei = gasUsed * effectiveGasPrice;
         if (gasCostWei > pending.maxGasCostWei) {
@@ -238,18 +223,22 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
             revert INSUFFICIENT_SHARES();
         }
 
-        uint256 totalShares = tankShares + vault.balanceOf(agent);
+        // Deduct FIRST, then check floor with post-deduction balance
+        unchecked {
+            gasTankShares[agent] = tankShares - sharesCharged;
+        }
+
+        uint256 postTankShares = tankShares - sharesCharged;
+        uint256 totalPostShares = postTankShares + vault.balanceOf(agent);
         uint256 minAssetsFloor = policyModule.getMinAssetsFloor(agent);
-        uint256 postAssets = RayMath.convertToAssetsDown(totalShares - sharesCharged, nav);
+        uint256 postAssets = RayMath.convertToAssetsDown(totalPostShares, nav);
         if (postAssets < minAssetsFloor) {
             revert FLOOR();
         }
 
-        policyModule.consumeSpend(agent, merchant, assetsCost);
+        // Use consumeGasSpend — skips merchant allowlist since gas is infrastructure spend
+        policyModule.consumeGasSpend(agent, assetsCost);
 
-        unchecked {
-            gasTankShares[agent] = tankShares - sharesCharged;
-        }
         vault.transfer(feeCollector, sharesCharged);
 
         emit GasCharged(agent, sharesCharged, gasUsed, effectiveGasPrice);

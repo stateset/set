@@ -30,7 +30,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         YieldEscrowV2.DisputeResolution resolution;
         uint40 resolvedAt;
         bytes32 resolutionEvidence;
-        uint40 disputeWindow;
+        uint40 challengeWindow;
+        uint40 arbiterDeadline;
         YieldEscrowV2.DisputeResolution timeoutResolution;
         uint40 disputedAt;
         YieldEscrowV2.SettlementMode settlementMode;
@@ -80,6 +81,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             ,
             ,
             ,
+            ,
         ) = escrow.escrows(escrowId);
         escrowView.buyer = buyer;
         escrowView.merchant = merchant;
@@ -105,6 +107,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             YieldEscrowV2.DisputeReason disputeReason,
             uint40 fulfilledAt,
             bytes32 fulfillmentEvidence,
+            ,
             ,
             ,
             ,
@@ -139,7 +142,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             YieldEscrowV2.DisputeResolution resolution,
             uint40 resolvedAt,
             bytes32 resolutionEvidence,
-            uint40 disputeWindow,
+            uint40 challengeWindow,
+            uint40 arbiterDeadline,
             YieldEscrowV2.DisputeResolution timeoutResolution,
             uint40 disputedAt,
             YieldEscrowV2.SettlementMode settlementMode,
@@ -148,7 +152,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         escrowView.resolution = resolution;
         escrowView.resolvedAt = resolvedAt;
         escrowView.resolutionEvidence = resolutionEvidence;
-        escrowView.disputeWindow = disputeWindow;
+        escrowView.challengeWindow = challengeWindow;
+        escrowView.arbiterDeadline = arbiterDeadline;
         escrowView.timeoutResolution = timeoutResolution;
         escrowView.disputedAt = disputedAt;
         escrowView.settlementMode = settlementMode;
@@ -171,7 +176,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -198,7 +204,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
         assertEq(stored.resolutionEvidence, bytes32(0));
-        assertEq(stored.disputeWindow, 0);
+        assertEq(stored.challengeWindow, 0);
+        assertEq(stored.arbiterDeadline, 0);
         assertEq(uint8(stored.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.disputedAt, 0);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.NONE));
@@ -218,7 +225,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -241,7 +249,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -267,7 +276,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -293,7 +303,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -320,7 +331,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -344,7 +356,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
         assertEq(stored.resolutionEvidence, bytes32(0));
-        assertEq(stored.disputeWindow, 0);
+        assertEq(stored.challengeWindow, 0);
+        assertEq(stored.arbiterDeadline, 0);
         assertEq(stored.disputedAt, 0);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.NONE));
         assertEq(stored.settledAt, 0);
@@ -371,7 +384,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -399,7 +413,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -460,7 +475,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -535,7 +551,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 2,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -595,7 +612,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -623,9 +641,9 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(preview.nextMilestoneNumber, 0);
         assertEq(preview.disputedMilestone, 0);
         assertEq(preview.challengeWindowEndsAt, 0);
-        assertEq(preview.disputeWindowEndsAt, uint40(block.timestamp + 6 hours));
+        assertEq(preview.disputeWindowEndsAt, uint40(block.timestamp + 7 days));
 
-        vm.warp(block.timestamp + 6 hours);
+        vm.warp(block.timestamp + 7 days);
 
         preview = escrow.previewSettlement(escrowId);
         assertTrue(preview.disputeTimedOut);
@@ -657,7 +675,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.RELEASE
         });
 
@@ -669,7 +688,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         vm.prank(user1);
         escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.OTHER, keccak256("merchant-fulfilled-offchain"));
 
-        vm.warp(block.timestamp + 6 hours);
+        vm.warp(block.timestamp + 7 days);
 
         YieldEscrowV2.SettlementPreview memory preview = escrow.previewSettlement(escrowId);
         assertTrue(preview.disputeTimedOut);
@@ -719,7 +738,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -763,7 +783,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -786,7 +807,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -813,7 +835,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -845,7 +868,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
         assertEq(stored.resolutionEvidence, bytes32(0));
-        assertEq(stored.disputeWindow, 0);
+        assertEq(stored.challengeWindow, 0);
+        assertEq(stored.arbiterDeadline, 0);
         assertEq(stored.disputedAt, 0);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.BUYER_REFUND));
         assertEq(stored.settledAt, block.timestamp);
@@ -864,7 +888,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -895,7 +920,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
         assertEq(stored.resolutionEvidence, bytes32(0));
-        assertEq(stored.disputeWindow, 0);
+        assertEq(stored.challengeWindow, 0);
+        assertEq(stored.arbiterDeadline, 0);
         assertEq(stored.disputedAt, 0);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.BUYER_RELEASE));
         assertEq(stored.settledAt, block.timestamp);
@@ -913,7 +939,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -937,7 +964,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -981,7 +1009,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1010,7 +1039,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1022,7 +1052,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         EscrowView memory stored = _readEscrow(escrowId);
         assertFalse(stored.requiresFulfillment);
         assertEq(uint8(stored.fulfillmentType), uint8(YieldEscrowV2.FulfillmentType.NONE));
-        assertEq(stored.disputeWindow, uint40(6 hours));
+        assertEq(stored.challengeWindow, uint40(6 hours));
+        assertEq(stored.arbiterDeadline, uint40(7 days));
         assertEq(uint8(stored.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.REFUND));
     }
 
@@ -1038,7 +1069,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1061,7 +1093,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1084,7 +1117,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 0,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1107,7 +1141,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1130,7 +1165,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1153,7 +1189,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1176,7 +1213,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1206,7 +1244,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1232,7 +1271,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
         assertEq(stored.fulfilledAt, block.timestamp - 6 hours);
-        assertEq(stored.disputeWindow, uint40(6 hours));
+        assertEq(stored.challengeWindow, uint40(6 hours));
+        assertEq(stored.arbiterDeadline, uint40(7 days));
         assertEq(uint8(stored.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.REFUND));
         assertEq(stored.disputedAt, 0);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.MERCHANT_TIMEOUT_RELEASE));
@@ -1251,7 +1291,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 2,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1285,7 +1326,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 2,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1318,7 +1360,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 2,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1347,7 +1390,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1362,12 +1406,12 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         vm.prank(user1);
         escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.QUALITY, keccak256("quality-issue"));
 
-        vm.warp(block.timestamp + 5 hours);
+        vm.warp(block.timestamp + 6 days);
         vm.prank(user1);
         vm.expectRevert(YieldEscrowV2.DISPUTE_PENDING.selector);
         escrow.refund(escrowId);
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(block.timestamp + 1 days);
         uint256 buyerBefore = vault.balanceOf(user1);
 
         vm.prank(user1);
@@ -1383,10 +1427,11 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(uint8(stored.fulfillmentType), uint8(YieldEscrowV2.FulfillmentType.DELIVERY));
         assertTrue(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.QUALITY));
-        assertEq(stored.fulfilledAt, block.timestamp - 6 hours);
-        assertEq(stored.disputeWindow, uint40(6 hours));
+        assertEq(stored.fulfilledAt, block.timestamp - 7 days);
+        assertEq(stored.challengeWindow, uint40(6 hours));
+        assertEq(stored.arbiterDeadline, uint40(7 days));
         assertEq(uint8(stored.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.REFUND));
-        assertEq(stored.disputedAt, block.timestamp - 6 hours);
+        assertEq(stored.disputedAt, block.timestamp - 7 days);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.DISPUTE_TIMEOUT_REFUND));
         assertEq(stored.settledAt, block.timestamp);
     }
@@ -1403,7 +1448,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
 
@@ -1415,14 +1461,14 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         vm.prank(user1);
         escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.FRAUD_OR_CANCELLED, keccak256("cancelled-order"));
 
-        vm.warp(block.timestamp + 5 hours);
+        vm.warp(block.timestamp + 6 days);
         vm.prank(user1);
         vm.expectRevert(YieldEscrowV2.DISPUTE_PENDING.selector);
         escrow.refund(escrowId);
 
         uint256 buyerBefore = vault.balanceOf(user1);
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(block.timestamp + 1 days);
         vm.prank(user1);
         escrow.refund(escrowId);
 
@@ -1432,7 +1478,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.requiresFulfillment);
         assertTrue(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.FRAUD_OR_CANCELLED));
-        assertEq(stored.disputeWindow, uint40(6 hours));
+        assertEq(stored.challengeWindow, uint40(6 hours));
+        assertEq(stored.arbiterDeadline, uint40(7 days));
         assertEq(uint8(stored.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.REFUND));
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.DISPUTE_TIMEOUT_REFUND));
         assertEq(stored.settledAt, block.timestamp);
@@ -1450,7 +1497,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.RELEASE
         });
 
@@ -1465,7 +1513,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         vm.prank(user1);
         escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.QUALITY, keccak256("quality-issue"));
 
-        vm.warp(block.timestamp + 6 hours);
+        vm.warp(block.timestamp + 7 days);
         vm.prank(user1);
         vm.expectRevert(YieldEscrowV2.RESOLUTION_MISMATCH.selector);
         escrow.refund(escrowId);
@@ -1483,7 +1531,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.RELEASE
         });
 
@@ -1498,7 +1547,9 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         vm.prank(user1);
         escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.QUALITY, keccak256("quality-issue"));
 
-        vm.warp(block.timestamp + 6 hours);
+        vm.warp(block.timestamp + 7 days);
+        _updateNav(RAY, nav.navEpoch() + 1);
+
         vm.prank(user2);
         escrow.release(escrowId);
 
@@ -1522,7 +1573,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: uint40(6 hours),
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
             disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.RELEASE
         });
 
@@ -1534,7 +1586,9 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         vm.prank(user1);
         escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.OTHER, keccak256("merchant-fulfilled-offchain"));
 
-        vm.warp(block.timestamp + 6 hours);
+        vm.warp(block.timestamp + 7 days);
+        _updateNav(RAY, nav.navEpoch() + 1);
+
         vm.prank(user2);
         escrow.release(escrowId);
 
@@ -1560,7 +1614,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1589,7 +1644,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1638,7 +1694,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
@@ -1691,7 +1748,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.SERVICE,
             requiredMilestones: 1,
-            disputeWindow: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
         disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 

@@ -13,6 +13,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
     bytes32 public constant QUEUE_ROLE = keccak256("QUEUE_ROLE");
+    bytes32 public constant RESERVE_ROLE = keccak256("RESERVE_ROLE");
 
     NAVControllerV2 public immutable navController;
 
@@ -22,13 +23,26 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     mapping(address => uint256) public bridgedSharesBalance;
     uint256 public bridgedSharesSupply;
 
+    // Reserve management
+    address public reserveManager; // address that receives deployed assets
+    uint256 public reserveFloor; // minimum settlement assets that must remain in vault
+    uint256 public maxDeployBps; // max percentage of total assets that can be deployed (basis points)
+    uint256 public deployedReserveAssets; // total assets currently deployed to reserve manager
+
     error MINT_REDEEM_PAUSED();
     error GATEWAY_ONLY();
     error LIQUIDITY_COVERAGE();
+    error RESERVE_FLOOR();
+    error RESERVE_DEPLOY_LIMIT();
+    error RESERVE_RECALL_EXCEEDS_DEPLOYED();
+    error RESERVE_MANAGER_NOT_SET();
 
     event MintRedeemPauseSet(bool paused);
     event GatewayRequirementSet(bool required);
     event MinBridgeLiquidityCoverageSet(uint256 minCoverageBps);
+    event ReserveDeployed(address indexed manager, uint256 amount, uint256 totalDeployed);
+    event ReserveRecalled(address indexed manager, uint256 amount, uint256 totalDeployed);
+    event ReserveConfigUpdated(address reserveManager, uint256 reserveFloor, uint256 maxDeployBps);
 
     function availableSettlementAssets() public view returns (uint256) {
         return ERC20(asset()).balanceOf(address(this));
@@ -87,6 +101,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         _grantRole(BRIDGE_ROLE, admin);
         _grantRole(GATEWAY_ROLE, admin);
         _grantRole(QUEUE_ROLE, admin);
+        _grantRole(RESERVE_ROLE, admin);
     }
 
     function currentNAVRay() external view returns (uint256) {
@@ -119,6 +134,60 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         require(minCoverageBps_ <= 10_000, "coverage>100%");
         minBridgeLiquidityCoverageBps = minCoverageBps_;
         emit MinBridgeLiquidityCoverageSet(minCoverageBps_);
+    }
+
+    // -------------------------------------------------------------------------
+    // Reserve Management
+    // -------------------------------------------------------------------------
+
+    function setReserveConfig(address reserveManager_, uint256 reserveFloor_, uint256 maxDeployBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(maxDeployBps_ <= 10_000, "deploy>100%");
+        reserveManager = reserveManager_;
+        reserveFloor = reserveFloor_;
+        maxDeployBps = maxDeployBps_;
+        emit ReserveConfigUpdated(reserveManager_, reserveFloor_, maxDeployBps_);
+    }
+
+    /// @notice Deploy settlement assets to the reserve manager for off-chain yield strategies.
+    ///         Must respect reserveFloor and maxDeployBps constraints.
+    function deployReserve(uint256 amount) external onlyRole(RESERVE_ROLE) {
+        if (reserveManager == address(0)) {
+            revert RESERVE_MANAGER_NOT_SET();
+        }
+
+        uint256 available = availableSettlementAssets();
+        // After deployment, vault must retain at least reserveFloor
+        if (available - amount < reserveFloor) {
+            revert RESERVE_FLOOR();
+        }
+
+        // Total deployed must not exceed maxDeployBps of total liability
+        uint256 totalLiability = totalLiabilityAssets();
+        uint256 maxDeployable = (totalLiability * maxDeployBps) / 10_000;
+        if (deployedReserveAssets + amount > maxDeployable) {
+            revert RESERVE_DEPLOY_LIMIT();
+        }
+
+        deployedReserveAssets += amount;
+        ERC20(asset()).transfer(reserveManager, amount);
+
+        emit ReserveDeployed(reserveManager, amount, deployedReserveAssets);
+    }
+
+    /// @notice Recall deployed assets from the reserve manager back into the vault.
+    ///         The reserve manager must have approved the vault to transferFrom.
+    function recallReserve(uint256 amount) external onlyRole(RESERVE_ROLE) {
+        if (reserveManager == address(0)) {
+            revert RESERVE_MANAGER_NOT_SET();
+        }
+        if (amount > deployedReserveAssets) {
+            revert RESERVE_RECALL_EXCEEDS_DEPLOYED();
+        }
+
+        deployedReserveAssets -= amount;
+        ERC20(asset()).transferFrom(reserveManager, address(this), amount);
+
+        emit ReserveRecalled(reserveManager, amount, deployedReserveAssets);
     }
 
     function mintBridgeShares(address to, uint256 shares) external onlyRole(BRIDGE_ROLE) {

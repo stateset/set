@@ -174,8 +174,9 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user1);
@@ -204,7 +205,8 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
             YieldEscrowV2.DisputeResolution resolution,
             uint40 resolvedAt,
             bytes32 resolutionEvidence,
-            uint40 disputeWindow,
+            uint40 challengeWindow,
+            uint40 arbiterDeadline,
             YieldEscrowV2.DisputeResolution timeoutResolution,
             uint40 disputedAt,
             YieldEscrowV2.SettlementMode settlementMode,
@@ -230,7 +232,8 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
         assertEq(uint8(resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(resolvedAt, 0);
         assertEq(resolutionEvidence, bytes32(0));
-        assertEq(disputeWindow, 0);
+        assertEq(challengeWindow, 0);
+        assertEq(arbiterDeadline, 0);
         assertEq(uint8(timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(disputedAt, 0);
         assertEq(uint8(settlementMode), uint8(YieldEscrowV2.SettlementMode.NONE));
@@ -260,8 +263,9 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
             requiresFulfillment: false,
             fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
             requiredMilestones: 0,
-            disputeWindow: 0,
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
         });
 
         vm.startPrank(user1);

@@ -83,8 +83,9 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
             requiresFulfillment: true,
             fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
             requiredMilestones: 2,
-            disputeWindow: uint40(6 hours),
-        disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
         });
         // 2) Buyer funds invoice escrow from settlement assets through the gateway.
         (uint256 escrowId,,) = gateway.depositToEscrow(escrow, merchant, terms, 2_000, 400 ether);
@@ -94,7 +95,7 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         // 3) NAV moves up smoothly (yield accrual period)
         uint64 nextEpoch = nav.navEpoch() + 1;
         vm.prank(oracle);
-        nav.updateNAV(105e25, nextEpoch); // 1.05
+        nav.updateNAV(105e25, int256(0), nextEpoch); // 1.05, zero forward rate
         vm.warp(block.timestamp + 12 hours);
         priceOracle.setPrice(3_000e18);
 
@@ -151,10 +152,10 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         bytes32 opKey = keccak256("commerce-gas");
 
         vm.prank(entryPoint);
-        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice, merchant);
+        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice);
 
         vm.prank(entryPoint);
-        uint256 chargedShares = paymaster.postOp(opKey, user1, gasUsed, gasPrice, merchant);
+        uint256 chargedShares = paymaster.postOp(opKey, user1, gasUsed, gasPrice);
 
         assertGt(chargedShares, 0);
         assertEq(chargedShares, previewShares);

@@ -65,6 +65,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     event RedeemClaimable(uint256 indexed claimId, uint256 assetsOwed);
     event RedeemClaimed(uint256 indexed claimId, address indexed caller, uint256 assetsPaid);
 
+    event ClaimSkipped(uint256 indexed claimId, uint256 assetsNeeded, uint256 availableBuffer);
     event BufferRefilled(address indexed from, uint256 amount);
     event QueuePermissionlessSet(bool permissionless);
     event QueueSkipBlockedClaimsSet(bool enabled);
@@ -167,7 +168,11 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
                 unchecked {
                     ++processed;
                 }
-            } else if (!canSkipBlockedClaims) {
+            } else if (canSkipBlockedClaims) {
+                Claim storage skipped = claims[cursor];
+                uint256 assetsNeeded = vault.convertToAssets(skipped.sharesLocked);
+                emit ClaimSkipped(cursor, assetsNeeded, availableAssets);
+            } else {
                 break;
             }
 

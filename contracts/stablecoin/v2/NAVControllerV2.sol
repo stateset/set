@@ -13,16 +13,17 @@ contract NAVControllerV2 is AccessControl {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     uint256 public maxStaleness;
-    uint256 public targetSmoothingWindow;
     uint256 public minNavRay;
     int256 public maxRateAbsRay;
     uint256 public maxNavJumpBps;
+    uint256 public staleRecoveryJumpMultiplier; // e.g. 3 = allow 3x normal jump bps during stale recovery
 
     uint256 public nav0Ray;
     uint40 public t0;
     int256 public ratePerSecondRay;
     uint64 public navEpoch;
     uint40 public lastUpdateTs;
+    uint256 public lastKnownGoodNAV; // last attested NAV before staleness, for stale recovery jump check
 
     bool public navUpdatesPaused;
 
@@ -41,12 +42,14 @@ contract NAVControllerV2 is AccessControl {
         uint256 nav0Ray,
         uint40 t0,
         int256 ratePerSecondRay,
-        uint256 attestedNAVRay
+        uint256 attestedNAVRay,
+        int256 forwardRateRay
     );
 
     event NAVRelayed(uint64 indexed navEpoch, uint256 nav0Ray, uint40 t0, int256 ratePerSecondRay);
     event NavBoundsUpdated(uint256 minNavRay, int256 maxRateAbsRay, uint256 maxNavJumpBps);
-    event TimingConfigUpdated(uint256 maxStaleness, uint256 targetSmoothingWindow);
+    event TimingConfigUpdated(uint256 maxStaleness);
+    event StaleRecoveryJumpMultiplierUpdated(uint256 multiplier);
     event NavUpdatesPausedSet(bool paused);
 
     constructor(
@@ -55,15 +58,14 @@ contract NAVControllerV2 is AccessControl {
         uint256 minNavRay_,
         int256 maxRateAbsRay_,
         uint256 maxStaleness_,
-        uint256 targetSmoothingWindow_,
-        uint256 maxNavJumpBps_
+        uint256 maxNavJumpBps_,
+        uint256 staleRecoveryJumpMultiplier_
     ) {
         if (
             admin == address(0) ||
             initialNavRay == 0 ||
             minNavRay_ == 0 ||
             maxStaleness_ == 0 ||
-            targetSmoothingWindow_ == 0 ||
             maxRateAbsRay_ <= 0
         ) {
             revert INVALID_CONFIG();
@@ -75,6 +77,7 @@ contract NAVControllerV2 is AccessControl {
         _grantRole(PAUSER_ROLE, admin);
 
         nav0Ray = initialNavRay;
+        lastKnownGoodNAV = initialNavRay;
         t0 = uint40(block.timestamp);
         lastUpdateTs = uint40(block.timestamp);
         navEpoch = 1;
@@ -82,8 +85,8 @@ contract NAVControllerV2 is AccessControl {
         minNavRay = minNavRay_;
         maxRateAbsRay = maxRateAbsRay_;
         maxStaleness = maxStaleness_;
-        targetSmoothingWindow = targetSmoothingWindow_;
         maxNavJumpBps = maxNavJumpBps_;
+        staleRecoveryJumpMultiplier = staleRecoveryJumpMultiplier_ > 0 ? staleRecoveryJumpMultiplier_ : 3;
     }
 
     function currentNAVRay() public view returns (uint256) {
@@ -106,54 +109,68 @@ contract NAVControllerV2 is AccessControl {
         }
     }
 
-    function updateNAV(uint256 attestedNAVRay, uint64 newEpoch) external onlyRole(ORACLE_ROLE) {
+    /// @notice Snap-to-current NAV model. The oracle attests the current NAV and a forward rate.
+    ///         NAV snaps immediately to attestedCurrentNAVRay; forwardRateRay is the rate of
+    ///         change going forward (clamped by maxRateAbsRay).
+    /// @param attestedCurrentNAVRay The attested current NAV per share (ray precision, 1e27)
+    /// @param forwardRateRay The attested forward rate of change per second (ray precision)
+    /// @param newEpoch Monotonically increasing epoch number
+    function updateNAV(uint256 attestedCurrentNAVRay, int256 forwardRateRay, uint64 newEpoch) external onlyRole(ORACLE_ROLE) {
         if (navUpdatesPaused) {
             revert UPDATES_PAUSED();
         }
         if (newEpoch <= navEpoch) {
             revert EPOCH();
         }
-        if (attestedNAVRay < minNavRay) {
+        if (attestedCurrentNAVRay < minNavRay) {
             revert NAV_BELOW_MIN();
         }
 
         (uint256 navCurrent, bool stale, bool belowMin) = _projectNAV(nav0Ray, t0, ratePerSecondRay);
 
         if (stale || belowMin) {
-            nav0Ray = attestedNAVRay;
-            t0 = uint40(block.timestamp);
-            ratePerSecondRay = 0;
-            navEpoch = newEpoch;
-            lastUpdateTs = uint40(block.timestamp);
-
-            emit NAVUpdated(newEpoch, attestedNAVRay, t0, 0, attestedNAVRay);
-            return;
-        }
-
-        if (maxNavJumpBps > 0) {
-            uint256 diff = attestedNAVRay > navCurrent ? attestedNAVRay - navCurrent : navCurrent - attestedNAVRay;
-            uint256 jumpBps = Math.mulDiv(diff, 10_000, navCurrent, Math.Rounding.Ceil);
-            if (jumpBps > maxNavJumpBps) {
-                revert NAV_JUMP();
+            // Stale recovery: jump check uses relaxed multiplier against lastKnownGoodNAV
+            if (maxNavJumpBps > 0 && lastKnownGoodNAV > 0) {
+                uint256 relaxedJumpBps = maxNavJumpBps * staleRecoveryJumpMultiplier;
+                uint256 diff = attestedCurrentNAVRay > lastKnownGoodNAV
+                    ? attestedCurrentNAVRay - lastKnownGoodNAV
+                    : lastKnownGoodNAV - attestedCurrentNAVRay;
+                uint256 jumpBps = Math.mulDiv(diff, 10_000, lastKnownGoodNAV, Math.Rounding.Ceil);
+                if (jumpBps > relaxedJumpBps) {
+                    revert NAV_JUMP();
+                }
+            }
+        } else {
+            // Normal update: jump check against current projected NAV
+            if (maxNavJumpBps > 0) {
+                uint256 diff = attestedCurrentNAVRay > navCurrent
+                    ? attestedCurrentNAVRay - navCurrent
+                    : navCurrent - attestedCurrentNAVRay;
+                uint256 jumpBps = Math.mulDiv(diff, 10_000, navCurrent, Math.Rounding.Ceil);
+                if (jumpBps > maxNavJumpBps) {
+                    revert NAV_JUMP();
+                }
             }
         }
 
-        nav0Ray = navCurrent;
+        // Snap to attested NAV
+        nav0Ray = attestedCurrentNAVRay;
         t0 = uint40(block.timestamp);
+        lastKnownGoodNAV = attestedCurrentNAVRay;
 
-        int256 delta = int256(attestedNAVRay) - int256(navCurrent);
-        int256 nextRate = delta / int256(targetSmoothingWindow);
-        if (nextRate > maxRateAbsRay) {
-            nextRate = maxRateAbsRay;
-        } else if (nextRate < -maxRateAbsRay) {
-            nextRate = -maxRateAbsRay;
+        // Clamp forward rate
+        int256 clampedRate = forwardRateRay;
+        if (clampedRate > maxRateAbsRay) {
+            clampedRate = maxRateAbsRay;
+        } else if (clampedRate < -maxRateAbsRay) {
+            clampedRate = -maxRateAbsRay;
         }
 
-        ratePerSecondRay = nextRate;
+        ratePerSecondRay = clampedRate;
         navEpoch = newEpoch;
         lastUpdateTs = uint40(block.timestamp);
 
-        emit NAVUpdated(newEpoch, nav0Ray, t0, ratePerSecondRay, attestedNAVRay);
+        emit NAVUpdated(newEpoch, nav0Ray, t0, ratePerSecondRay, attestedCurrentNAVRay, forwardRateRay);
     }
 
     function relayNAV(uint256 nav0Ray_, uint40 t0_, int256 ratePerSecondRay_, uint64 newEpoch) external onlyRole(BRIDGE_ROLE) {
@@ -211,15 +228,22 @@ contract NAVControllerV2 is AccessControl {
         emit NavBoundsUpdated(minNavRay_, maxRateAbsRay_, maxNavJumpBps_);
     }
 
-    function setTimingConfig(uint256 maxStaleness_, uint256 targetSmoothingWindow_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (maxStaleness_ == 0 || targetSmoothingWindow_ == 0) {
+    function setTimingConfig(uint256 maxStaleness_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (maxStaleness_ == 0) {
             revert INVALID_CONFIG();
         }
 
         maxStaleness = maxStaleness_;
-        targetSmoothingWindow = targetSmoothingWindow_;
 
-        emit TimingConfigUpdated(maxStaleness_, targetSmoothingWindow_);
+        emit TimingConfigUpdated(maxStaleness_);
+    }
+
+    function setStaleRecoveryJumpMultiplier(uint256 multiplier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (multiplier == 0) {
+            revert INVALID_CONFIG();
+        }
+        staleRecoveryJumpMultiplier = multiplier;
+        emit StaleRecoveryJumpMultiplierUpdated(multiplier);
     }
 
     function setNavUpdatesPaused(bool paused_) external onlyRole(PAUSER_ROLE) {

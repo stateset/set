@@ -63,7 +63,7 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
 
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.PRICE_STALE.selector);
-        paymaster.validatePaymasterUserOp(keccak256("stale"), user1, 0.001 ether, address(0));
+        paymaster.validatePaymasterUserOp(keccak256("stale"), user1, 0.001 ether);
     }
 
     function test_ValidateRevertsWhenGrounded() public {
@@ -79,13 +79,13 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
 
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.GROUNDED.selector);
-        paymaster.validatePaymasterUserOp(keccak256("grounded"), user1, 0.001 ether, address(0));
+        paymaster.validatePaymasterUserOp(keccak256("grounded"), user1, 0.001 ether);
     }
 
     function test_PaymasterFloorDefense() public {
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.FLOOR.selector);
-        paymaster.validatePaymasterUserOp(keccak256("floor"), user1, 0.01 ether, address(0));
+        paymaster.validatePaymasterUserOp(keccak256("floor"), user1, 0.01 ether);
     }
 
     function test_PaymasterFloorDefenseIncludesCommittedInvoiceHeadroom() public {
@@ -104,13 +104,13 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
 
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.FLOOR.selector);
-        paymaster.validatePaymasterUserOp(keccak256("floor+commit"), user1, 0.01 ether, address(0));
+        paymaster.validatePaymasterUserOp(keccak256("floor+commit"), user1, 0.01 ether);
     }
 
     function test_ValidateRevertsWhenGasTankInsufficient() public {
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.INSUFFICIENT_SHARES.selector);
-        paymaster.validatePaymasterUserOp(keccak256("tank"), user1, 0.02 ether, address(0));
+        paymaster.validatePaymasterUserOp(keccak256("tank"), user1, 0.02 ether);
     }
 
     function test_PostOpHonorsFloorWhenValid() public {
@@ -130,10 +130,10 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
 
         vm.prank(entryPoint);
         bytes32 opKey = keccak256("valid");
-        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, 100_000 * 10 gwei, address(0));
+        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, 100_000 * 10 gwei);
 
         vm.prank(entryPoint);
-        uint256 chargedShares = paymaster.postOp(opKey, user1, 100_000, 10 gwei, address(0));
+        uint256 chargedShares = paymaster.postOp(opKey, user1, 100_000, 10 gwei);
 
         uint256 remainingShares = paymaster.gasTankShares(user1) + vault.balanceOf(user1);
         uint256 remainingAssets = vault.convertToAssets(remainingShares);
@@ -146,15 +146,15 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
     function test_PostOpRequiresPreparedValidation() public {
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.VALIDATION_MISSING.selector);
-        paymaster.postOp(keccak256("missing"), user1, 100_000, 10 gwei, address(0));
+        paymaster.postOp(keccak256("missing"), user1, 100_000, 10 gwei);
     }
 
     function test_RevertsWhenCallerNotEntryPoint() public {
         vm.expectRevert(YieldPaymasterV2.NOT_ENTRYPOINT.selector);
-        paymaster.validatePaymasterUserOp(keccak256("not-entry-validate"), user1, 0.001 ether, address(0));
+        paymaster.validatePaymasterUserOp(keccak256("not-entry-validate"), user1, 0.001 ether);
 
         vm.expectRevert(YieldPaymasterV2.NOT_ENTRYPOINT.selector);
-        paymaster.postOp(keccak256("not-entry-post"), user1, 100_000, 10 gwei, address(0));
+        paymaster.postOp(keccak256("not-entry-post"), user1, 100_000, 10 gwei);
     }
 
     function test_SetEntryPoint() public {

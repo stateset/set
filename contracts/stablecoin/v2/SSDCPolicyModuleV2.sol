@@ -39,6 +39,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
 
     event MerchantAllowlistUpdated(address indexed agent, address indexed merchant, bool allowed);
     event PolicySpendConsumed(address indexed agent, uint256 assetsConsumed, uint256 spentTodayAssets);
+    event PolicyGasSpendConsumed(address indexed agent, uint256 assetsConsumed, uint256 spentTodayAssets);
     event PolicyCommitmentReserved(address indexed agent, uint256 assetsReserved, uint256 committedAssets);
     event PolicyCommitmentReleased(address indexed agent, uint256 assetsReleased, uint256 committedAssets);
 
@@ -143,6 +144,34 @@ contract SSDCPolicyModuleV2 is AccessControl {
         emit PolicySpendConsumed(agent, assets, policy.spentTodayAssets);
     }
 
+    /// @notice Consume gas spend for an agent. Skips merchant allowlist check since
+    ///         gas payments go to infrastructure, not commerce counterparties.
+    function consumeGasSpend(address agent, uint256 assets) external onlyRole(POLICY_CONSUMER_ROLE) {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            revert POLICY_NOT_SET();
+        }
+
+        _rollDay(policy);
+
+        if (!_canGasSpend(policy, assets)) {
+            if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
+                revert POLICY_SESSION_EXPIRED();
+            }
+            if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
+                revert POLICY_LIMIT();
+            }
+            if (policy.dailyLimitAssets > 0 && _effectiveSpentToday(policy) + assets > policy.dailyLimitAssets) {
+                revert POLICY_DAILY_LIMIT();
+            }
+            revert POLICY_LIMIT();
+        }
+
+        policy.spentTodayAssets += assets;
+
+        emit PolicyGasSpendConsumed(agent, assets, policy.spentTodayAssets);
+    }
+
     function reserveCommittedSpend(address agent, uint256 assets) external onlyRole(POLICY_CONSUMER_ROLE) {
         AgentPolicy storage policy = policies[agent];
         if (!policy.exists) {
@@ -203,6 +232,28 @@ contract SSDCPolicyModuleV2 is AccessControl {
             policy.dayStart = uint40(block.timestamp);
             policy.spentTodayAssets = 0;
         }
+    }
+
+    function _canGasSpend(
+        AgentPolicy storage policy,
+        uint256 assets
+    ) internal view returns (bool) {
+        uint256 spentTodayAssets = _effectiveSpentToday(policy);
+
+        if (!policy.exists) {
+            return false;
+        }
+        if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
+            return false;
+        }
+        if (policy.dailyLimitAssets > 0 && spentTodayAssets + assets > policy.dailyLimitAssets) {
+            return false;
+        }
+        // NOTE: merchant allowlist intentionally NOT checked for gas spend
+        if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
+            return false;
+        }
+        return true;
     }
 
     function _effectiveSpentToday(AgentPolicy storage policy) internal view returns (uint256) {
