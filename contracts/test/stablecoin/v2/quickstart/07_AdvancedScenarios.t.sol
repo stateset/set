@@ -45,9 +45,14 @@ contract AdvancedScenarios is SSDCV2QuickstartBase {
     //  Autonomous procurement pipeline:
     //    Alpha orders from Beta (raw materials)
     //    Beta orders from Gamma (sub-components)
-    //    Gamma fulfills → Beta fulfills → Alpha confirms
-    //    NAV appreciates throughout → yield split at each stage
+    //    Gamma fulfills -> Beta fulfills -> Alpha confirms
+    //    NAV appreciates throughout -> yield split at each stage
     //    Everyone redeems profits via claim queue
+    //
+    //  Combines concepts from:
+    //    - 02_MultiAgentMarketplace (supply chain, milestones)
+    //    - 03_YieldAndNAV (yield splitting, NAV appreciation)
+    //    - 01_AgentOnboarding (claim queue redemption)
     // ─────────────────────────────────────────────────────────────────────
     function test_AutonomousProcurementPipeline() public {
         // ── Stage 1: Alpha → Beta ($8,000 purchase order) ───────────────
@@ -104,10 +109,14 @@ contract AdvancedScenarios is SSDCV2QuickstartBase {
         vm.warp(block.timestamp + 6 hours + 1);
 
         // Preview yield split before release
+        // See 03_YieldAndNAV for detailed yield split math
         YieldEscrowV2.ReleaseSplit memory split = escrow.previewReleaseSplit(poAlphaBeta);
-        assertGt(split.buyerYieldShares, 0, "Alpha earns buyer yield");
-        assertGt(split.merchantYieldShares, 0, "Beta earns merchant yield");
-        assertGt(split.feeShares, 0, "protocol earns fees");
+        assertGt(split.buyerYieldShares, 0, "Alpha earns buyer yield (15% of net)");
+        assertGt(split.merchantYieldShares, 0, "Beta earns merchant yield (85% of net)");
+        assertGt(split.feeShares, 0, "protocol earns 1% fee");
+        assertGt(split.reserveShares, 0, "reserve earns 2% of gross");
+        // Merchant should get ~85% of net yield (buyerBps = 1500 = 15%)
+        assertGt(split.merchantYieldShares, split.buyerYieldShares, "merchant > buyer share");
 
         uint256 betaBefore = vault.balanceOf(agentBeta);
         vm.prank(agentBeta);
@@ -127,6 +136,8 @@ contract AdvancedScenarios is SSDCV2QuickstartBase {
 
     // ─────────────────────────────────────────────────────────────────────
     //  Claim queue: batch processing with skip-blocked mode
+    //
+    //  See also: 01_AgentOnboarding test_07_RedeemProfits for basic queue usage
     // ─────────────────────────────────────────────────────────────────────
     function test_ClaimQueue_SkipBlocked() public {
         // First, drain the vault's settlement assets by deploying reserves.
@@ -199,7 +210,9 @@ contract AdvancedScenarios is SSDCV2QuickstartBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  Escrow refund → re-purchase: agent gets refund, places new order
+    //  Escrow refund -> re-purchase: agent gets refund, places new order
+    //
+    //  See also: 05_DisputesAndSafety for dispute-driven refunds
     // ─────────────────────────────────────────────────────────────────────
     function test_RefundAndRepurchase() public {
         vm.startPrank(agentAlpha);
@@ -246,6 +259,10 @@ contract AdvancedScenarios is SSDCV2QuickstartBase {
 
     // ─────────────────────────────────────────────────────────────────────
     //  Full StatusLens snapshot: comprehensive system monitoring
+    //
+    //  See also: 01_AgentOnboarding test_01_CheckSystemHealth for basic lens usage
+    //  See also: 05_DisputesAndSafety test_CircuitBreaker_EmergencyShutdown
+    //            for lens state under circuit breaker
     // ─────────────────────────────────────────────────────────────────────
     function test_StatusLens_FullSnapshot() public {
         SSDCStatusLensV2.Status memory s = lens.getStatus();

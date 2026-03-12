@@ -150,8 +150,14 @@ contract MultiAgentMarketplace is SSDCV2QuickstartBase {
         vm.prank(agentBeta);
         escrow.release(poEscrowId);
 
-        // Beta received principal + merchant yield share
-        assertGt(vault.balanceOf(agentBeta), betaBefore, "Beta paid with yield");
+        // Beta received principal + merchant yield share.
+        // At NAV 1.03, $1,500 principal requires ~1,456 shares (1500/1.03).
+        // The remaining ~44 shares are gross yield, split as:
+        //   reserve (2%), protocol fee (1%), buyer 30%, merchant 70% of net.
+        uint256 betaReceived = vault.balanceOf(agentBeta) - betaBefore;
+        assertGt(betaReceived, 0, "Beta paid with yield");
+        // Beta gets principal + merchant yield share
+        assertGt(betaReceived, vault.convertToShares(1_500 ether), "received more than principal alone");
 
         // Alpha should have received buyer yield share (30% of net yield)
         // Verify escrow status
@@ -167,6 +173,9 @@ contract MultiAgentMarketplace is SSDCV2QuickstartBase {
 
     // ─────────────────────────────────────────────────────────────────────
     //  Merchant allowlist: Alpha can only pay Beta, not Gamma directly
+    //
+    //  See also: 01_AgentOnboarding test_06_WhatHappensWhenYouExceedYourLimit
+    //            for per-tx and daily limit enforcement
     // ─────────────────────────────────────────────────────────────────────
     function test_AllowlistEnforcement() public {
         vm.startPrank(agentAlpha);
@@ -307,6 +316,9 @@ contract MultiAgentMarketplace is SSDCV2QuickstartBase {
 
     // ─────────────────────────────────────────────────────────────────────
     //  Gateway one-step: deposit settlement assets directly into escrow
+    //
+    //  See also: 04_GaslessOps test_GatewayDirectGasTankFunding
+    //            for the gas-tank variant of this pattern
     // ─────────────────────────────────────────────────────────────────────
     function test_GatewayDirectEscrowFunding() public {
         // An agent can skip the two-step deposit→escrow flow and go

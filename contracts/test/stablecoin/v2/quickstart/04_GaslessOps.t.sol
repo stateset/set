@@ -65,7 +65,7 @@ contract GaslessOps is SSDCV2QuickstartBase {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  Gas cost math: ETH → USD → shares conversion
+    //  Gas cost math: ETH -> USD -> shares conversion
     // ─────────────────────────────────────────────────────────────────────
     function test_GasCostConversion() public {
         vm.startPrank(agentAlpha);
@@ -78,12 +78,61 @@ contract GaslessOps is SSDCV2QuickstartBase {
         uint256 expectedShares = paymaster.previewChargeShares(gasCostWei);
 
         // At ETH=$3,000 and NAV=1.0:
-        //   0.01 ETH * $3,000 = $30 → 30 shares (at 1:1)
-        assertGt(expectedShares, 0);
+        //   0.01 ETH * $3,000/ETH = $30 USD -> 30 shares (at 1:1 NAV)
+        //   Settlement asset is 6-decimal mUSD, so 30 shares = 30e6
+        assertEq(expectedShares, 30e6, "0.01 ETH = $30 = 30 shares at par");
 
         // Actual charge matches preview
         uint256 charged = _chargeGas(agentAlpha, keccak256("preview-op"), gasCostWei);
         assertEq(charged, expectedShares, "charge matches preview");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  Inline ERC-4337 flow: see the actual validate -> postOp steps
+    //
+    //  In production, the EntryPoint calls these two methods on each
+    //  UserOperation. The _chargeGas helper wraps this, but here we
+    //  show the raw two-step flow so you can see exactly what happens.
+    // ─────────────────────────────────────────────────────────────────────
+    function test_InlinePaymasterFlow() public {
+        vm.startPrank(agentAlpha);
+        vault.approve(address(paymaster), type(uint256).max);
+        paymaster.topUpGasTank(1_000 ether);
+        vm.stopPrank();
+
+        priceOracle.setPrice(3_000e18); // refresh oracle
+
+        bytes32 opKey = keccak256("inline-demo-op");
+        uint256 gasCostWei = 200_000 * 15 gwei; // 0.003 ETH
+
+        uint256 tankBefore = paymaster.gasTankShares(agentAlpha);
+
+        // ── Step 1: validatePaymasterUserOp ────────────────────────────
+        // EntryPoint calls this BEFORE executing the UserOp.
+        // The paymaster checks:
+        //   - agent is not grounded (collateral >= floor)
+        //   - gas tank has enough shares to cover the estimated cost
+        //   - oracle price is fresh
+        // It returns a context for postOp but does NOT deduct yet.
+        vm.prank(entryPoint);
+        paymaster.validatePaymasterUserOp(opKey, agentAlpha, gasCostWei);
+
+        // Tank not yet deducted - validation only reserves, doesn't charge
+        assertEq(paymaster.gasTankShares(agentAlpha), tankBefore, "no deduction during validation");
+
+        // ── Step 2: postOp ─────────────────────────────────────────────
+        // EntryPoint calls this AFTER executing the UserOp.
+        // The paymaster converts the actual gas cost:
+        //   ETH wei -> USD (via oracle) -> wSSDC shares (via NAV)
+        // Then deducts from agent's gas tank and sends to feeCollector.
+        vm.prank(entryPoint);
+        uint256 sharesCharged = paymaster.postOp(opKey, agentAlpha, gasCostWei);
+
+        // 0.003 ETH * $3,000/ETH = $9 USD -> 9 shares at NAV=1.0
+        //   Settlement asset is 6-decimal mUSD, so 9 shares = 9e6
+        assertEq(sharesCharged, 9e6, "0.003 ETH = $9 = 9 shares");
+        assertEq(paymaster.gasTankShares(agentAlpha), tankBefore - sharesCharged, "tank deducted");
+        assertEq(vault.balanceOf(feeCollector), sharesCharged, "fee collector received shares");
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import {SSDCV2QuickstartBase} from "./SSDCV2QuickstartBase.sol";
 import {YieldEscrowV2} from "../../../../stablecoin/v2/YieldEscrowV2.sol";
 import {SSDCStatusLensV2} from "../../../../stablecoin/v2/SSDCStatusLensV2.sol";
 import {RayMath} from "../../../../stablecoin/v2/RayMath.sol";
+import {wSSDCVaultV2} from "../../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 /// @title Quickstart 03: Yield Accrual, NAV Dynamics & Reserve Management
 /// @notice How agents earn yield on idle balances, how yield splits work in
@@ -102,21 +103,33 @@ contract YieldAndNAV is SSDCV2QuickstartBase {
         // Preview the release split before settlement
         YieldEscrowV2.ReleaseSplit memory split = escrow.previewReleaseSplit(escrowId);
 
-        // Verify the math:
-        //   totalShares = 10,000 (deposited at NAV=1.0)
-        //   principalShares ≈ 10,000/1.1 ≈ 9,091 (principal at new NAV)
-        //   grossYield ≈ 909 shares
-        //   reserve (2%) ≈ 18 shares
-        //   fee (1% of post-reserve) ≈ 8 shares
-        //   net yield ≈ 883 shares
-        //   buyer yield (40%) ≈ 353 shares
-        //   merchant yield (60%) ≈ 530 shares
-        assertGt(split.grossYieldShares, 0, "yield accrued in escrow");
-        assertGt(split.reserveShares, 0, "reserve fee collected");
+        // Expected math (10,000 shares deposited at NAV=1.0, NAV now 1.1):
+        //   principalShares = 10,000 assets / 1.1 NAV ~= 9,090.9 shares
+        //   grossYield = 10,000 - principalShares ~= 909.1 shares
+        //   reserve (2% of gross) ~= 18.2 shares
+        //   fee (1% of post-reserve) ~= 8.9 shares
+        //   netYield = gross - reserve - fee ~= 881.9 shares
+        //   buyerYield (40% of net) ~= 352.8 shares
+        //   merchantYield (60% of net) ~= 529.2 shares
+        //
+        // We use 1% tolerance (0.01e18) because integer rounding in
+        // share/asset conversions introduces small deviations.
+        uint256 expectedPrincipal = vault.convertToShares(10_000 ether);
+        uint256 expectedGross = 10_000 ether - expectedPrincipal;
+        assertApproxEqRel(split.principalShares, expectedPrincipal, 0.01e18, "principal ~9,091 shares");
+        assertApproxEqRel(split.grossYieldShares, expectedGross, 0.01e18, "gross yield ~909 shares");
+        assertApproxEqRel(split.reserveShares, expectedGross * 200 / 10_000, 0.01e18, "reserve ~18 shares (2%)");
         assertGt(split.feeShares, 0, "protocol fee collected");
         assertGt(split.buyerYieldShares, 0, "buyer earned yield");
         assertGt(split.merchantYieldShares, 0, "merchant earned yield");
         assertGt(split.merchantYieldShares, split.buyerYieldShares, "merchant gets 60%");
+        // Buyer gets 40% of net yield, merchant gets 60%
+        assertApproxEqRel(
+            split.buyerYieldShares * 10_000 / (split.buyerYieldShares + split.merchantYieldShares),
+            4_000,
+            0.01e18,
+            "buyer/merchant ratio is 40/60"
+        );
         assertEq(
             split.principalShares + split.merchantYieldShares +
             split.buyerYieldShares + split.reserveShares + split.feeShares,

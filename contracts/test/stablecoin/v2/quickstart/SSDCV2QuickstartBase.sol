@@ -41,6 +41,25 @@ contract MockOracle {
 // ─── Base ───────────────────────────────────────────────────────────────────
 
 contract SSDCV2QuickstartBase is Test {
+
+    // ─── Glossary ───────────────────────────────────────────────────────
+    //
+    //  RAY            1e27 - fixed-point unit for NAV values (e.g. 1.0 = 1e27, 1.05 = 105e25)
+    //  NAV            Net Asset Value - the price of 1 wSSDC share in settlement assets
+    //  buyerBps       Basis points (1 bp = 0.01%) of escrow yield allocated to the buyer
+    //                 e.g. 3000 = 30% of net yield goes to buyer, rest to merchant
+    //  perTxLimit     Maximum settlement-asset value a single escrow can lock
+    //  dailyLimit     Maximum cumulative settlement-asset value an agent can spend in 24h
+    //  floor          Minimum wSSDC balance the agent must maintain (collateral floor)
+    //  sessionExpiry  Timestamp after which the agent's policy is no longer valid
+    //  challengeWindow  Seconds the buyer has to dispute after merchant submits fulfillment
+    //  arbiterDeadline  Seconds the arbiter has to resolve a dispute before timeout kicks in
+    //  grounded       An agent whose total collateral (wallet + gas tank) < floor
+    //  shares         wSSDC vault shares - yield-bearing ERC-20 tokens backed by settlement assets
+    //  settlement assets  The underlying USD stablecoin (mUSD, 6 decimals in tests)
+    //
+    // ─────────────────────────────────────────────────────────────────────
+
     uint256 internal constant RAY = 1e27;
 
     // ── Roles ───────────────────────────────────────────────────────────

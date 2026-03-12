@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {SSDCV2QuickstartBase} from "./SSDCV2QuickstartBase.sol";
 import {YieldEscrowV2} from "../../../../stablecoin/v2/YieldEscrowV2.sol";
 import {SSDCStatusLensV2} from "../../../../stablecoin/v2/SSDCStatusLensV2.sol";
+import {SSDCPolicyModuleV2} from "../../../../stablecoin/v2/SSDCPolicyModuleV2.sol";
 
 /// @title Quickstart 01: Agent Onboarding & First Transaction
 /// @notice The minimal path from zero to a completed agent-to-agent payment.
@@ -135,7 +136,39 @@ contract AgentOnboardingQuickstart is SSDCV2QuickstartBase {
         assertEq(uint256(e.status), uint256(YieldEscrowV2.EscrowStatus.RELEASED));
     }
 
-    function test_06_RedeemProfits() public {
+    // ─────────────────────────────────────────────────────────────────────
+    //  Error paths: what happens when guardrails kick in
+    // ─────────────────────────────────────────────────────────────────────
+    function test_06_WhatHappensWhenYouExceedYourLimit() public {
+        _fundAgent(agentAlpha, 5_000 ether);
+        _fundAgent(agentBeta, 1_000 ether);
+
+        // Alpha: $1,000 per-tx limit, $3,000 daily limit, $500 floor
+        _configureAgent(
+            agentAlpha, 1_000 ether, 3_000 ether, 500 ether,
+            uint40(block.timestamp + 7 days), false, new address[](0)
+        );
+
+        vm.startPrank(agentAlpha);
+        vault.approve(address(escrow), type(uint256).max);
+
+        // Over per-tx limit ($1,200 > $1,000)
+        vm.expectRevert(SSDCPolicyModuleV2.POLICY_LIMIT.selector);
+        escrow.fundEscrow(agentBeta, _simpleInvoice(1_200 ether), 0);
+
+        // Within per-tx, succeeds 3x ($3,000 total = daily limit)
+        escrow.fundEscrow(agentBeta, _simpleInvoice(1_000 ether), 0);
+        escrow.fundEscrow(agentBeta, _simpleInvoice(1_000 ether), 0);
+        escrow.fundEscrow(agentBeta, _simpleInvoice(1_000 ether), 0);
+
+        // Daily limit hit ($3,000 spent)
+        vm.expectRevert(SSDCPolicyModuleV2.POLICY_DAILY_LIMIT.selector);
+        escrow.fundEscrow(agentBeta, _simpleInvoice(500 ether), 0);
+
+        vm.stopPrank();
+    }
+
+    function test_07_RedeemProfits() public {
         // Beta has shares and wants to cash out to settlement assets
         _fundAgent(agentBeta, 2_000 ether);
 
