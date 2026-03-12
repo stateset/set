@@ -115,6 +115,30 @@ contract SSDCPolicyModuleV2 is AccessControl {
         return _canSpend(policies[agent], agent, merchant, assets);
     }
 
+    function canGasSpend(address agent, uint256 assets) external view returns (bool) {
+        return _canGasSpend(policies[agent], assets);
+    }
+
+    function requireGasSpendAllowed(address agent, uint256 assets) external view {
+        AgentPolicy storage policy = policies[agent];
+        if (!policy.exists) {
+            revert POLICY_NOT_SET();
+        }
+
+        if (!_canGasSpend(policy, assets)) {
+            if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
+                revert POLICY_SESSION_EXPIRED();
+            }
+            if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
+                revert POLICY_LIMIT();
+            }
+            if (policy.dailyLimitAssets > 0 && _effectiveSpentToday(policy) + assets > policy.dailyLimitAssets) {
+                revert POLICY_DAILY_LIMIT();
+            }
+            revert POLICY_LIMIT();
+        }
+    }
+
     function consumeSpend(address agent, address merchant, uint256 assets) external onlyRole(POLICY_CONSUMER_ROLE) {
         AgentPolicy storage policy = policies[agent];
         if (!policy.exists) {

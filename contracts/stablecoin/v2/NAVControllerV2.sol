@@ -47,6 +47,14 @@ contract NAVControllerV2 is AccessControl {
     );
 
     event NAVRelayed(uint64 indexed navEpoch, uint256 nav0Ray, uint40 t0, int256 ratePerSecondRay);
+    event NAVForceUpdated(
+        uint64 indexed navEpoch,
+        uint256 nav0Ray,
+        uint40 t0,
+        int256 ratePerSecondRay,
+        uint256 forcedNAVRay,
+        int256 forwardRateRay
+    );
     event NavBoundsUpdated(uint256 minNavRay, int256 maxRateAbsRay, uint256 maxNavJumpBps);
     event TimingConfigUpdated(uint256 maxStaleness);
     event StaleRecoveryJumpMultiplierUpdated(uint256 multiplier);
@@ -158,19 +166,35 @@ contract NAVControllerV2 is AccessControl {
         t0 = uint40(block.timestamp);
         lastKnownGoodNAV = attestedCurrentNAVRay;
 
-        // Clamp forward rate
-        int256 clampedRate = forwardRateRay;
-        if (clampedRate > maxRateAbsRay) {
-            clampedRate = maxRateAbsRay;
-        } else if (clampedRate < -maxRateAbsRay) {
-            clampedRate = -maxRateAbsRay;
-        }
-
-        ratePerSecondRay = clampedRate;
+        ratePerSecondRay = _clampRate(forwardRateRay);
         navEpoch = newEpoch;
         lastUpdateTs = uint40(block.timestamp);
 
         emit NAVUpdated(newEpoch, nav0Ray, t0, ratePerSecondRay, attestedCurrentNAVRay, forwardRateRay);
+    }
+
+    /// @notice Governance recovery path for exceptional NAV discontinuities that exceed jump bounds.
+    /// @dev Intentionally bypasses jump checks and pause state so the controller can be recovered.
+    function forceUpdateNAV(
+        uint256 attestedCurrentNAVRay,
+        int256 forwardRateRay,
+        uint64 newEpoch
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newEpoch <= navEpoch) {
+            revert EPOCH();
+        }
+        if (attestedCurrentNAVRay < minNavRay) {
+            revert NAV_BELOW_MIN();
+        }
+
+        nav0Ray = attestedCurrentNAVRay;
+        t0 = uint40(block.timestamp);
+        ratePerSecondRay = _clampRate(forwardRateRay);
+        navEpoch = newEpoch;
+        lastUpdateTs = uint40(block.timestamp);
+        lastKnownGoodNAV = attestedCurrentNAVRay;
+
+        emit NAVForceUpdated(newEpoch, nav0Ray, t0, ratePerSecondRay, attestedCurrentNAVRay, forwardRateRay);
     }
 
     function relayNAV(uint256 nav0Ray_, uint40 t0_, int256 ratePerSecondRay_, uint64 newEpoch) external onlyRole(BRIDGE_ROLE) {
@@ -212,6 +236,7 @@ contract NAVControllerV2 is AccessControl {
         ratePerSecondRay = ratePerSecondRay_;
         navEpoch = newEpoch;
         lastUpdateTs = uint40(block.timestamp);
+        lastKnownGoodNAV = relayedNavRay;
 
         emit NAVRelayed(newEpoch, nav0Ray_, t0_, ratePerSecondRay_);
     }
@@ -261,7 +286,7 @@ contract NAVControllerV2 is AccessControl {
         }
 
         uint256 dt = block.timestamp - uint256(t0_);
-        stale = dt > maxStaleness;
+        stale = dt >= maxStaleness;
         if (stale) {
             dt = maxStaleness;
         }
@@ -279,5 +304,15 @@ contract NAVControllerV2 is AccessControl {
         }
 
         return (uint256(projectedNav), stale, false);
+    }
+
+    function _clampRate(int256 rate) internal view returns (int256) {
+        if (rate > maxRateAbsRay) {
+            return maxRateAbsRay;
+        }
+        if (rate < -maxRateAbsRay) {
+            return -maxRateAbsRay;
+        }
+        return rate;
     }
 }

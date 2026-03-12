@@ -21,10 +21,9 @@ contract EntryPointMockV2 {
         YieldPaymasterV2 paymaster,
         bytes32 opKey,
         address agent,
-        uint256 gasUsed,
-        uint256 effectiveGasPrice
+        uint256 actualGasCostWei
     ) external returns (uint256) {
-        return paymaster.postOp(opKey, agent, gasUsed, effectiveGasPrice);
+        return paymaster.postOp(opKey, agent, actualGasCostWei);
     }
 
     function validateAndPost(
@@ -32,15 +31,16 @@ contract EntryPointMockV2 {
         bytes32 opKey,
         address agent,
         uint256 maxGasCostWei,
-        uint256 gasUsed,
-        uint256 effectiveGasPrice
+        uint256 actualGasCostWei
     ) external returns (uint256 previewShares, uint256 chargedShares) {
         previewShares = paymaster.validatePaymasterUserOp(opKey, agent, maxGasCostWei);
-        chargedShares = paymaster.postOp(opKey, agent, gasUsed, effectiveGasPrice);
+        chargedShares = paymaster.postOp(opKey, agent, actualGasCostWei);
     }
 }
 
 contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
+    uint256 internal constant USD = 1e6;
+
     SSDCPolicyModuleV2 internal policy;
     GroundingRegistryV2 internal grounding;
     MockETHUSDOracle internal priceOracle;
@@ -76,17 +76,17 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
             user1,
             type(uint256).max,
             type(uint256).max,
-            20 ether,
+            20 * USD,
             uint40(block.timestamp + 2 days),
             false
         );
         vm.stopPrank();
 
-        _mintAndDeposit(user1, 200 ether);
+        _mintAndDeposit(user1, 200 * USD);
 
         vm.startPrank(user1);
         vault.approve(address(paymaster), type(uint256).max);
-        paymaster.topUpGasTank(100 ether);
+        paymaster.topUpGasTank(100 * USD);
         vm.stopPrank();
     }
 
@@ -103,8 +103,7 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
             opKey,
             user1,
             gasCostWei,
-            gasUsed,
-            gasPrice
+            gasCostWei
         );
 
         assertEq(chargedShares, previewShares);
@@ -121,18 +120,18 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
             user1,
             type(uint256).max,
             type(uint256).max,
-            195 ether,
+            195 * USD,
             uint40(block.timestamp + 2 days),
             false
         );
 
         vm.expectRevert(YieldPaymasterV2.GAS_BUDGET.selector);
-        entryPoint.callPostOp(paymaster, opKey, user1, 100_000, 20 gwei);
+        entryPoint.callPostOp(paymaster, opKey, user1, 100_000 * 20 gwei);
     }
 
     function test_PostOpRequiresValidation() public {
         vm.expectRevert(YieldPaymasterV2.VALIDATION_MISSING.selector);
-        entryPoint.callPostOp(paymaster, keccak256("missing"), user1, 100_000, 20 gwei);
+        entryPoint.callPostOp(paymaster, keccak256("missing"), user1, 100_000 * 20 gwei);
     }
 
     function test_EntryPointRotationInvalidatesOldEntryPoint() public {
@@ -156,8 +155,8 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
         uint256 preview1 = entryPoint.callValidate(paymaster, opKey1, user1, 120_000 * gasPrice);
         uint256 preview2 = entryPoint.callValidate(paymaster, opKey2, user1, 180_000 * gasPrice);
 
-        uint256 charged1 = entryPoint.callPostOp(paymaster, opKey1, user1, 100_000, gasPrice);
-        uint256 charged2 = entryPoint.callPostOp(paymaster, opKey2, user1, 150_000, gasPrice);
+        uint256 charged1 = entryPoint.callPostOp(paymaster, opKey1, user1, 100_000 * gasPrice);
+        uint256 charged2 = entryPoint.callPostOp(paymaster, opKey2, user1, 150_000 * gasPrice);
 
         assertLe(charged1, preview1);
         assertLe(charged2, preview2);

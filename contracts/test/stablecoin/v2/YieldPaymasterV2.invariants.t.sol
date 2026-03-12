@@ -49,8 +49,9 @@ contract YieldPaymasterHandlerV2 {
         unchecked {
             ++nextOpNonce;
         }
-        try paymaster.validatePaymasterUserOp(opKey, address(this), gasUsed * gasPriceWei) {
-            try paymaster.postOp(opKey, address(this), gasUsed, gasPriceWei) {} catch {}
+        uint256 gasCostWei = gasUsed * gasPriceWei;
+        try paymaster.validatePaymasterUserOp(opKey, address(this), gasCostWei) {
+            try paymaster.postOp(opKey, address(this), gasCostWei) {} catch {}
         } catch {}
     }
 }

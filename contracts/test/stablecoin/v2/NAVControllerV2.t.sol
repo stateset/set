@@ -19,7 +19,7 @@ contract NAVControllerV2Test is SSDCV2TestBase {
         }
 
         uint256 maxStaleness = nav.maxStaleness();
-        uint256 dt = bound(uint256(rawDt), 0, maxStaleness);
+        uint256 dt = bound(uint256(rawDt), 0, maxStaleness - 1);
 
         uint256 minNav = nav.minNavRay();
         uint256 nav0 = bound(rawBaseNav, minNav, 3 * RAY);
@@ -47,7 +47,7 @@ contract NAVControllerV2Test is SSDCV2TestBase {
     }
 
     function test_CurrentNAVRevertsWhenStale() public {
-        vm.warp(block.timestamp + nav.maxStaleness() + 1);
+        vm.warp(block.timestamp + nav.maxStaleness());
         vm.expectRevert(NAVControllerV2.NAV_STALE.selector);
         nav.currentNAVRay();
     }
@@ -62,6 +62,23 @@ contract NAVControllerV2Test is SSDCV2TestBase {
 
         assertEq(nav.currentNAVRay(), attestedNavRay);
         assertEq(nav.ratePerSecondRay(), 0);
+    }
+
+    function test_ForceUpdateNAVRecoversExceptionalStaleJump() public {
+        vm.warp(block.timestamp + nav.maxStaleness() + 1);
+
+        uint64 rejectedEpoch = nav.navEpoch() + 1;
+        vm.prank(oracle);
+        vm.expectRevert(NAVControllerV2.NAV_JUMP.selector);
+        nav.updateNAV(17e26, 0, rejectedEpoch);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        nav.forceUpdateNAV(17e26, 0, nextEpoch);
+
+        assertEq(nav.currentNAVRay(), 17e26);
+        assertEq(nav.navEpoch(), nextEpoch);
+        assertEq(nav.lastKnownGoodNAV(), 17e26);
     }
 
     function test_NAVSnapsToAttestedValue() public {

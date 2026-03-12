@@ -100,8 +100,7 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
     event GasCharged(
         address indexed agent,
         uint256 sharesCharged,
-        uint256 gasUsed,
-        uint256 effectiveGasPrice
+        uint256 actualGasCostWei
     );
 
     event NAVRelayed(uint64 indexed navEpoch, uint256 nav0Ray, uint40 t0, int256 ratePerSecondRay);
@@ -435,19 +434,20 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
 
         uint256 gasUsed = 200_000;
         uint256 gasPrice = 1 gwei;
-        uint256 sharesCharged = paymaster.previewChargeShares(gasUsed * gasPrice);
+        uint256 actualGasCostWei = gasUsed * gasPrice;
+        uint256 sharesCharged = paymaster.previewChargeShares(actualGasCostWei);
         bytes32 opKey = keccak256("event-gas");
 
         vm.prank(entryPoint);
-        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice);
+        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, actualGasCostWei);
 
         assertEq(previewShares, sharesCharged);
 
         vm.expectEmit(true, false, false, true, address(paymaster));
-        emit GasCharged(user1, sharesCharged, gasUsed, gasPrice);
+        emit GasCharged(user1, sharesCharged, actualGasCostWei);
 
         vm.prank(entryPoint);
-        paymaster.postOp(opKey, user1, gasUsed, gasPrice);
+        paymaster.postOp(opKey, user1, actualGasCostWei);
     }
 
     function test_Event_BridgeNavRelayed() public {

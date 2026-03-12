@@ -157,7 +157,7 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
     }
 
     function test_BridgedShareProvenanceMovesWithTransfersAndBurns() public {
-        _mintAndDeposit(user1, 15 ether);
+        _mintAndDeposit(user1, 10 ether);
 
         vm.prank(admin);
         vault.mintBridgeShares(user1, 10 ether);
@@ -168,15 +168,15 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         vm.prank(user1);
         vault.transfer(user2, 12 ether);
 
-        assertEq(vault.bridgedSharesBalance(user1), 0);
-        assertEq(vault.bridgedSharesBalance(user2), 10 ether);
+        assertEq(vault.bridgedSharesBalance(user1), 4 ether);
+        assertEq(vault.bridgedSharesBalance(user2), 6 ether);
         assertEq(vault.bridgedSharesSupply(), 10 ether);
 
         vm.prank(admin);
         uint256 bridgedBurned = vault.burnBridgeShares(user2, 4 ether);
 
         assertEq(bridgedBurned, 4 ether);
-        assertEq(vault.bridgedSharesBalance(user2), 6 ether);
+        assertEq(vault.bridgedSharesBalance(user2), 2 ether);
         assertEq(vault.bridgedSharesSupply(), 6 ether);
     }
 
@@ -209,6 +209,23 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         assertEq(vault.availableSettlementAssets(), 85 ether);
         assertEq(vault.deployedReserveAssets(), 15 ether);
         assertEq(asset.balanceOf(reserveManager), 15 ether);
+    }
+
+    function test_ReserveDeployLimitAppliesPerCallNotCumulatively() public {
+        address reserveManager = address(0x515E);
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.prank(admin);
+        vault.setReserveConfig(reserveManager, 0, 2_000);
+
+        vm.startPrank(admin);
+        vault.deployReserve(20 ether);
+        vault.deployReserve(20 ether);
+        vm.stopPrank();
+
+        assertEq(vault.availableSettlementAssets(), 60 ether);
+        assertEq(vault.deployedReserveAssets(), 40 ether);
+        assertEq(asset.balanceOf(reserveManager), 40 ether);
     }
 
     function test_ReserveDeployBlockedWhenMintRedeemPaused() public {

@@ -8,6 +8,8 @@ import {YieldPaymasterV2} from "../../../stablecoin/v2/YieldPaymasterV2.sol";
 import {IETHUSDOracleV2} from "../../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
 
 contract YieldPaymasterV2Test is SSDCV2TestBase {
+    uint256 internal constant USD = 1e6;
+
     SSDCPolicyModuleV2 internal policy;
     GroundingRegistryV2 internal grounding;
     MockETHUSDOracle internal priceOracle;
@@ -42,18 +44,18 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
             user1,
             type(uint256).max,
             type(uint256).max,
-            100 ether,
+            100 * USD,
             uint40(block.timestamp + 1 days),
             false
         );
 
         vm.stopPrank();
 
-        _mintAndDeposit(user1, 120 ether);
+        _mintAndDeposit(user1, 120 * USD);
 
         vm.startPrank(user1);
         vault.approve(address(paymaster), type(uint256).max);
-        paymaster.topUpGasTank(30 ether);
+        paymaster.topUpGasTank(30 * USD);
         vm.stopPrank();
     }
 
@@ -72,7 +74,7 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
             user1,
             type(uint256).max,
             type(uint256).max,
-            1_000 ether,
+            1_000 * USD,
             uint40(block.timestamp + 1 days),
             false
         );
@@ -94,13 +96,13 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
             user1,
             type(uint256).max,
             type(uint256).max,
-            80 ether,
+            80 * USD,
             uint40(block.timestamp + 1 days),
             false
         );
 
         vm.prank(admin);
-        policy.reserveCommittedSpend(user1, 20 ether);
+        policy.reserveCommittedSpend(user1, 20 * USD);
 
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.FLOOR.selector);
@@ -115,7 +117,7 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
 
     function test_PostOpHonorsFloorWhenValid() public {
         vm.startPrank(user1);
-        paymaster.topUpGasTank(30 ether);
+        paymaster.topUpGasTank(30 * USD);
         vm.stopPrank();
 
         vm.prank(admin);
@@ -123,7 +125,7 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
             user1,
             type(uint256).max,
             type(uint256).max,
-            80 ether,
+            80 * USD,
             uint40(block.timestamp + 1 days),
             false
         );
@@ -133,20 +135,40 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, 100_000 * 10 gwei);
 
         vm.prank(entryPoint);
-        uint256 chargedShares = paymaster.postOp(opKey, user1, 100_000, 10 gwei);
+        uint256 chargedShares = paymaster.postOp(opKey, user1, 100_000 * 10 gwei);
 
         uint256 remainingShares = paymaster.gasTankShares(user1) + vault.balanceOf(user1);
         uint256 remainingAssets = vault.convertToAssets(remainingShares);
 
         assertGt(chargedShares, 0);
         assertEq(chargedShares, previewShares);
-        assertGe(remainingAssets, 80 ether);
+        assertGe(remainingAssets, 80 * USD);
+    }
+
+    function test_PreviewChargeSharesUsesSixDecimalSettlementAssets() public view {
+        assertEq(paymaster.previewChargeShares(0.001 ether), 3 * USD);
+    }
+
+    function test_ValidateRevertsWhenGasPolicyLimitExceeded() public {
+        vm.prank(admin);
+        policy.setPolicy(
+            user1,
+            2 * USD,
+            type(uint256).max,
+            0,
+            uint40(block.timestamp + 1 days),
+            false
+        );
+
+        vm.prank(entryPoint);
+        vm.expectRevert(SSDCPolicyModuleV2.POLICY_LIMIT.selector);
+        paymaster.validatePaymasterUserOp(keccak256("gas-policy"), user1, 0.001 ether);
     }
 
     function test_PostOpRequiresPreparedValidation() public {
         vm.prank(entryPoint);
         vm.expectRevert(YieldPaymasterV2.VALIDATION_MISSING.selector);
-        paymaster.postOp(keccak256("missing"), user1, 100_000, 10 gwei);
+        paymaster.postOp(keccak256("missing"), user1, 100_000 * 10 gwei);
     }
 
     function test_RevertsWhenCallerNotEntryPoint() public {
@@ -154,7 +176,7 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         paymaster.validatePaymasterUserOp(keccak256("not-entry-validate"), user1, 0.001 ether);
 
         vm.expectRevert(YieldPaymasterV2.NOT_ENTRYPOINT.selector);
-        paymaster.postOp(keccak256("not-entry-post"), user1, 100_000, 10 gwei);
+        paymaster.postOp(keccak256("not-entry-post"), user1, 100_000 * 10 gwei);
     }
 
     function test_SetEntryPoint() public {

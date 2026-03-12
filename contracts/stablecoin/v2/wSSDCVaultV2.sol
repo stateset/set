@@ -26,7 +26,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     // Reserve management
     address public reserveManager; // address that receives deployed assets
     uint256 public reserveFloor; // minimum settlement assets that must remain in vault
-    uint256 public maxDeployBps; // max percentage of total assets that can be deployed (basis points)
+    uint256 public maxDeployBps; // max percentage of total assets deployable per call (basis points)
     uint256 public deployedReserveAssets; // total assets currently deployed to reserve manager
 
     error MINT_REDEEM_PAUSED();
@@ -162,14 +162,14 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
 
         uint256 available = availableSettlementAssets();
         // After deployment, vault must retain at least reserveFloor
-        if (available - amount < reserveFloor) {
+        if (amount > available || available - amount < reserveFloor) {
             revert RESERVE_FLOOR();
         }
 
-        // Total deployed must not exceed maxDeployBps of total liability
+        // A single deployment call cannot exceed maxDeployBps of total liability
         uint256 totalLiability = totalLiabilityAssets();
         uint256 maxDeployable = (totalLiability * maxDeployBps) / 10_000;
-        if (deployedReserveAssets + amount > maxDeployable) {
+        if (amount > maxDeployable) {
             revert RESERVE_DEPLOY_LIMIT();
         }
 
@@ -299,13 +299,24 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     }
 
     function _update(address from, address to, uint256 value) internal override {
+        uint256 fromBalanceBefore = from == address(0) ? 0 : balanceOf(from);
         super._update(from, to, value);
 
         if (value == 0 || from == address(0) || from == to) {
             return;
         }
 
-        uint256 bridgedValue = _bridgedSharesPortion(from, value);
+        uint256 bridgedValue;
+        if (to == address(0)) {
+            bridgedValue = _bridgedSharesPortion(from, value);
+        } else {
+            // Bridged provenance follows transfers proportionally to the sender's pre-transfer mix.
+            uint256 fromBridged = bridgedSharesBalance[from];
+            if (fromBridged == 0 || fromBalanceBefore == 0) {
+                return;
+            }
+            bridgedValue = Math.mulDiv(fromBridged, value, fromBalanceBefore);
+        }
         if (bridgedValue == 0) {
             return;
         }

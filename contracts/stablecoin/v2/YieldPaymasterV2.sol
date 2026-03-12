@@ -13,6 +13,8 @@ import {ICollateralProviderV2} from "./interfaces/ICollateralProviderV2.sol";
 import {IETHUSDOracleV2} from "./interfaces/IETHUSDOracleV2.sol";
 
 contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProviderV2 {
+    uint256 private constant ETH_USD_TO_6_DECIMAL_ASSET_DENOMINATOR = 1e30;
+
     bytes32 public constant PAYMASTER_ADMIN_ROLE = keccak256("PAYMASTER_ADMIN_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
@@ -53,8 +55,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     event GasCharged(
         address indexed agent,
         uint256 sharesCharged,
-        uint256 gasUsed,
-        uint256 effectiveGasPrice
+        uint256 actualGasCostWei
     );
 
     event GasTankToppedUp(address indexed agent, uint256 shares);
@@ -180,6 +181,8 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
             revert FLOOR();
         }
 
+        policyModule.requireGasSpendAllowed(agent, assetsCost);
+
         pendingCharges[opKey] = PendingCharge({
             agent: agent,
             maxGasCostWei: maxGasCostWei,
@@ -191,8 +194,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     function postOp(
         bytes32 opKey,
         address agent,
-        uint256 gasUsed,
-        uint256 effectiveGasPrice
+        uint256 actualGasCostWei
     ) external onlyEntryPoint nonReentrant returns (uint256 sharesCharged) {
         PendingCharge memory pending = pendingCharges[opKey];
         if (pending.preparedAtBlock == 0) {
@@ -206,11 +208,10 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         }
         delete pendingCharges[opKey];
 
-        uint256 gasCostWei = gasUsed * effectiveGasPrice;
-        if (gasCostWei > pending.maxGasCostWei) {
+        if (actualGasCostWei > pending.maxGasCostWei) {
             revert GAS_BUDGET();
         }
-        uint256 assetsCost = _ethWeiToUsdAssets(gasCostWei);
+        uint256 assetsCost = _ethWeiToUsdAssets(actualGasCostWei);
         uint256 nav = navController.currentNAVRay();
 
         sharesCharged = RayMath.convertToSharesUp(assetsCost, nav);
@@ -241,7 +242,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
         vault.transfer(feeCollector, sharesCharged);
 
-        emit GasCharged(agent, sharesCharged, gasUsed, effectiveGasPrice);
+        emit GasCharged(agent, sharesCharged, actualGasCostWei);
     }
 
     function collateralSharesOf(address agent) external view override returns (uint256 shares) {
@@ -256,7 +257,14 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         if (block.timestamp - updatedAt > maxPriceStaleness) {
             revert PRICE_STALE();
         }
-        assets = Math.mulDiv(weiAmount, ethUsdPriceE18, 1e18, Math.Rounding.Ceil);
+        // Convert ETH wei and an 18-decimal ETH/USD oracle price into 6-decimal
+        // settlement asset units.
+        assets = Math.mulDiv(
+            weiAmount,
+            ethUsdPriceE18,
+            ETH_USD_TO_6_DECIMAL_ASSET_DENOMINATOR,
+            Math.Rounding.Ceil
+        );
     }
 
     function previewChargeShares(uint256 gasCostWei) external view returns (uint256 shares) {

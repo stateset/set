@@ -149,13 +149,14 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
         uint256 feeBefore = vault.balanceOf(protocolFeeCollector);
         uint256 gasUsed = 200_000;
         uint256 gasPrice = 12 gwei;
+        uint256 actualGasCostWei = gasUsed * gasPrice;
         bytes32 opKey = keccak256("commerce-gas");
 
         vm.prank(entryPoint);
-        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, gasUsed * gasPrice);
+        uint256 previewShares = paymaster.validatePaymasterUserOp(opKey, user1, actualGasCostWei);
 
         vm.prank(entryPoint);
-        uint256 chargedShares = paymaster.postOp(opKey, user1, gasUsed, gasPrice);
+        uint256 chargedShares = paymaster.postOp(opKey, user1, actualGasCostWei);
 
         assertGt(chargedShares, 0);
         assertEq(chargedShares, previewShares);
