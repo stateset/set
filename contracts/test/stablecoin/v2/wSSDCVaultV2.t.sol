@@ -1,11 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {SSDCV2TestBase} from "./SSDCV2TestBase.sol";
 import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
+contract MockBadDecimalsAsset is ERC20 {
+    constructor() ERC20("Bad Settlement", "bUSD") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
 contract wSSDCVaultV2Test is SSDCV2TestBase {
+    function test_ConstructorRejectsNonSixDecimalSettlementAsset() public {
+        MockBadDecimalsAsset badAsset = new MockBadDecimalsAsset();
+
+        vm.expectRevert(wSSDCVaultV2.INVALID_SETTLEMENT_ASSET_DECIMALS.selector);
+        new wSSDCVaultV2(badAsset, nav, admin);
+    }
+
     function test_MintRedeemPauseMatrix() public {
         _mintAndDeposit(user1, 100 ether);
 
@@ -162,5 +178,47 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         assertEq(bridgedBurned, 4 ether);
         assertEq(vault.bridgedSharesBalance(user2), 6 ether);
         assertEq(vault.bridgedSharesSupply(), 6 ether);
+    }
+
+    function test_DecimalsMirrorSixDecimalSettlementAsset() public view {
+        assertEq(asset.decimals(), 6);
+        assertEq(vault.decimals(), 6);
+    }
+
+    function test_ReserveDeployAndRecallTrackConfiguredState() public {
+        address reserveManager = address(0x515E);
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.prank(admin);
+        vault.setReserveConfig(reserveManager, 25 ether, 2_000);
+
+        vm.prank(admin);
+        vault.deployReserve(20 ether);
+
+        assertEq(vault.availableSettlementAssets(), 80 ether);
+        assertEq(vault.deployedReserveAssets(), 20 ether);
+        assertEq(asset.balanceOf(reserveManager), 20 ether);
+
+        vm.startPrank(reserveManager);
+        asset.approve(address(vault), type(uint256).max);
+        vm.stopPrank();
+
+        vm.prank(admin);
+        vault.recallReserve(5 ether);
+
+        assertEq(vault.availableSettlementAssets(), 85 ether);
+        assertEq(vault.deployedReserveAssets(), 15 ether);
+        assertEq(asset.balanceOf(reserveManager), 15 ether);
+    }
+
+    function test_ReserveDeployBlockedWhenMintRedeemPaused() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.startPrank(admin);
+        vault.setReserveConfig(address(0x515E), 10 ether, 2_000);
+        vault.setMintRedeemPaused(true);
+        vm.expectRevert(wSSDCVaultV2.MINT_REDEEM_PAUSED.selector);
+        vault.deployReserve(10 ether);
+        vm.stopPrank();
     }
 }

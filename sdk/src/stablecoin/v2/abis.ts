@@ -35,20 +35,20 @@ export const wSSDCVaultV2Abi = [
 export const navControllerV2Abi = [
   "function currentNAVRay() view returns (uint256)",
   "function tryCurrentNAVRay() view returns (uint256 navRay, bool stale)",
-  "function navEpoch() view returns (uint256)",
+  "function navEpoch() view returns (uint64)",
   "function nav0Ray() view returns (uint256)",
-  "function ratePerSecondRay() view returns (uint256)",
-  "function maxStaleness() view returns (uint40)",
+  "function ratePerSecondRay() view returns (int256)",
+  "function maxStaleness() view returns (uint256)",
   "function lastKnownGoodNAV() view returns (uint256)",
   "function updateNAV(uint256 attestedCurrentNAVRay, int256 forwardRateRay, uint64 newEpoch) external",
 ] as const;
 
 export const yieldEscrowV2Abi = [
-  "function fundEscrowFor(address buyer, address refundRecipient, address merchant, tuple(uint256 assetsDue, uint40 expiry, uint40 releaseAfter, uint40 maxNavAge, uint256 maxSharesIn, bool requiresFulfillment, uint8 fulfillmentType, uint8 requiredMilestones, uint40 challengeWindow, uint40 arbiterDeadline, uint8 disputeTimeoutResolution) terms, uint16 buyerBps) returns (uint256 escrowId, uint256 sharesLocked, uint256 committedAssets)",
-  "function submitFulfillment(uint256 escrowId, bytes32 evidenceHash, uint8 milestoneNumber) external",
+  "function fundEscrowFor(address buyer, address refundRecipient, address merchant, tuple(uint256 assetsDue, uint40 expiry, uint40 releaseAfter, uint40 maxNavAge, uint256 maxSharesIn, bool requiresFulfillment, uint8 fulfillmentType, uint8 requiredMilestones, uint40 challengeWindow, uint40 arbiterDeadline, uint8 disputeTimeoutResolution) terms, uint16 buyerBps) returns (uint256 escrowId)",
+  "function submitFulfillment(uint256 escrowId, uint8 fulfillmentType, bytes32 evidenceHash) external",
   "function release(uint256 escrowId) external",
   "function refund(uint256 escrowId) external",
-  "function dispute(uint256 escrowId, uint8 reason, bytes32 reasonHash) external",
+  "function dispute(uint256 escrowId, uint8 disputeReason, bytes32 reasonHash) external",
   "function disputeMilestone(uint256 escrowId, uint8 reason, uint8 milestoneNumber, bytes32 reasonHash) external",
   "function resolveDispute(uint256 escrowId, uint8 resolution, bytes32 evidenceHash) external",
   "function executeTimeout(uint256 escrowId) external",
@@ -70,8 +70,7 @@ export const ssdcClaimQueueV2Abi = [
   "function requestRedeem(uint256 shares, address receiver) returns (uint256 claimId)",
   "function claim(uint256 claimId) external",
   "function cancel(uint256 claimId, address receiver) external",
-  "function claimStatus(uint256 claimId) view returns (uint8)",
-  "function claimAssets(uint256 claimId) view returns (uint256)",
+  "function claims(uint256 claimId) view returns (uint256 sharesLocked, uint256 assetsSnapshot, uint256 assetsOwed, uint40 requestedAt, uint8 status)",
   "event RedeemRequested(uint256 indexed claimId, address indexed receiver, uint256 shares, uint256 assets)",
   "event ClaimSkipped(uint256 indexed claimId, uint256 assetsNeeded, uint256 availableBuffer)",
 ] as const;
@@ -92,7 +91,7 @@ export const ssdcPolicyModuleV2Abi = [
 
 export const groundingRegistryV2Abi = [
   "function totalShares(address agent) view returns (uint256)",
-  "function currentAssets(address agent) view returns (uint256)",
+  "function currentAssets(address agent) view returns (uint256 assetsNow, uint256 minAssetsFloor, uint256 navRay)",
   "function isGroundedNow(address agent) view returns (bool)",
   "function poke(address agent) external",
 ] as const;
@@ -110,7 +109,7 @@ export const ssdcVaultGatewayV2Abi = [
   "function withdraw(uint256 assets, address receiver, address owner, uint256 maxSharesBurned) returns (uint256 sharesBurned)",
   "function redeem(uint256 shares, address receiver, address owner, uint256 minAssetsOut) returns (uint256 assetsOut)",
   "function depositToGasTank(address paymaster, uint256 assets, address agent, uint256 minSharesOut) returns (uint256 sharesOut)",
-  "function depositToEscrow(address escrow, address merchant, tuple(uint256 assetsDue, uint40 expiry, uint40 releaseAfter, uint40 maxNavAge, uint256 maxSharesIn, bool requiresFulfillment, uint8 fulfillmentType, uint8 requiredMilestones, uint40 challengeWindow, uint40 arbiterDeadline, uint8 disputeTimeoutResolution) terms, uint16 buyerBps, uint256 maxAssetsIn) returns (uint256 escrowId, uint256 sharesOut, uint256 assetsIn)",
+  "function depositToEscrow(address escrow, address merchant, tuple(uint256 assetsDue, uint40 expiry, uint40 releaseAfter, uint40 maxNavAge, uint256 maxSharesIn, bool requiresFulfillment, uint8 fulfillmentType, uint8 requiredMilestones, uint40 challengeWindow, uint40 arbiterDeadline, uint8 disputeTimeoutResolution) terms, uint16 buyerBps, uint256 maxAssetsIn) returns (uint256 escrowId, uint256 assetsIn, uint256 sharesOut)",
   "event GatewayDeposit(address indexed caller, address indexed receiver, uint256 assetsIn, uint256 sharesOut)",
   "event GatewayEscrowFunded(address indexed caller, address indexed escrow, uint256 indexed escrowId, address merchant, uint256 assetsIn, uint256 sharesOut)",
 ] as const;
@@ -124,7 +123,8 @@ export const wssdcCrossChainBridgeV2Abi = [
 ] as const;
 
 export const ssdcStatusLensV2Abi = [
-  "function getStatus() view returns (tuple(bool transfersAllowed, bool navFresh, bool navConversionsAllowed, bool mintDepositAllowed, bool redeemWithdrawAllowed, bool requestRedeemAllowed, bool processQueueAllowed, bool bridgingAllowed, bool escrowOpsPaused, bool paymasterPaused))",
+  "function getStatus() view returns (tuple(bool transfersAllowed, bool navFresh, bool navConversionsAllowed, bool navUpdatesPaused, bool mintDepositAllowed, bool redeemWithdrawAllowed, bool requestRedeemAllowed, bool processQueueAllowed, bool queueSkipsBlockedClaims, bool bridgingAllowed, bool bridgeMintAllowed, bool gatewayRequired, bool escrowOpsPaused, bool paymasterPaused, uint256 bridgeOutstandingShares, uint256 bridgeOutstandingLimitShares, uint256 bridgeRemainingCapacityShares, uint256 minBridgeLiquidityCoverageBps, uint256 liabilityAssets, uint256 settlementAssetsAvailable, uint256 queueBufferAvailable, uint256 queueReservedAssets, uint256 queueDepth, uint256 liquidityCoverageBps, uint256 navRay, uint64 navEpoch, uint40 navLastUpdate, uint256 totalShareSupply, address reserveManager, uint256 reserveFloor, uint256 reserveMaxDeployBps, uint256 reserveDeployedAssets))",
+  "function reserveDeployed() view returns (uint256)",
 ] as const;
 
 export const erc20Abi = [

@@ -68,6 +68,10 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertEq(status.queueReservedAssets, 0);
         assertEq(status.liquidityCoverageBps, 10_000);
         assertEq(status.navRay, RAY);
+        assertEq(status.reserveManager, address(0));
+        assertEq(status.reserveFloor, 0);
+        assertEq(status.reserveMaxDeployBps, 0);
+        assertEq(status.reserveDeployedAssets, 0);
     }
 
     function test_StatusWhenMintRedeemPaused() public {
@@ -227,5 +231,23 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertEq(status.bridgeOutstandingShares, 4 ether);
         assertEq(status.bridgeRemainingCapacityShares, 0);
         assertFalse(status.bridgeMintAllowed);
+    }
+
+    function test_StatusReportsReserveConfigurationAndDeployment() public {
+        address reserveManager = address(0x515E);
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.startPrank(admin);
+        vault.setReserveConfig(reserveManager, 25 ether, 2_000);
+        vault.deployReserve(20 ether);
+        vm.stopPrank();
+
+        SSDCStatusLensV2.Status memory status = lens.getStatus();
+
+        assertEq(status.reserveManager, reserveManager);
+        assertEq(status.reserveFloor, 25 ether);
+        assertEq(status.reserveMaxDeployBps, 2_000);
+        assertEq(status.reserveDeployedAssets, 20 ether);
+        assertEq(lens.reserveDeployed(), 20 ether);
     }
 }

@@ -1,4 +1,8 @@
-# SSDC Stablecoin System
+# Legacy SSDC Stablecoin System
+
+This document describes the older rebasing `ssUSD` / `wssUSD` design.
+
+For the current V2 implementation defined by the yellowpaper, use [YELLOW_PAPER.md](/home/dom/icommerce-app/set/YELLOW_PAPER.md) and [stablecoin-v2-invoice-vault-review.md](/home/dom/icommerce-app/set/docs/stablecoin-v2-invoice-vault-review.md).
 
 Set Chain's native stablecoin system provides a yield-bearing stablecoin backed by company-held U.S. Treasury Bills.
 

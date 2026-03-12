@@ -36,6 +36,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     error RESERVE_DEPLOY_LIMIT();
     error RESERVE_RECALL_EXCEEDS_DEPLOYED();
     error RESERVE_MANAGER_NOT_SET();
+    error INVALID_SETTLEMENT_ASSET_DECIMALS();
 
     event MintRedeemPauseSet(bool paused);
     event GatewayRequirementSet(bool required);
@@ -92,6 +93,9 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     ) ERC20("Wrapped SSDC", "wSSDC") ERC4626(settlementAsset) {
         require(admin != address(0), "admin=0");
         require(address(navController_) != address(0), "nav=0");
+        if (settlementAsset.decimals() != 6) {
+            revert INVALID_SETTLEMENT_ASSET_DECIMALS();
+        }
 
         navController = navController_;
         gatewayRequired = false;
@@ -151,6 +155,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     /// @notice Deploy settlement assets to the reserve manager for off-chain yield strategies.
     ///         Must respect reserveFloor and maxDeployBps constraints.
     function deployReserve(uint256 amount) external onlyRole(RESERVE_ROLE) {
+        _requireMintRedeemActive();
         if (reserveManager == address(0)) {
             revert RESERVE_MANAGER_NOT_SET();
         }

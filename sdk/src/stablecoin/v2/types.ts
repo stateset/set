@@ -148,13 +148,35 @@ export interface SystemStatus {
   transfersAllowed: boolean;
   navFresh: boolean;
   navConversionsAllowed: boolean;
+  navUpdatesPaused: boolean;
   mintDepositAllowed: boolean;
   redeemWithdrawAllowed: boolean;
   requestRedeemAllowed: boolean;
   processQueueAllowed: boolean;
+  queueSkipsBlockedClaims: boolean;
   bridgingAllowed: boolean;
+  bridgeMintAllowed: boolean;
+  gatewayRequired: boolean;
   escrowOpsPaused: boolean;
   paymasterPaused: boolean;
+  bridgeOutstandingShares: bigint;
+  bridgeOutstandingLimitShares: bigint;
+  bridgeRemainingCapacityShares: bigint;
+  minBridgeLiquidityCoverageBps: bigint;
+  liabilityAssets: bigint;
+  settlementAssetsAvailable: bigint;
+  queueBufferAvailable: bigint;
+  queueReservedAssets: bigint;
+  queueDepth: bigint;
+  liquidityCoverageBps: bigint;
+  navRay: bigint;
+  navEpoch: bigint;
+  navLastUpdate: bigint;
+  totalShareSupply: bigint;
+  reserveManager: string;
+  reserveFloor: bigint;
+  reserveMaxDeployBps: bigint;
+  reserveDeployedAssets: bigint;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +245,7 @@ export interface FulfillmentProof {
   escrowId: bigint;
   milestoneNumber: number;
   evidenceHash: string;
+  fulfillmentType?: FulfillmentType;
   /** Structured proof data (IPFS CID, API response hash, etc.) */
   proofData?: Record<string, unknown>;
 }

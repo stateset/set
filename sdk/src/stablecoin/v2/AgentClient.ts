@@ -487,7 +487,9 @@ export class AgentClient {
     reasonHash: string
   ): Promise<TxResult> {
     const config = getConfig();
-    const tx = await this.escrow.dispute(escrowId, reason, targetMilestone, reasonHash);
+    const tx = targetMilestone > 0
+      ? await this.escrow.disputeMilestone(escrowId, reason, targetMilestone, reasonHash)
+      : await this.escrow.dispute(escrowId, reason, reasonHash);
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Escrow ${escrowId} disputed`);
     return { txHash: receipt.hash };
@@ -496,8 +498,8 @@ export class AgentClient {
   /** Request refund on an escrow (as buyer) */
   async requestRefund(escrowId: bigint, recipient?: string): Promise<TxResult> {
     const config = getConfig();
-    const to = recipient ?? (await this.signer.getAddress());
-    const tx = await this.escrow.requestRefund(escrowId, to);
+    void recipient;
+    const tx = await this.escrow.refund(escrowId);
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Escrow ${escrowId} refund requested`);
     return { txHash: receipt.hash };
@@ -505,7 +507,7 @@ export class AgentClient {
 
   /** Preview the yield split that would occur if an escrow is released now */
   async previewEscrowRelease(escrowId: bigint): Promise<ReleaseSplit> {
-    return await withRetry(() => this.escrow.previewRelease(escrowId));
+    return await withRetry(() => this.escrow.previewReleaseSplit(escrowId));
   }
 
   /** Get escrow info by ID */
@@ -543,10 +545,11 @@ export class AgentClient {
    */
   async submitFulfillment(proof: FulfillmentProof): Promise<TxResult> {
     const config = getConfig();
+    const fulfillmentType = proof.fulfillmentType ?? (await this.getEscrow(proof.escrowId)).fulfillmentType;
     const tx = await this.escrow.submitFulfillment(
       proof.escrowId,
-      proof.evidenceHash,
-      proof.milestoneNumber
+      fulfillmentType,
+      proof.evidenceHash
     );
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Fulfillment submitted for escrow ${proof.escrowId}, milestone ${proof.milestoneNumber}`);
@@ -558,7 +561,7 @@ export class AgentClient {
    */
   async releaseAsMerchant(escrowId: bigint): Promise<TxResult> {
     const config = getConfig();
-    const tx = await this.escrow.releaseAsMerchant(escrowId);
+    const tx = await this.escrow.release(escrowId);
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Escrow ${escrowId} released by merchant`);
     return { txHash: receipt.hash };
@@ -691,10 +694,11 @@ export class AgentClient {
     // Estimate yield (based on current NAV rate and hold period)
     const { navRay } = await this.getCurrentNAV();
     const holdDuration = BigInt(request.terms.releaseAfter - now);
-    const ratePerSecond = await withRetry(() => this.navController.ratePerSecondRay());
+    const ratePerSecond = (await withRetry(() => this.navController.ratePerSecondRay())) as bigint;
     const projectedNAV = navRay + (ratePerSecond * holdDuration);
+    const boundedProjectedNAV = projectedNAV > 0n ? projectedNAV : 0n;
     const estimatedYield =
-      (result.sharesLocked * projectedNAV) / RAY - request.amount;
+      (result.sharesLocked * boundedProjectedNAV) / RAY - request.amount;
 
     debugLog("Agent", `Accepted payment ${request.requestId}: escrow ${result.escrowId}`);
 
@@ -721,8 +725,8 @@ export class AgentClient {
     }
 
     // Get how many milestones are already completed
-    const completed = await withRetry(() => this.escrow.milestonesCompleted(escrowId));
-    const required = await withRetry(() => this.escrow.requiredMilestones(escrowId));
+    const completed = await withRetry(() => this.escrow.escrowCompletedMilestones(escrowId));
+    const required = await withRetry(() => this.escrow.escrowRequiredMilestones(escrowId));
 
     for (let m = Number(completed) + 1; m <= Number(required); m++) {
       const result = await this.submitFulfillment({

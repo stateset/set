@@ -38,6 +38,10 @@ contract SSDCStatusLensV2 {
         uint64 navEpoch;
         uint40 navLastUpdate;
         uint256 totalShareSupply;
+        address reserveManager;
+        uint256 reserveFloor;
+        uint256 reserveMaxDeployBps;
+        uint256 reserveDeployedAssets;
     }
 
     NAVControllerV2 public immutable navController;
@@ -105,5 +109,13 @@ contract SSDCStatusLensV2 {
         status.navEpoch = navController.navEpoch();
         status.navLastUpdate = navController.lastUpdateTs();
         status.totalShareSupply = vault.totalSupply();
+        status.reserveManager = vault.reserveManager();
+        status.reserveFloor = vault.reserveFloor();
+        status.reserveMaxDeployBps = vault.maxDeployBps();
+        status.reserveDeployedAssets = vault.deployedReserveAssets();
+    }
+
+    function reserveDeployed() external view returns (uint256) {
+        return vault.deployedReserveAssets();
     }
 }

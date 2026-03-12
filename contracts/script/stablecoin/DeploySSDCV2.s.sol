@@ -51,10 +51,15 @@ contract DeploySSDCV2 is Script {
         uint256 maxBridgeOutstandingShares = vm.envOr("MAX_BRIDGE_OUTSTANDING_SHARES", uint256(0));
         uint256 minBridgeLiquidityCoverageBps = vm.envOr("MIN_BRIDGE_LIQUIDITY_COVERAGE_BPS", uint256(0));
         uint256 escrowReserveBps = vm.envOr("ESCROW_RESERVE_BPS", uint256(0));
+        address reserveManager = vm.envOr("RESERVE_MANAGER", address(0));
+        uint256 reserveFloor = vm.envOr("RESERVE_FLOOR", uint256(0));
+        uint256 reserveMaxDeployBps = vm.envOr("RESERVE_MAX_DEPLOY_BPS", uint256(2_000));
 
         uint256 minNavRay = vm.envOr("MIN_NAV_RAY", uint256(9e26));
         int256 maxRateAbsRay = int256(vm.envOr("MAX_RATE_ABS", uint256(1e23)));
+        uint256 maxStaleness = vm.envOr("MAX_STALENESS", uint256(48 hours));
         uint256 maxNavJumpBps = vm.envOr("MAX_NAV_JUMP_BPS", uint256(2_000));
+        uint256 staleRecoveryJumpMultiplier = vm.envOr("STALE_RECOVERY_JUMP_MULTIPLIER", uint256(3));
 
         console2.log("Deploying SSDC v2 suite");
         console2.log("deployer", deployer);
@@ -67,6 +72,9 @@ contract DeploySSDCV2 is Script {
         console2.log("minBridgeLiquidityCoverageBps", minBridgeLiquidityCoverageBps);
         console2.log("reserveCollector", reserveCollector);
         console2.log("escrowReserveBps", escrowReserveBps);
+        console2.log("reserveManager", reserveManager);
+        console2.log("reserveFloor", reserveFloor);
+        console2.log("reserveMaxDeployBps", reserveMaxDeployBps);
 
         vm.startBroadcast(deployerPk);
 
@@ -75,9 +83,9 @@ contract DeploySSDCV2 is Script {
             RAY,
             minNavRay,
             maxRateAbsRay,
-            48 hours,
-            24 hours,
-            maxNavJumpBps
+            maxStaleness,
+            maxNavJumpBps,
+            staleRecoveryJumpMultiplier
         );
 
         vault = new wSSDCVaultV2(ERC20(settlementAsset), nav, admin);
@@ -113,6 +121,12 @@ contract DeploySSDCV2 is Script {
             vault.grantRole(vault.BRIDGE_ROLE(), address(bridge));
             vault.setMinBridgeLiquidityCoverageBps(minBridgeLiquidityCoverageBps);
             bridge.setMintLimit(maxBridgeOutstandingShares);
+            if (reserveManager != address(0)) {
+                vault.setReserveConfig(reserveManager, reserveFloor, reserveMaxDeployBps);
+                if (reserveManager != admin) {
+                    vault.grantRole(vault.RESERVE_ROLE(), reserveManager);
+                }
+            }
 
             queue.grantRole(queue.BUFFER_ROLE(), bufferOperator);
             escrow.grantRole(escrow.FUNDER_ROLE(), address(gateway));
