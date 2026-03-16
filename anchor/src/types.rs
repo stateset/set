@@ -296,12 +296,4 @@ impl CircuitBreaker {
         matches!(self.state, CircuitBreakerState::Open)
     }
 
-    /// Get state name for logging
-    pub fn state_name(&self) -> &'static str {
-        match self.state {
-            CircuitBreakerState::Closed => "closed",
-            CircuitBreakerState::HalfOpen => "half-open",
-            CircuitBreakerState::Open => "open",
-        }
-    }
 }

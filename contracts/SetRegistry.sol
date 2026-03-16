@@ -110,6 +110,8 @@ contract SetRegistry is
         uint64 proofSize
     );
 
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -268,77 +270,9 @@ contract SetRegistry is
         uint64 _sequenceEnd,
         uint32 _eventCount
     ) external nonReentrant whenNotPaused {
-        // Authorization check
-        if (!authorizedSequencers[msg.sender]) {
-            revert NotAuthorizedSequencer();
-        }
-
-        // Basic validation
-        if (_sequenceEnd < _sequenceStart) {
-            revert InvalidSequenceRange();
-        }
-        uint64 expectedEventCount = _sequenceEnd - _sequenceStart + 1;
-        if (expectedEventCount > type(uint32).max || _eventCount != expectedEventCount) {
-            revert InvalidEventCount(expectedEventCount, _eventCount);
-        }
-        if (_eventsRoot == bytes32(0)) {
-            revert EmptyEventsRoot();
-        }
-        if (commitments[_batchId].timestamp != 0) {
-            revert BatchAlreadyCommitted();
-        }
-
-        // Tenant/store key
-        bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
-
-        // State chain verification (if strict mode enabled)
-        if (strictModeEnabled) {
-            bytes32 lastBatchId = latestCommitment[tenantStoreKey];
-
-            if (lastBatchId != bytes32(0)) {
-                BatchCommitment storage lastBatch = commitments[lastBatchId];
-
-                // Verify state root continuity
-                if (lastBatch.newStateRoot != _prevStateRoot) {
-                    revert StateRootMismatch(lastBatch.newStateRoot, _prevStateRoot);
-                }
-
-                // Verify sequence continuity
-                if (lastBatch.sequenceEnd + 1 != _sequenceStart) {
-                    revert SequenceGap(lastBatch.sequenceEnd + 1, _sequenceStart);
-                }
-            }
-        }
-
-        // Store commitment
-        commitments[_batchId] = BatchCommitment({
-            eventsRoot: _eventsRoot,
-            prevStateRoot: _prevStateRoot,
-            newStateRoot: _newStateRoot,
-            sequenceStart: _sequenceStart,
-            sequenceEnd: _sequenceEnd,
-            eventCount: _eventCount,
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
-        });
-
-        // Update latest commitment and head sequence
-        latestCommitment[tenantStoreKey] = _batchId;
-        headSequence[tenantStoreKey] = _sequenceEnd;
-
-        // Gas optimization: use unchecked for counter that cannot realistically overflow
-        unchecked {
-            ++totalCommitments;
-        }
-
-        emit BatchCommitted(
-            _batchId,
-            tenantStoreKey,
-            _eventsRoot,
-            _newStateRoot,
-            _sequenceStart,
-            _sequenceEnd,
-            _eventCount
+        _validateAndStoreBatch(
+            _batchId, _tenantId, _storeId, _eventsRoot,
+            _prevStateRoot, _newStateRoot, _sequenceStart, _sequenceEnd, _eventCount
         );
     }
 
@@ -365,50 +299,9 @@ contract SetRegistry is
         uint64 _proofSize,
         uint64 _provingTimeMs
     ) external nonReentrant whenNotPaused {
-        // Authorization check
-        if (!authorizedSequencers[msg.sender]) {
-            revert NotAuthorizedSequencer();
-        }
-
-        // Batch must exist
-        BatchCommitment storage batch = commitments[_batchId];
-        if (batch.timestamp == 0) {
-            revert BatchNotCommitted();
-        }
-
-        // STARK proof must not already exist
-        if (starkProofs[_batchId].timestamp != 0) {
-            revert StarkProofAlreadyCommitted();
-        }
-
-        // State roots must match the batch commitment
-        if (batch.prevStateRoot != _prevStateRoot || batch.newStateRoot != _newStateRoot) {
-            revert StateRootMismatchInProof();
-        }
-
-        // Store STARK proof commitment
-        starkProofs[_batchId] = StarkProofCommitment({
-            proofHash: _proofHash,
-            policyHash: _policyHash,
-            policyLimit: _policyLimit,
-            allCompliant: _allCompliant,
-            proofSize: _proofSize,
-            provingTimeMs: _provingTimeMs,
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
-        });
-
-        // Gas optimization: use unchecked for counter that cannot realistically overflow
-        unchecked {
-            ++totalStarkProofs;
-        }
-
-        emit StarkProofCommitted(
-            _batchId,
-            _proofHash,
-            _policyHash,
-            _allCompliant,
-            _proofSize
+        _validateAndStoreStarkProof(
+            _batchId, _proofHash, _prevStateRoot, _newStateRoot,
+            _policyHash, _policyLimit, _allCompliant, _proofSize, _provingTimeMs
         );
     }
 
@@ -433,59 +326,12 @@ contract SetRegistry is
         uint64 _proofSize,
         uint64 _provingTimeMs
     ) external nonReentrant whenNotPaused {
-        // Authorization check
-        if (!authorizedSequencers[msg.sender]) {
-            revert NotAuthorizedSequencer();
-        }
+        _validateAndStoreBatch(
+            _batchId, _tenantId, _storeId, _eventsRoot,
+            _prevStateRoot, _newStateRoot, _sequenceStart, _sequenceEnd, _eventCount
+        );
 
-        // Basic validation
-        if (_sequenceEnd < _sequenceStart) {
-            revert InvalidSequenceRange();
-        }
-        uint64 expectedEventCount = _sequenceEnd - _sequenceStart + 1;
-        if (expectedEventCount > type(uint32).max || _eventCount != expectedEventCount) {
-            revert InvalidEventCount(expectedEventCount, _eventCount);
-        }
-        if (_eventsRoot == bytes32(0)) {
-            revert EmptyEventsRoot();
-        }
-        if (commitments[_batchId].timestamp != 0) {
-            revert BatchAlreadyCommitted();
-        }
-
-        // Tenant/store key
-        bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
-
-        // State chain verification (if strict mode enabled)
-        if (strictModeEnabled) {
-            bytes32 lastBatchId = latestCommitment[tenantStoreKey];
-
-            if (lastBatchId != bytes32(0)) {
-                BatchCommitment storage lastBatch = commitments[lastBatchId];
-
-                if (lastBatch.newStateRoot != _prevStateRoot) {
-                    revert StateRootMismatch(lastBatch.newStateRoot, _prevStateRoot);
-                }
-
-                if (lastBatch.sequenceEnd + 1 != _sequenceStart) {
-                    revert SequenceGap(lastBatch.sequenceEnd + 1, _sequenceStart);
-                }
-            }
-        }
-
-        // Store batch commitment
-        commitments[_batchId] = BatchCommitment({
-            eventsRoot: _eventsRoot,
-            prevStateRoot: _prevStateRoot,
-            newStateRoot: _newStateRoot,
-            sequenceStart: _sequenceStart,
-            sequenceEnd: _sequenceEnd,
-            eventCount: _eventCount,
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
-        });
-
-        // Store STARK proof commitment
+        // Store STARK proof (skip authorization + batch existence checks since batch was just stored)
         starkProofs[_batchId] = StarkProofCommitment({
             proofHash: _proofHash,
             policyHash: _policyHash,
@@ -497,25 +343,9 @@ contract SetRegistry is
             submitter: msg.sender
         });
 
-        // Update state
-        latestCommitment[tenantStoreKey] = _batchId;
-        headSequence[tenantStoreKey] = _sequenceEnd;
-
-        // Gas optimization: use unchecked for counters that cannot realistically overflow
         unchecked {
-            ++totalCommitments;
             ++totalStarkProofs;
         }
-
-        emit BatchCommitted(
-            _batchId,
-            tenantStoreKey,
-            _eventsRoot,
-            _newStateRoot,
-            _sequenceStart,
-            _sequenceEnd,
-            _eventCount
-        );
 
         emit StarkProofCommitted(
             _batchId,
@@ -933,6 +763,141 @@ contract SetRegistry is
     // =========================================================================
 
     /**
+     * @dev Validate and store a batch commitment
+     * @return tenantStoreKey The computed tenant/store key
+     */
+    function _validateAndStoreBatch(
+        bytes32 _batchId,
+        bytes32 _tenantId,
+        bytes32 _storeId,
+        bytes32 _eventsRoot,
+        bytes32 _prevStateRoot,
+        bytes32 _newStateRoot,
+        uint64 _sequenceStart,
+        uint64 _sequenceEnd,
+        uint32 _eventCount
+    ) internal returns (bytes32 tenantStoreKey) {
+        if (!authorizedSequencers[msg.sender]) {
+            revert NotAuthorizedSequencer();
+        }
+
+        if (_sequenceEnd < _sequenceStart) {
+            revert InvalidSequenceRange();
+        }
+        uint64 expectedEventCount = _sequenceEnd - _sequenceStart + 1;
+        if (expectedEventCount > type(uint32).max || _eventCount != expectedEventCount) {
+            revert InvalidEventCount(expectedEventCount, _eventCount);
+        }
+        if (_eventsRoot == bytes32(0)) {
+            revert EmptyEventsRoot();
+        }
+        if (commitments[_batchId].timestamp != 0) {
+            revert BatchAlreadyCommitted();
+        }
+
+        tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
+
+        if (strictModeEnabled) {
+            bytes32 lastBatchId = latestCommitment[tenantStoreKey];
+
+            if (lastBatchId != bytes32(0)) {
+                BatchCommitment storage lastBatch = commitments[lastBatchId];
+
+                if (lastBatch.newStateRoot != _prevStateRoot) {
+                    revert StateRootMismatch(lastBatch.newStateRoot, _prevStateRoot);
+                }
+
+                if (lastBatch.sequenceEnd + 1 != _sequenceStart) {
+                    revert SequenceGap(lastBatch.sequenceEnd + 1, _sequenceStart);
+                }
+            }
+        }
+
+        commitments[_batchId] = BatchCommitment({
+            eventsRoot: _eventsRoot,
+            prevStateRoot: _prevStateRoot,
+            newStateRoot: _newStateRoot,
+            sequenceStart: _sequenceStart,
+            sequenceEnd: _sequenceEnd,
+            eventCount: _eventCount,
+            timestamp: uint64(block.timestamp),
+            submitter: msg.sender
+        });
+
+        latestCommitment[tenantStoreKey] = _batchId;
+        headSequence[tenantStoreKey] = _sequenceEnd;
+
+        unchecked {
+            ++totalCommitments;
+        }
+
+        emit BatchCommitted(
+            _batchId,
+            tenantStoreKey,
+            _eventsRoot,
+            _newStateRoot,
+            _sequenceStart,
+            _sequenceEnd,
+            _eventCount
+        );
+    }
+
+    /**
+     * @dev Validate and store a STARK proof for an existing batch
+     */
+    function _validateAndStoreStarkProof(
+        bytes32 _batchId,
+        bytes32 _proofHash,
+        bytes32 _prevStateRoot,
+        bytes32 _newStateRoot,
+        bytes32 _policyHash,
+        uint64 _policyLimit,
+        bool _allCompliant,
+        uint64 _proofSize,
+        uint64 _provingTimeMs
+    ) internal {
+        if (!authorizedSequencers[msg.sender]) {
+            revert NotAuthorizedSequencer();
+        }
+
+        BatchCommitment storage batch = commitments[_batchId];
+        if (batch.timestamp == 0) {
+            revert BatchNotCommitted();
+        }
+
+        if (starkProofs[_batchId].timestamp != 0) {
+            revert StarkProofAlreadyCommitted();
+        }
+
+        if (batch.prevStateRoot != _prevStateRoot || batch.newStateRoot != _newStateRoot) {
+            revert StateRootMismatchInProof();
+        }
+
+        starkProofs[_batchId] = StarkProofCommitment({
+            proofHash: _proofHash,
+            policyHash: _policyHash,
+            policyLimit: _policyLimit,
+            allCompliant: _allCompliant,
+            proofSize: _proofSize,
+            provingTimeMs: _provingTimeMs,
+            timestamp: uint64(block.timestamp),
+            submitter: msg.sender
+        });
+
+        unchecked {
+            ++totalStarkProofs;
+        }
+
+        emit StarkProofCommitted(
+            _batchId,
+            _proofHash,
+            _policyHash,
+            _allCompliant,
+            _proofSize
+        );
+    }
+
+    /**
      * @dev Compute Merkle root from leaf and proof
      * @notice Gas-optimized with unchecked arithmetic (safe because loop bounds are controlled)
      */
@@ -970,7 +935,9 @@ contract SetRegistry is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
 
     // =========================================================================
     // Legacy Compatibility (DEPRECATED)
@@ -1112,4 +1079,11 @@ contract SetRegistry is
 
         return bytes32(0);
     }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    /// @dev Reserved storage slots for future upgrades
+    uint256[50] private __gap;
 }

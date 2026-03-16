@@ -89,7 +89,6 @@ jobs:
       - name: Generate lcov report
         working-directory: contracts
         run: forge coverage --report lcov
-        continue-on-error: true
 
   rust-tests:
     name: Rust Anchor Tests
@@ -119,12 +118,10 @@ jobs:
       - name: Run clippy
         working-directory: anchor
         run: cargo clippy -- -D warnings
-        continue-on-error: true
 
       - name: Check formatting
         working-directory: anchor
         run: cargo fmt -- --check
-        continue-on-error: true
 
   sdk-tests:
     name: SDK Tests
@@ -155,7 +152,6 @@ jobs:
       - name: Run tests with coverage
         working-directory: sdk
         run: npm run test:coverage
-        continue-on-error: true
 
   dependency-audit:
     name: Dependency Audit
@@ -173,7 +169,6 @@ jobs:
       - name: Audit Rust dependencies
         working-directory: anchor
         run: cargo audit
-        continue-on-error: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -187,4 +182,3 @@ jobs:
       - name: Audit npm dependencies
         working-directory: sdk
         run: npm audit --audit-level=high
-        continue-on-error: true

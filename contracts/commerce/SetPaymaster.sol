@@ -99,6 +99,7 @@ contract SetPaymaster is
     event MinDepositUpdated(uint256 minDeposit);
     event BatchSponsorshipCompleted(uint256 processed, uint256 succeeded, uint256 failed);
     event BatchSponsorshipFailed(address indexed merchant, string reason);
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
 
     // =========================================================================
     // Constants
@@ -124,6 +125,9 @@ contract SetPaymaster is
     error ArrayLengthMismatch();
     error BatchTooLarge();
     error EmptyArray();
+    error TransferFailed();
+    error BelowMinimumDeposit(uint256 sent, uint256 minimum);
+    error WithdrawFailed();
 
     // =========================================================================
     // Modifiers
@@ -331,37 +335,7 @@ contract SetPaymaster is
         address _merchant,
         uint256 _amount
     ) external view returns (bool sponsorable, string memory reason) {
-        MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
-
-        if (!sponsorship.active) {
-            return (false, "Not sponsored");
-        }
-
-        SponsorshipTier storage tier = tiers[sponsorship.tierId];
-
-        if (!tier.active) {
-            return (false, "Tier not active");
-        }
-
-        if (_amount > tier.maxPerTransaction) {
-            return (false, "Exceeds transaction limit");
-        }
-
-        uint256 todaySpent = _getTodaySpent(sponsorship);
-        if (todaySpent + _amount > tier.maxPerDay) {
-            return (false, "Exceeds daily limit");
-        }
-
-        uint256 monthSpent = _getMonthSpent(sponsorship);
-        if (monthSpent + _amount > tier.maxPerMonth) {
-            return (false, "Exceeds monthly limit");
-        }
-
-        if (address(this).balance < _amount) {
-            return (false, "Insufficient paymaster balance");
-        }
-
-        return (true, "");
+        return _canSponsor(_merchant, _amount);
     }
 
     // =========================================================================
@@ -420,7 +394,7 @@ contract SetPaymaster is
 
         // Transfer gas to merchant
         (bool success, ) = _merchant.call{value: _amount}("");
-        require(success, "Transfer failed");
+        if (!success) revert TransferFailed();
 
         emit GasSponsored(_merchant, _amount, _operationType);
     }
@@ -466,7 +440,7 @@ contract SetPaymaster is
      * @notice Deposit ETH to fund sponsorships
      */
     function deposit() external payable {
-        require(msg.value >= minDeposit, "Below minimum deposit");
+        if (msg.value < minDeposit) revert BelowMinimumDeposit(msg.value, minDeposit);
         emit Deposited(msg.sender, msg.value);
     }
 
@@ -475,10 +449,10 @@ contract SetPaymaster is
      * @param _amount Amount to withdraw
      */
     function withdraw(uint256 _amount) external onlyOwner {
-        require(address(this).balance >= _amount, "Insufficient balance");
+        if (address(this).balance < _amount) revert InsufficientBalance();
 
         (bool success, ) = treasury.call{value: _amount}("");
-        require(success, "Withdraw failed");
+        if (!success) revert WithdrawFailed();
 
         emit Withdrawn(treasury, _amount);
     }
@@ -501,20 +475,7 @@ contract SetPaymaster is
     function getRemainingDailyAllowance(
         address _merchant
     ) external view returns (uint256) {
-        MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
-
-        if (!sponsorship.active) {
-            return 0;
-        }
-
-        SponsorshipTier storage tier = tiers[sponsorship.tierId];
-        uint256 spent = _getTodaySpent(sponsorship);
-
-        if (spent >= tier.maxPerDay) {
-            return 0;
-        }
-
-        return tier.maxPerDay - spent;
+        return _getRemainingDailyAllowance(_merchant);
     }
 
     /**
@@ -530,14 +491,7 @@ contract SetPaymaster is
         uint256 spentThisMonth,
         uint256 totalSponsored
     ) {
-        MerchantSponsorship storage s = merchantSponsorship[_merchant];
-        return (
-            s.active,
-            s.tierId,
-            _getTodaySpent(s),
-            _getMonthSpent(s),
-            s.totalSponsored
-        );
+        return _getMerchantDetails(_merchant);
     }
 
     // =========================================================================
@@ -607,9 +561,86 @@ contract SetPaymaster is
         return s.spentThisMonth;
     }
 
+    function _canSponsor(
+        address _merchant,
+        uint256 _amount
+    ) internal view returns (bool, string memory) {
+        MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
+
+        if (!sponsorship.active) {
+            return (false, "Not sponsored");
+        }
+
+        SponsorshipTier storage tier = tiers[sponsorship.tierId];
+
+        if (!tier.active) {
+            return (false, "Tier not active");
+        }
+
+        if (_amount > tier.maxPerTransaction) {
+            return (false, "Exceeds transaction limit");
+        }
+
+        uint256 todaySpent = _getTodaySpent(sponsorship);
+        if (todaySpent + _amount > tier.maxPerDay) {
+            return (false, "Exceeds daily limit");
+        }
+
+        uint256 monthSpent = _getMonthSpent(sponsorship);
+        if (monthSpent + _amount > tier.maxPerMonth) {
+            return (false, "Exceeds monthly limit");
+        }
+
+        if (address(this).balance < _amount) {
+            return (false, "Insufficient paymaster balance");
+        }
+
+        return (true, "");
+    }
+
+    function _getRemainingDailyAllowance(
+        address _merchant
+    ) internal view returns (uint256) {
+        MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
+
+        if (!sponsorship.active) {
+            return 0;
+        }
+
+        SponsorshipTier storage tier = tiers[sponsorship.tierId];
+        uint256 spent = _getTodaySpent(sponsorship);
+
+        if (spent >= tier.maxPerDay) {
+            return 0;
+        }
+
+        return tier.maxPerDay - spent;
+    }
+
+    function _getMerchantDetails(
+        address _merchant
+    ) internal view returns (
+        bool active,
+        uint256 tierId,
+        uint256 spentToday,
+        uint256 spentThisMonth,
+        uint256 totalSponsored
+    ) {
+        MerchantSponsorship storage s = merchantSponsorship[_merchant];
+        return (
+            s.active,
+            s.tierId,
+            _getTodaySpent(s),
+            _getMonthSpent(s),
+            s.totalSponsored
+        );
+    }
+
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
 
     // =========================================================================
     // Batch Operations
@@ -840,7 +871,7 @@ contract SetPaymaster is
         reasons = new string[](_merchants.length);
 
         for (uint256 i = 0; i < _merchants.length; i++) {
-            (canSponsor_[i], reasons[i]) = this.canSponsor(_merchants[i], _amounts[i]);
+            (canSponsor_[i], reasons[i]) = _canSponsor(_merchants[i], _amounts[i]);
         }
 
         return (canSponsor_, reasons);
@@ -857,7 +888,7 @@ contract SetPaymaster is
         allowances = new uint256[](_merchants.length);
 
         for (uint256 i = 0; i < _merchants.length; i++) {
-            allowances[i] = this.getRemainingDailyAllowance(_merchants[i]);
+            allowances[i] = _getRemainingDailyAllowance(_merchants[i]);
         }
 
         return allowances;
@@ -894,7 +925,7 @@ contract SetPaymaster is
                 spentToday[i],
                 spentThisMonth[i],
                 totalSponsored[i]
-            ) = this.getMerchantDetails(_merchants[i]);
+            ) = _getMerchantDetails(_merchants[i]);
         }
 
         return (active, tierIds, spentToday, spentThisMonth, totalSponsored);
@@ -997,4 +1028,11 @@ contract SetPaymaster is
     receive() external payable {
         emit Deposited(msg.sender, msg.value);
     }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    /// @dev Reserved storage slots for future upgrades
+    uint256[50] private __gap;
 }
