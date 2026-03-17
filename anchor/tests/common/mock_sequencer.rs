@@ -37,11 +37,11 @@ impl TestBatchCommitment {
             prev_state_root: format!("0x{}", "0".repeat(64)),
             new_state_root: format!(
                 "0x{}",
-                hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64].to_string()
+                &hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64]
             ),
             events_root: format!(
                 "0x{}",
-                hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64].to_string()
+                &hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64]
             ),
             sequence_start,
             sequence_end,

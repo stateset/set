@@ -18,9 +18,10 @@ use uuid::Uuid;
 use crate::error::TransactionError;
 use crate::types::{AnchorNotification, BatchCommitment, PendingCommitmentsResponse};
 
-// Generate contract bindings for SetRegistry
+// Generate contract bindings for SetRegistry.
+// commitBatch mirrors the on-chain interface and legitimately exceeds Clippy's preferred argument count.
 sol!(
-    #[allow(missing_docs)]
+    #[allow(missing_docs, clippy::too_many_arguments)]
     #[sol(rpc)]
     SetRegistry,
     r#"[

@@ -350,13 +350,14 @@ mod types_tests {
 
     #[test]
     fn test_anchor_stats_update() {
-        let mut stats = AnchorStats::default();
-
-        stats.total_anchored = 10;
-        stats.total_failed = 2;
-        stats.total_events_anchored = 5000;
-        stats.last_anchor_time = Some(Utc::now());
-        stats.last_batch_id = Some(Uuid::new_v4());
+        let stats = AnchorStats {
+            total_anchored: 10,
+            total_failed: 2,
+            total_events_anchored: 5000,
+            last_anchor_time: Some(Utc::now()),
+            last_batch_id: Some(Uuid::new_v4()),
+            ..AnchorStats::default()
+        };
 
         assert_eq!(stats.total_anchored, 10);
         assert_eq!(stats.total_failed, 2);
@@ -365,8 +366,10 @@ mod types_tests {
 
     #[test]
     fn test_anchor_stats_cycle_accounting() {
-        let mut stats = AnchorStats::default();
-        stats.total_cycles = 3;
+        let mut stats = AnchorStats {
+            total_cycles: 3,
+            ..AnchorStats::default()
+        };
 
         stats.record_cycle_failure(crate::types::ErrorType::L2Connection);
         assert_eq!(stats.failed_cycles, 1);
@@ -381,11 +384,13 @@ mod types_tests {
 
     #[test]
     fn test_anchor_stats_success_rates() {
-        let mut stats = AnchorStats::default();
-        stats.total_cycles = 4;
-        stats.successful_cycles = 3;
-        stats.total_anchored = 6;
-        stats.total_failed = 2;
+        let stats = AnchorStats {
+            total_cycles: 4,
+            successful_cycles: 3,
+            total_anchored: 6,
+            total_failed: 2,
+            ..AnchorStats::default()
+        };
 
         assert!((stats.anchor_success_rate() - 0.75).abs() < f64::EPSILON);
         assert!((stats.cycle_success_rate() - 0.75).abs() < f64::EPSILON);
@@ -528,10 +533,10 @@ mod service_tests {
     #[test]
     fn test_service_creation() {
         let config = test_config();
-        let _service = AnchorService::new(config);
+        let service = AnchorService::new(config);
+        let stats_ref = service.stats_ref();
 
-        // Service should be created successfully
-        assert!(true);
+        assert_eq!(Arc::strong_count(&stats_ref), 2);
     }
 
     #[test]

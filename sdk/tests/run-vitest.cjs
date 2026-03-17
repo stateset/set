@@ -1,9 +1,10 @@
 "use strict";
 
 const { spawnSync } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 
-const MIN_NODE_MAJOR = 18;
+const MIN_NODE_MAJOR = 20;
 
 function parseMajor(version) {
   const [major] = String(version || "").split(".");
@@ -17,14 +18,23 @@ function resolveNodeBin() {
     return process.execPath;
   }
 
-  const candidates = [];
+  const candidates = new Set();
   if (process.env.SET_SDK_NODE_BIN) {
-    candidates.push(process.env.SET_SDK_NODE_BIN);
+    candidates.add(process.env.SET_SDK_NODE_BIN);
   }
   if (process.env.HOME) {
-    candidates.push(path.join(process.env.HOME, ".nvm/versions/node/v20.20.0/bin/node"));
+    const nvmRoot = path.join(process.env.HOME, ".nvm/versions/node");
+    if (fs.existsSync(nvmRoot)) {
+      const nvmCandidates = fs.readdirSync(nvmRoot)
+        .sort((left, right) => parseMajor(right.replace(/^v/, "")) - parseMajor(left.replace(/^v/, "")))
+        .map((version) => path.join(nvmRoot, version, "bin/node"));
+      for (const candidate of nvmCandidates) {
+        candidates.add(candidate);
+      }
+    }
   }
-  candidates.push("node20", "node18");
+  candidates.add("node22");
+  candidates.add("node20");
 
   for (const candidate of candidates) {
     const probe = spawnSync(candidate, ["-e", "process.stdout.write(process.versions.node)"], {
@@ -42,7 +52,7 @@ function resolveNodeBin() {
 
   console.error(
     `Vitest requires Node ${MIN_NODE_MAJOR}+; current runtime is ${process.versions.node}. ` +
-    "Install Node 18+ or set SET_SDK_NODE_BIN to a newer node binary."
+    `Install Node ${MIN_NODE_MAJOR}+ or set SET_SDK_NODE_BIN to a newer node binary.`
   );
   process.exit(1);
 }

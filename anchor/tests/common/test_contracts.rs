@@ -16,6 +16,7 @@ type HttpTransport = Http<reqwest::Client>;
 
 // Import the SetRegistry contract interface
 sol! {
+    #[allow(clippy::too_many_arguments)]
     #[sol(rpc)]
     contract SetRegistry {
         // Events

@@ -217,19 +217,40 @@ export const CONTRACT_ADDRESSES: Partial<Record<string, ContractAddresses>> = {
 };
 
 /**
+ * Get all network names that map to a chain ID.
+ * @param chainId Chain ID to match
+ * @returns Matching network names
+ */
+export function getNetworkNamesByChainId(chainId: number): string[] {
+  return Object.entries(NETWORKS)
+    .filter(([, cfg]) => cfg.chainId === chainId)
+    .map(([name]) => name);
+}
+
+/**
+ * Resolve a network name from a string or chain ID.
+ * Numeric lookups only succeed when the chain ID maps to exactly one known network.
+ * @param network Network name or chain ID
+ * @returns Resolved network name or undefined when unknown or ambiguous
+ */
+export function resolveNetworkName(network: string | number): string | undefined {
+  if (typeof network === "string") {
+    return NETWORKS[network] ? network : undefined;
+  }
+
+  const matches = getNetworkNamesByChainId(network);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+/**
  * Get contract addresses for a network
  * @param network Network name or chain ID
- * @returns Contract addresses or undefined
+ * @returns Contract addresses or undefined.
+ * Returns undefined for ambiguous chain IDs such as local/sepolia, which intentionally share a chain ID.
  */
 export function getContractAddresses(network: string | number): ContractAddresses | undefined {
-  if (typeof network === "number") {
-    const networkEntry = Object.entries(NETWORKS).find(([_, cfg]) => cfg.chainId === network);
-    if (networkEntry) {
-      return CONTRACT_ADDRESSES[networkEntry[0]];
-    }
-    return undefined;
-  }
-  return CONTRACT_ADDRESSES[network];
+  const networkName = resolveNetworkName(network);
+  return networkName ? CONTRACT_ADDRESSES[networkName] : undefined;
 }
 
 /**

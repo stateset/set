@@ -10,6 +10,8 @@ import {
   resetConfig,
   NETWORKS,
   NETWORK_PRESETS,
+  getNetworkNamesByChainId,
+  resolveNetworkName,
   getContractAddresses,
   createConfig,
   type SDKConfig
@@ -61,6 +63,10 @@ describe('NETWORKS', () => {
     expect(NETWORKS.sepolia.chainId).toBe(84532001);
     expect(NETWORKS.sepolia.name).toBe('Set Chain Sepolia');
     expect(NETWORKS.sepolia.nativeCurrency).toBe('ETH');
+  });
+
+  it('should expose shared chain IDs explicitly', () => {
+    expect(getNetworkNamesByChainId(84532001)).toEqual(['local', 'sepolia']);
   });
 
   it('should have valid RPC URLs', () => {
@@ -117,12 +123,17 @@ describe('Config Functions', () => {
     expect(addrs?.setRegistry).toBeDefined();
   });
 
-  it('should get contract addresses by chain ID', () => {
-    const addrs = getContractAddresses(84532001);
-    expect(addrs).toBeDefined();
+  it('should resolve unique chain IDs only', () => {
+    expect(resolveNetworkName(84532000)).toBe('mainnet');
+    expect(resolveNetworkName(84532001)).toBeUndefined();
+  });
+
+  it('should reject ambiguous chain IDs when fetching contract addresses', () => {
+    expect(getContractAddresses(84532001)).toBeUndefined();
   });
 
   it('should return undefined for unknown network', () => {
+    expect(resolveNetworkName('unknown')).toBeUndefined();
     expect(getContractAddresses('unknown')).toBeUndefined();
     expect(getContractAddresses(99999)).toBeUndefined();
   });
