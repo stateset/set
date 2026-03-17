@@ -1,0 +1,939 @@
+/* ═══════════════════════════════════════════════════════════════════
+   StateSet Whitepaper — Editorial / Magazine Aesthetic
+   McKinsey meets Monocle: sharp, authoritative, restrained luxury
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600;1,700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap');
+
+/* ── Design Tokens ─────────────────────────────────────────────── */
+
+:root {
+  --navy:        #0a1628;
+  --navy-soft:   #12233d;
+  --paper:       #faf8f5;
+  --paper-deep:  #f2eee8;
+  --paper-cream: #f7f4ef;
+  --blue:        #2563eb;
+  --blue-muted:  #3b7cf5;
+  --gold:        #c9a84c;
+  --gold-light:  #d4b96a;
+  --gold-dim:    rgba(201, 168, 76, 0.15);
+  --ink:         #15253a;
+  --ink-soft:    #2a3d56;
+  --muted:       #687487;
+  --muted-light: #8a95a6;
+  --rule:        rgba(10, 22, 40, 0.10);
+  --rule-strong: rgba(10, 22, 40, 0.22);
+  --rule-hair:   rgba(10, 22, 40, 0.06);
+  --shadow-sm:   0 1px 3px rgba(10, 22, 40, 0.04);
+  --shadow:      0 24px 64px rgba(10, 22, 40, 0.08), 0 8px 24px rgba(10, 22, 40, 0.04);
+  --shadow-lg:   0 40px 100px rgba(10, 22, 40, 0.10), 0 12px 32px rgba(10, 22, 40, 0.05);
+  --max-width:   1280px;
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Reset & Base ──────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  background: var(--navy);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  line-height: 1.72;
+  letter-spacing: 0.008em;
+  background:
+    radial-gradient(ellipse 80% 60% at 8% 0%, rgba(201, 168, 76, 0.07), transparent),
+    radial-gradient(ellipse 70% 50% at 92% 4%, rgba(37, 99, 235, 0.05), transparent),
+    linear-gradient(178deg, #fdfcfa 0%, var(--paper) 28%, var(--paper-deep) 100%);
+  min-height: 100vh;
+}
+
+/* Paper grain — subtle stipple texture */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.13;
+  background-image:
+    radial-gradient(rgba(10, 22, 40, 0.22) 0.5px, transparent 0.5px),
+    radial-gradient(rgba(10, 22, 40, 0.14) 0.6px, transparent 0.6px);
+  background-position: 0 0, 11px 14px;
+  background-size: 17px 17px, 21px 21px;
+  mix-blend-mode: multiply;
+}
+
+::selection {
+  color: #fff;
+  background: var(--blue);
+}
+
+a {
+  color: inherit;
+  text-decoration-color: var(--gold);
+  text-underline-offset: 0.18em;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: var(--blue);
+}
+
+/* ── Shell ─────────────────────────────────────────────────────── */
+
+.whitepaper-shell {
+  position: relative;
+  z-index: 1;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 2.5rem clamp(1.25rem, 4vw, 4.5rem) 6rem;
+}
+
+/* ── Shared Panel Treatment ────────────────────────────────────── */
+
+.masthead,
+.chapter,
+.closing-note {
+  position: relative;
+  background: rgba(250, 248, 245, 0.96);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+}
+
+/* Inner frame — delicate inset border for print-like refinement */
+.masthead::after,
+.chapter::after,
+.closing-note::after {
+  content: "";
+  position: absolute;
+  inset: 0.85rem;
+  border: 1px solid var(--rule-hair);
+  pointer-events: none;
+}
+
+/* ── Masthead / Nameplate ──────────────────────────────────────── */
+
+.masthead-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 2rem;
+  border-bottom: 1px solid var(--rule);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.masthead-top strong {
+  color: var(--navy);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  font-size: 0.74rem;
+}
+
+.masthead-top .folio {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* ── Hero Grid ─────────────────────────────────────────────────── */
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.72fr);
+  gap: 3.5rem;
+  padding: clamp(2.5rem, 6vw, 5rem);
+  padding-bottom: clamp(2rem, 4vw, 3.5rem);
+}
+
+/* ── Shared Label Styles ───────────────────────────────────────── */
+
+.eyebrow,
+.section-tag,
+.meta-list dt,
+.metric-label,
+.card-label,
+.phase-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* ── Hero Copy ─────────────────────────────────────────────────── */
+
+.hero-copy h1 {
+  margin: 0.25rem 0 1.2rem;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: clamp(3.4rem, 7.5vw, 6.8rem);
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.045em;
+  color: var(--navy);
+}
+
+.dek {
+  max-width: 36rem;
+  margin: 0 0 1.8rem;
+  font-size: clamp(1.08rem, 1.8vw, 1.35rem);
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.hero-summary {
+  max-width: 40rem;
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.hero-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 2rem;
+  padding: 0.7rem 1.1rem;
+  border: 1px solid rgba(201, 168, 76, 0.25);
+  background: rgba(201, 168, 76, 0.06);
+  color: var(--navy);
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.hero-note::before {
+  content: "";
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--gold);
+  box-shadow: 0 0 0 5px rgba(201, 168, 76, 0.10);
+  flex-shrink: 0;
+}
+
+/* ── Hero Aside ────────────────────────────────────────────────── */
+
+.hero-aside {
+  display: grid;
+  gap: 1.25rem;
+  align-content: start;
+}
+
+.executive-card {
+  padding: 1.6rem 1.5rem;
+  border: 1px solid var(--rule);
+  background:
+    linear-gradient(172deg, rgba(10, 22, 40, 0.018), transparent 55%),
+    rgba(255, 255, 255, 0.5);
+}
+
+.executive-card h2,
+.chapter-title h2,
+.pillar h3,
+.use-case h3,
+.phase h3 {
+  margin: 0;
+  font-family: "Playfair Display", "Georgia", serif;
+  color: var(--navy);
+  line-height: 1.12;
+}
+
+.executive-card h2 {
+  margin-bottom: 1rem;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.executive-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+
+/* ── Metrics Grid ──────────────────────────────────────────────── */
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+
+.metric {
+  min-height: 7rem;
+  padding: 1rem 1.15rem;
+  background: rgba(250, 248, 245, 0.97);
+}
+
+.metric-value {
+  margin-top: 0.55rem;
+  font-size: 1.25rem;
+  line-height: 1.28;
+  color: var(--navy);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.metric-value small {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+/* ── Chapters ──────────────────────────────────────────────────── */
+
+.chapter {
+  margin-top: 2.2rem;
+  padding: 2.5rem;
+}
+
+.chapter-header {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 1.8rem;
+  align-items: end;
+  padding-bottom: 1.3rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Big chapter numeral — editorial signature */
+.chapter-index {
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: clamp(3.2rem, 5vw, 4.8rem);
+  font-weight: 400;
+  line-height: 0.82;
+  color: var(--gold);
+  letter-spacing: -0.03em;
+}
+
+.chapter-kicker {
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.chapter-title h2 {
+  font-size: clamp(1.9rem, 3.6vw, 2.9rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.chapter-title > p {
+  max-width: 44rem;
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+/* ── Chapter Body: sidebar + content ───────────────────────────── */
+
+.chapter-body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 2.5rem;
+  margin-top: 1.8rem;
+}
+
+.chapter-meta {
+  padding-top: 0.2rem;
+}
+
+.meta-list {
+  margin: 0;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.meta-list dt {
+  margin: 0 0 0.2rem;
+}
+
+.meta-list dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.chapter-content > *:first-child {
+  margin-top: 0;
+}
+
+/* ── Magazine Columns ──────────────────────────────────────────── */
+
+.body-columns {
+  column-count: 2;
+  column-gap: 2.5rem;
+  column-rule: 1px solid var(--rule-hair);
+}
+
+.body-columns p,
+.body-columns ul,
+.body-columns .gold-callout {
+  margin: 0 0 1.15rem;
+  break-inside: avoid;
+  font-size: 0.95rem;
+  line-height: 1.78;
+}
+
+.body-columns p:last-child,
+.body-columns ul:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Drop Cap ──────────────────────────────────────────────────── */
+
+.dropcap:first-letter {
+  float: left;
+  margin: 0.05em 0.12em 0 -0.02em;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: 4.6rem;
+  font-weight: 700;
+  line-height: 0.78;
+  color: var(--gold);
+}
+
+/* ── Pull Quotes — editorial signature element ─────────────────── */
+
+.pull-quote {
+  margin: 2.5rem 0;
+  padding: 1.8rem 0 1.8rem 1.8rem;
+  border-left: 3px solid var(--gold);
+  position: relative;
+}
+
+.pull-quote::before {
+  content: "\201C";
+  position: absolute;
+  top: -0.2rem;
+  left: 1.8rem;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: 5rem;
+  line-height: 1;
+  color: var(--gold-dim);
+  pointer-events: none;
+}
+
+.pull-quote blockquote {
+  margin: 0;
+  padding: 0;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(1.5rem, 2.8vw, 2.4rem);
+  line-height: 1.22;
+  letter-spacing: -0.015em;
+  color: var(--navy);
+}
+
+.pull-quote figcaption {
+  margin-top: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--muted-light);
+  font-style: normal;
+}
+
+.pull-quote figcaption::before {
+  content: "\2014\00a0";
+}
+
+/* ── Comparison Table ──────────────────────────────────────────── */
+
+.comparison-table {
+  width: 100%;
+  margin-top: 1.2rem;
+  border-collapse: collapse;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 1.05rem 1rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.comparison-table thead th {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+  font-weight: 500;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--rule-strong);
+}
+
+.comparison-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.comparison-table td strong {
+  color: var(--navy);
+  font-weight: 600;
+}
+
+/* Subtle hover for table rows */
+.comparison-table tbody tr {
+  transition: background 0.2s;
+}
+.comparison-table tbody tr:hover {
+  background: rgba(10, 22, 40, 0.015);
+}
+
+/* ── Gold Callout ──────────────────────────────────────────────── */
+
+.gold-callout {
+  padding: 1.15rem 1.3rem;
+  border-left: 3px solid var(--gold);
+  background: rgba(201, 168, 76, 0.05);
+  color: var(--navy);
+  font-size: 0.95rem;
+  line-height: 1.72;
+  font-weight: 500;
+}
+
+/* ── Architecture Trilogy ──────────────────────────────────────── */
+
+.trilogy {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 1.8rem;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+
+/* ── Shared Card Styles ────────────────────────────────────────── */
+
+.layer-card,
+.pillar,
+.use-case,
+.phase {
+  padding: 1.5rem;
+  border: none;
+  background: rgba(250, 248, 245, 0.97);
+}
+
+/* Give cards back their border when not in a gap-1px grid */
+.pillars .pillar,
+.use-cases .use-case,
+.phase-grid .phase {
+  border: 1px solid var(--rule);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.layer-card {
+  position: relative;
+  min-height: 13rem;
+}
+
+.layer-card::after {
+  content: "";
+  position: absolute;
+  left: 1.5rem;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  height: 1px;
+  background: linear-gradient(90deg, var(--rule-strong), transparent);
+}
+
+.layer-card h3 {
+  margin: 0.45rem 0 0.7rem;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--navy);
+}
+
+.layer-card p,
+.pillar p,
+.use-case p,
+.phase p,
+.numbered-step p {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+/* ── Pillars (Enshrined Primitives) ────────────────────────────── */
+
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.1rem;
+  margin-top: 1.6rem;
+}
+
+.pillar h3,
+.use-case h3,
+.phase h3 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pillar .section-tag,
+.use-case .section-tag {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* ── Numbered Steps ────────────────────────────────────────────── */
+
+.numbered-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 1.6rem;
+  border: 1px solid var(--rule);
+}
+
+.numbered-step {
+  padding: 1.3rem 1.2rem;
+  border-top: 2px solid var(--gold);
+  border-right: 1px solid var(--rule);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.numbered-step:last-child {
+  border-right: none;
+}
+
+.step-number {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: 2.2rem;
+  font-weight: 400;
+  color: var(--gold);
+  letter-spacing: -0.03em;
+}
+
+.numbered-step h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.01em;
+}
+
+/* ── Use Cases ─────────────────────────────────────────────────── */
+
+.use-cases {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.1rem;
+  margin-top: 1.6rem;
+}
+
+/* ── Phase / Roadmap Grid ──────────────────────────────────────── */
+
+.phase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.1rem;
+  margin-top: 1.6rem;
+}
+
+.phase-kicker {
+  margin-bottom: 0.5rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* ── Accent Line (ornamental divider) ──────────────────────────── */
+
+.accent-line {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 2.2rem 0 0;
+  color: var(--muted-light);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.accent-line::before,
+.accent-line::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--rule-strong) 30%,
+    var(--rule-strong) 70%,
+    transparent
+  );
+}
+
+/* ── Closing Note ──────────────────────────────────────────────── */
+
+.closing-note {
+  margin-top: 2.2rem;
+  padding: 2.8rem 2.5rem;
+}
+
+.closing-note .section-tag {
+  color: var(--gold);
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  display: block;
+}
+
+.closing-note h2 {
+  margin: 0 0 1rem;
+  font-family: "Playfair Display", "Georgia", serif;
+  font-size: clamp(2rem, 3.8vw, 2.9rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  color: var(--navy);
+}
+
+.closing-note > p {
+  max-width: 46rem;
+  margin: 0 0 1.1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.78;
+}
+
+/* ── Document Meta ─────────────────────────────────────────────── */
+
+.document-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.88rem;
+  color: var(--ink);
+}
+
+.document-meta strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--muted-light);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Responsive
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1120px) {
+  .hero-grid,
+  .chapter-body,
+  .chapter-header {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-header {
+    gap: 0.8rem;
+  }
+
+  .chapter-meta {
+    padding-top: 0;
+  }
+
+  .body-columns {
+    column-count: 1;
+    column-rule: none;
+  }
+
+  .trilogy {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    background: transparent;
+    border: none;
+    gap: 1rem;
+  }
+
+  .trilogy .layer-card {
+    border: 1px solid var(--rule);
+  }
+
+  .pillars,
+  .phase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .use-cases {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .numbered-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border: none;
+  }
+
+  .numbered-step {
+    border: 1px solid var(--rule);
+    border-top: 2px solid var(--gold);
+  }
+}
+
+@media (max-width: 760px) {
+  .whitepaper-shell {
+    padding: 1rem 0.75rem 3rem;
+  }
+
+  .masthead-top,
+  .hero-grid,
+  .chapter,
+  .closing-note {
+    padding-left: 1.1rem;
+    padding-right: 1.1rem;
+  }
+
+  .masthead-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .masthead::after,
+  .chapter::after,
+  .closing-note::after {
+    display: none;
+  }
+
+  .hero-grid {
+    gap: 2rem;
+  }
+
+  .metrics-grid,
+  .trilogy,
+  .pillars,
+  .use-cases,
+  .phase-grid {
+    grid-template-columns: 1fr;
+    background: transparent;
+    border: none;
+  }
+
+  .trilogy .layer-card,
+  .metrics-grid .metric {
+    border: 1px solid var(--rule);
+  }
+
+  .numbered-strip {
+    grid-template-columns: 1fr;
+    border: none;
+  }
+
+  .numbered-step {
+    border: 1px solid var(--rule);
+    border-top: 2px solid var(--gold);
+  }
+
+  .pull-quote {
+    padding-left: 1.2rem;
+  }
+
+  .pull-quote::before {
+    left: 1.2rem;
+    font-size: 3.5rem;
+  }
+
+  .pull-quote blockquote {
+    font-size: 1.55rem;
+  }
+
+  .hero-copy h1 {
+    font-size: 3rem;
+    line-height: 0.94;
+  }
+
+  .chapter {
+    padding: 1.5rem 1.1rem;
+  }
+
+  .chapter-body {
+    gap: 1.5rem;
+  }
+
+  .closing-note {
+    padding: 1.8rem 1.1rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Print
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media print {
+  html,
+  body {
+    background: #fff;
+  }
+
+  body::before {
+    display: none;
+  }
+
+  .masthead,
+  .chapter,
+  .closing-note {
+    box-shadow: none;
+    border-color: #ddd;
+  }
+
+  .masthead::after,
+  .chapter::after,
+  .closing-note::after {
+    display: none;
+  }
+
+  .chapter {
+    break-inside: avoid;
+  }
+
+  .pull-quote {
+    break-inside: avoid;
+  }
+}

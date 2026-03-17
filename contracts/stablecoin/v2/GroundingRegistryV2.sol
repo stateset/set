@@ -44,6 +44,9 @@ contract GroundingRegistryV2 is AccessControl {
         wSSDCVaultV2 vault_,
         address admin
     ) {
+        if (address(policyModule_) == address(0)) revert ZeroAddress();
+        if (address(navController_) == address(0)) revert ZeroAddress();
+        if (address(vault_) == address(0)) revert ZeroAddress();
         if (admin == address(0)) revert ZeroAddress();
 
         policyModule = policyModule_;

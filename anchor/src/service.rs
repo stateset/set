@@ -28,6 +28,11 @@ use crate::{
 
 type HttpTransport = Http<reqwest::Client>;
 
+enum AnchorCycleOutcome {
+    Healthy(Vec<AnchorResult>),
+    Failed(ErrorType),
+}
+
 /// Anchor service that bridges sequencer to on-chain registry
 pub struct AnchorService {
     config: AnchorConfig,
@@ -100,7 +105,19 @@ impl AnchorService {
         stats.circuit_breaker_state = state;
     }
 
-    async fn record_success(&self, commitment: &BatchCommitment, anchor_time_ms: u64) {
+    async fn record_anchor_success(&self, commitment: &BatchCommitment, anchor_time_ms: u64) {
+        let mut stats = self.stats.write().await;
+        stats.record_success(anchor_time_ms);
+        stats.total_events_anchored += commitment.event_count as u64;
+        stats.last_batch_id = Some(commitment.batch_id);
+    }
+
+    async fn record_anchor_failure(&self) {
+        let mut stats = self.stats.write().await;
+        stats.record_anchor_failure();
+    }
+
+    async fn record_cycle_success(&self) {
         let state = {
             let mut breaker = self.circuit_breaker.write().await;
             breaker.record_success();
@@ -108,16 +125,14 @@ impl AnchorService {
         };
 
         let mut stats = self.stats.write().await;
-        stats.record_success(anchor_time_ms);
-        stats.total_events_anchored += commitment.event_count as u64;
-        stats.last_batch_id = Some(commitment.batch_id);
+        stats.record_cycle_success();
         stats.circuit_breaker_state = state;
     }
 
-    async fn record_failure(&self, error_type: ErrorType) {
+    async fn record_cycle_failure(&self, error_type: ErrorType) {
         let consecutive_failures = {
             let mut stats = self.stats.write().await;
-            stats.record_failure(error_type);
+            stats.record_cycle_failure(error_type);
             stats.consecutive_failures
         };
 
@@ -170,7 +185,7 @@ impl AnchorService {
             Err(e) => {
                 self.record_error(AnchorError::L2Connection(L2Error::RpcError(e.to_string())))
                     .await;
-                self.record_failure(ErrorType::L2Connection).await;
+                self.record_cycle_failure(ErrorType::L2Connection).await;
                 return Err(e.into());
             }
         };
@@ -181,7 +196,7 @@ impl AnchorService {
                 actual: chain_id,
             }))
             .await;
-            self.record_failure(ErrorType::L2Connection).await;
+            self.record_cycle_failure(ErrorType::L2Connection).await;
             anyhow::bail!(
                 "L2 chain ID mismatch: expected {}, got {}",
                 self.config.expected_l2_chain_id,
@@ -252,7 +267,7 @@ impl AnchorService {
                 {
                     let mut stats = self.stats.write().await;
                     stats.circuit_breaker_state = breaker_state;
-                    stats.circuit_breaker_open_skips += 1;
+                    stats.record_open_circuit_skip();
                 }
                 warn!(
                     state = breaker_state.as_str(),
@@ -265,9 +280,15 @@ impl AnchorService {
             self.update_circuit_breaker_state(breaker_state).await;
 
             match self.anchor_pending(&registry).await {
-                Ok(results) => {
+                Ok(AnchorCycleOutcome::Healthy(results)) => {
                     let successful = results.iter().filter(|r| r.success).count();
                     let failed = results.iter().filter(|r| !r.success).count();
+
+                    if failed > 0 {
+                        self.record_cycle_failure(ErrorType::Transaction).await;
+                    } else {
+                        self.record_cycle_success().await;
+                    }
 
                     if !results.is_empty() {
                         info!(
@@ -277,10 +298,13 @@ impl AnchorService {
                         );
                     }
                 }
+                Ok(AnchorCycleOutcome::Failed(error_type)) => {
+                    self.record_cycle_failure(error_type).await;
+                }
                 Err(e) => {
                     self.record_error(AnchorError::Internal(format!("Anchor cycle failed: {}", e)))
                         .await;
-                    self.record_failure(ErrorType::Other).await;
+                    self.record_cycle_failure(ErrorType::Other).await;
                     error!(error = %e, "Anchor cycle failed");
                 }
             }
@@ -293,7 +317,7 @@ impl AnchorService {
     async fn anchor_pending<P: Provider<HttpTransport> + Clone>(
         &self,
         registry: &RegistryClient<P>,
-    ) -> Result<Vec<AnchorResult>> {
+    ) -> Result<AnchorCycleOutcome> {
         let gas_price = match registry.gas_price().await {
             Ok(gas_price) => {
                 if let Some(ref health) = self.health_state {
@@ -310,9 +334,8 @@ impl AnchorService {
                     e.to_string(),
                 )))
                 .await;
-                self.record_failure(ErrorType::L2Connection).await;
                 warn!(error = %e, "Failed to fetch gas price");
-                return Ok(vec![]);
+                return Ok(AnchorCycleOutcome::Failed(ErrorType::L2Connection));
             }
         };
 
@@ -330,7 +353,7 @@ impl AnchorService {
                     max_gas_price = %max_gas_price,
                     "Skipping anchor cycle: gas price above configured maximum"
                 );
-                return Ok(vec![]);
+                return Ok(AnchorCycleOutcome::Healthy(vec![]));
             }
         }
 
@@ -348,7 +371,6 @@ impl AnchorService {
                 c
             }
             Err(e) => {
-                self.record_failure(ErrorType::SequencerApi).await;
                 self.record_error(AnchorError::SequencerApi(
                     SequencerApiError::ConnectionFailed {
                         url: self.config.sequencer_api_url.clone(),
@@ -357,13 +379,13 @@ impl AnchorService {
                 ))
                 .await;
                 debug!(error = %e, "Failed to fetch pending commitments");
-                return Ok(vec![]);
+                return Ok(AnchorCycleOutcome::Failed(ErrorType::SequencerApi));
             }
         };
 
         if commitments.is_empty() {
             debug!("No pending commitments to anchor");
-            return Ok(vec![]);
+            return Ok(AnchorCycleOutcome::Healthy(vec![]));
         }
 
         info!(count = commitments.len(), "Found pending commitments");
@@ -399,7 +421,7 @@ impl AnchorService {
             results.push(result);
         }
 
-        Ok(results)
+        Ok(AnchorCycleOutcome::Healthy(results))
     }
 
     /// Anchor a single commitment with retries
@@ -414,7 +436,7 @@ impl AnchorService {
             let start = std::time::Instant::now();
             match self.anchor_commitment(registry, commitment).await {
                 Ok(result) => {
-                    self.record_success(commitment, start.elapsed().as_millis() as u64)
+                    self.record_anchor_success(commitment, start.elapsed().as_millis() as u64)
                         .await;
 
                     return result;
@@ -440,7 +462,7 @@ impl AnchorService {
         }
 
         // All retries failed
-        self.record_failure(ErrorType::Transaction).await;
+        self.record_anchor_failure().await;
 
         let error_message = last_error.unwrap_or_else(|| "unknown error".to_string());
         self.record_error(AnchorError::Transaction(

@@ -6,6 +6,7 @@ import {GroundingRegistryV2} from "../../../stablecoin/v2/GroundingRegistryV2.so
 import {SSDCPolicyModuleV2} from "../../../stablecoin/v2/SSDCPolicyModuleV2.sol";
 import {YieldPaymasterV2} from "../../../stablecoin/v2/YieldPaymasterV2.sol";
 import {IETHUSDOracleV2} from "../../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
+import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 contract YieldPaymasterV2Test is SSDCV2TestBase {
     uint256 internal constant USD = 1e6;
@@ -57,6 +58,32 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         vault.approve(address(paymaster), type(uint256).max);
         paymaster.topUpGasTank(30 * USD);
         vm.stopPrank();
+    }
+
+    function test_ConstructorRejectsZeroDependencies() public {
+        vm.expectRevert(YieldPaymasterV2.ZeroAddress.selector);
+        new YieldPaymasterV2(
+            wSSDCVaultV2(address(0)),
+            nav,
+            policy,
+            grounding,
+            IETHUSDOracleV2(address(priceOracle)),
+            entryPoint,
+            admin,
+            user3
+        );
+
+        vm.expectRevert(YieldPaymasterV2.ZeroAddress.selector);
+        new YieldPaymasterV2(
+            vault,
+            nav,
+            policy,
+            grounding,
+            IETHUSDOracleV2(address(0)),
+            entryPoint,
+            admin,
+            user3
+        );
     }
 
     function test_ValidateRevertsWhenPriceStale() public {

@@ -22,6 +22,14 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
         vault.grantRole(queueRole, address(queue));
     }
 
+    function test_ConstructorRejectsZeroDependencies() public {
+        vm.expectRevert(SSDCClaimQueueV2.ZeroAddress.selector);
+        new SSDCClaimQueueV2(wSSDCVaultV2(address(0)), asset, admin);
+
+        vm.expectRevert(SSDCClaimQueueV2.ZeroAddress.selector);
+        new SSDCClaimQueueV2(vault, MockAsset(address(0)), admin);
+    }
+
     function test_ProcessQueueUsesVaultLiquidityBeforeBuffer() public {
         _mintAndDeposit(user1, 60 ether);
 
@@ -72,6 +80,32 @@ contract SSDCClaimQueueV2Test is SSDCV2TestBase {
         (, , uint256 id2Owed, , SSDCClaimQueueV2.Status id2Status) = queue.claims(id2);
         uint256 expectedReserved = id2Status == SSDCClaimQueueV2.Status.CLAIMABLE ? id2Owed : 0;
         assertEq(queue.reservedAssets(), expectedReserved);
+    }
+
+    function test_QueuePauseBlocksCancelAndClaim() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.startPrank(user1);
+        vault.approve(address(queue), type(uint256).max);
+        uint256 pendingClaimId = queue.requestRedeem(20 ether, user1);
+        uint256 claimableClaimId = queue.requestRedeem(30 ether, user1);
+        vm.stopPrank();
+
+        asset.mint(admin, 30 ether);
+        vm.startPrank(admin);
+        asset.approve(address(queue), type(uint256).max);
+        queue.refill(30 ether);
+        queue.processQueue(1);
+        queue.setQueueOpsPaused(true);
+        vm.stopPrank();
+
+        vm.prank(user1);
+        vm.expectRevert(SSDCClaimQueueV2.QUEUE_OPS_PAUSED.selector);
+        queue.cancel(pendingClaimId, user1);
+
+        vm.prank(user1);
+        vm.expectRevert(SSDCClaimQueueV2.QUEUE_OPS_PAUSED.selector);
+        queue.claim(claimableClaimId);
     }
 
     function test_HeadLivenessSkipsCancelledAndClaimed() public {

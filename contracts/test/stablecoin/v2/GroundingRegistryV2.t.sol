@@ -3,9 +3,11 @@ pragma solidity ^0.8.20;
 
 import {SSDCV2TestBase, MockETHUSDOracle} from "./SSDCV2TestBase.sol";
 import {GroundingRegistryV2} from "../../../stablecoin/v2/GroundingRegistryV2.sol";
+import {NAVControllerV2} from "../../../stablecoin/v2/NAVControllerV2.sol";
 import {SSDCPolicyModuleV2} from "../../../stablecoin/v2/SSDCPolicyModuleV2.sol";
 import {YieldPaymasterV2} from "../../../stablecoin/v2/YieldPaymasterV2.sol";
 import {IETHUSDOracleV2} from "../../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
+import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 contract GroundingRegistryV2Test is SSDCV2TestBase {
     SSDCPolicyModuleV2 internal policy;
@@ -46,6 +48,17 @@ contract GroundingRegistryV2Test is SSDCV2TestBase {
         vault.approve(address(paymaster), type(uint256).max);
         paymaster.topUpGasTank(100 ether);
         vm.stopPrank();
+    }
+
+    function test_ConstructorRejectsZeroDependencies() public {
+        vm.expectRevert(GroundingRegistryV2.ZeroAddress.selector);
+        new GroundingRegistryV2(SSDCPolicyModuleV2(address(0)), nav, vault, admin);
+
+        vm.expectRevert(GroundingRegistryV2.ZeroAddress.selector);
+        new GroundingRegistryV2(policy, NAVControllerV2(address(0)), vault, admin);
+
+        vm.expectRevert(GroundingRegistryV2.ZeroAddress.selector);
+        new GroundingRegistryV2(policy, nav, wSSDCVaultV2(address(0)), admin);
     }
 
     function test_CurrentAssetsIncludesRegisteredGasTankShares() public {

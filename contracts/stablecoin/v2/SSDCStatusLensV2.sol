@@ -9,6 +9,8 @@ import {YieldPaymasterV2} from "./YieldPaymasterV2.sol";
 import {wSSDCVaultV2} from "./wSSDCVaultV2.sol";
 
 contract SSDCStatusLensV2 {
+    error ZeroAddress();
+
     struct Status {
         bool transfersAllowed;
         bool navFresh;
@@ -59,6 +61,12 @@ contract SSDCStatusLensV2 {
         YieldEscrowV2 escrow_,
         YieldPaymasterV2 paymaster_
     ) {
+        if (address(navController_) == address(0)) revert ZeroAddress();
+        if (address(vault_) == address(0)) revert ZeroAddress();
+        if (address(queue_) == address(0)) revert ZeroAddress();
+        if (address(bridge_) == address(0)) revert ZeroAddress();
+        if (address(escrow_) == address(0)) revert ZeroAddress();
+        if (address(paymaster_) == address(0)) revert ZeroAddress();
         navController = navController_;
         vault = vault_;
         queue = queue_;

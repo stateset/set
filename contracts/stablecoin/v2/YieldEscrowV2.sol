@@ -188,6 +188,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     error INVALID_EVIDENCE();
     error TIMEOUT_NOT_READY();
     error INVALID_WINDOW_CONFIG();
+    error ARBITER_DEADLINE_EXPIRED();
 
     event EscrowFunded(
         uint256 indexed escrowId,
@@ -261,6 +262,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         address admin,
         address feeRecipient_
     ) {
+        if (address(vault_) == address(0)) revert ZeroAddress();
+        if (address(navController_) == address(0)) revert ZeroAddress();
         if (admin == address(0)) revert ZeroAddress();
         if (feeRecipient_ == address(0)) revert ZeroAddress();
         if (address(policyModule_) == address(0)) revert ZeroAddress();
@@ -668,6 +671,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     }
 
     function submitFulfillment(uint256 escrowId, FulfillmentType fulfillmentType, bytes32 evidenceHash) external {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         Escrow storage escrow = escrows[escrowId];
         uint8 requiredMilestones = escrowRequiredMilestones[escrowId];
         uint8 completedMilestones = escrowCompletedMilestones[escrowId];
@@ -729,6 +735,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     function _dispute(uint256 escrowId, DisputeReason disputeReason, uint8 milestoneNumber, bytes32 reasonHash)
         internal
     {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         Escrow storage escrow = escrows[escrowId];
         if (escrow.status == EscrowStatus.NONE || escrow.sharesHeld == 0) {
             revert ESCROW_EMPTY();
@@ -762,6 +771,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         external
         onlyRole(ARBITER_ROLE)
     {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         Escrow storage escrow = escrows[escrowId];
         if (escrow.status == EscrowStatus.NONE || escrow.sharesHeld == 0) {
             revert ESCROW_EMPTY();
@@ -781,6 +793,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         if (escrow.resolution != DisputeResolution.NONE) {
             revert RESOLUTION_ALREADY_SET();
         }
+        if (_arbiterDeadlineExpired(escrow)) {
+            revert ARBITER_DEADLINE_EXPIRED();
+        }
 
         escrow.resolution = resolution;
         escrow.resolvedAt = uint40(block.timestamp);
@@ -793,6 +808,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     ///         Applies the pre-configured disputeTimeoutResolution (RELEASE or REFUND).
     ///         Callable by anyone once the arbiter deadline has expired.
     function executeTimeout(uint256 escrowId) external nonReentrant {
+        if (escrowOpsPaused) {
+            revert ESCROW_OPS_PAUSED();
+        }
         Escrow storage escrow = escrows[escrowId];
         if (escrow.status == EscrowStatus.NONE || escrow.sharesHeld == 0) {
             revert ESCROW_EMPTY();
@@ -1018,7 +1036,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     }
 
     function _canArbiterResolvePreview(Escrow storage escrow) internal view returns (bool) {
-        return _isFunded(escrow) && escrow.disputed && escrow.resolution == DisputeResolution.NONE;
+        return _isFunded(escrow) && escrow.disputed && escrow.resolution == DisputeResolution.NONE
+            && !_arbiterDeadlineExpired(escrow);
     }
 
     function _challengeWindowExpired(Escrow storage escrow) internal view returns (bool) {

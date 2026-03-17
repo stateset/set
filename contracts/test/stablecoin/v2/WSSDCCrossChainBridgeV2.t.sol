@@ -10,7 +10,9 @@ contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
     WSSDCCrossChainBridgeV2 internal bridge;
 
     uint32 internal constant SRC_CHAIN = 101;
+    uint32 internal constant ALT_CHAIN = 202;
     bytes32 internal constant SRC_PEER = bytes32(uint256(0xBEEF));
+    bytes32 internal constant ALT_PEER = bytes32(uint256(0xCAFE));
 
     function setUp() public override {
         super.setUp();
@@ -22,7 +24,16 @@ contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
         nav.grantRole(nav.BRIDGE_ROLE(), address(bridge));
 
         bridge.setTrustedPeer(SRC_CHAIN, SRC_PEER);
+        bridge.setTrustedPeer(ALT_CHAIN, ALT_PEER);
         vm.stopPrank();
+    }
+
+    function test_ConstructorRejectsZeroDependencies() public {
+        vm.expectRevert(WSSDCCrossChainBridgeV2.ZeroAddress.selector);
+        new WSSDCCrossChainBridgeV2(wSSDCVaultV2(address(0)), nav, admin);
+
+        vm.expectRevert(WSSDCCrossChainBridgeV2.ZeroAddress.selector);
+        new WSSDCCrossChainBridgeV2(vault, NAVControllerV2(address(0)), admin);
     }
 
     function test_BridgeSharesOneToOne() public {
@@ -90,6 +101,33 @@ contract WSSDCCrossChainBridgeV2Test is SSDCV2TestBase {
         vm.prank(admin);
         vm.expectRevert(WSSDCCrossChainBridgeV2.REPLAY.selector);
         bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, msgId, user2, 5 ether);
+    }
+
+    function test_SameMsgIdDoesNotConflictAcrossPacketKinds() public {
+        bytes32 sharedMsgId = keccak256("shared-msg-id");
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        vm.prank(admin);
+        bridge.relayNAV(SRC_CHAIN, SRC_PEER, sharedMsgId, RAY, uint40(block.timestamp), 0, nextEpoch);
+
+        vm.prank(admin);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, sharedMsgId, user2, 5 ether);
+
+        assertEq(vault.balanceOf(user2), 5 ether);
+        assertTrue(bridge.processed(bridge.processedMessageKey(1, SRC_CHAIN, SRC_PEER, sharedMsgId)));
+        assertTrue(bridge.processed(bridge.processedMessageKey(2, SRC_CHAIN, SRC_PEER, sharedMsgId)));
+    }
+
+    function test_SameMsgIdDoesNotConflictAcrossTrustedChains() public {
+        bytes32 sharedMsgId = keccak256("shared-cross-chain-msg-id");
+
+        vm.startPrank(admin);
+        bridge.receiveBridgeMint(SRC_CHAIN, SRC_PEER, sharedMsgId, user1, 3 ether);
+        bridge.receiveBridgeMint(ALT_CHAIN, ALT_PEER, sharedMsgId, user2, 4 ether);
+        vm.stopPrank();
+
+        assertEq(vault.balanceOf(user1), 3 ether);
+        assertEq(vault.balanceOf(user2), 4 ether);
     }
 
     function test_ReceiveBridgeMintRejectsUntrustedPeer() public {

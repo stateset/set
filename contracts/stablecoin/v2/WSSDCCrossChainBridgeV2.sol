@@ -7,6 +7,9 @@ import {NAVControllerV2} from "./NAVControllerV2.sol";
 import {wSSDCVaultV2} from "./wSSDCVaultV2.sol";
 
 contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
+    uint8 internal constant MESSAGE_KIND_BRIDGE_MINT = 1;
+    uint8 internal constant MESSAGE_KIND_NAV_RELAY = 2;
+
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
@@ -46,6 +49,8 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
     event NAVRelayed(uint64 indexed navEpoch, uint256 nav0Ray, uint40 t0, int256 ratePerSecondRay);
 
     constructor(wSSDCVaultV2 vault_, NAVControllerV2 navController_, address admin) {
+        if (address(vault_) == address(0)) revert ZeroAddress();
+        if (address(navController_) == address(0)) revert ZeroAddress();
         if (admin == address(0)) revert ZeroAddress();
 
         vault = vault_;
@@ -133,7 +138,8 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         if (trustedPeer[srcChain] != srcPeer) {
             revert UNTRUSTED_PEER();
         }
-        if (processed[msgId]) {
+        bytes32 processedKey = _processedKey(MESSAGE_KIND_BRIDGE_MINT, srcChain, srcPeer, msgId);
+        if (processed[processedKey]) {
             revert REPLAY();
         }
 
@@ -144,7 +150,7 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
             revert INVALID_SHARES();
         }
 
-        processed[msgId] = true;
+        processed[processedKey] = true;
 
         uint256 limit = maxOutstandingShares;
         uint256 currentOutstanding = outstandingShares();
@@ -175,13 +181,30 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
         if (trustedPeer[srcChain] != srcPeer) {
             revert UNTRUSTED_PEER();
         }
-        if (processed[msgId]) {
+        bytes32 processedKey = _processedKey(MESSAGE_KIND_NAV_RELAY, srcChain, srcPeer, msgId);
+        if (processed[processedKey]) {
             revert REPLAY();
         }
 
-        processed[msgId] = true;
+        processed[processedKey] = true;
 
         navController.relayNAV(nav0Ray, t0, ratePerSecondRay, newEpoch);
         emit NAVRelayed(newEpoch, nav0Ray, t0, ratePerSecondRay);
+    }
+
+    function processedMessageKey(uint8 messageKind, uint32 srcChain, bytes32 srcPeer, bytes32 msgId)
+        external
+        view
+        returns (bytes32)
+    {
+        return _processedKey(messageKind, srcChain, srcPeer, msgId);
+    }
+
+    function _processedKey(uint8 messageKind, uint32 srcChain, bytes32 srcPeer, bytes32 msgId)
+        internal
+        view
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(address(this), block.chainid, messageKind, srcChain, srcPeer, msgId));
     }
 }

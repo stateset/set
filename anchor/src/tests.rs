@@ -362,6 +362,35 @@ mod types_tests {
         assert_eq!(stats.total_failed, 2);
         assert!(stats.last_anchor_time.is_some());
     }
+
+    #[test]
+    fn test_anchor_stats_cycle_accounting() {
+        let mut stats = AnchorStats::default();
+        stats.total_cycles = 3;
+
+        stats.record_cycle_failure(crate::types::ErrorType::L2Connection);
+        assert_eq!(stats.failed_cycles, 1);
+        assert_eq!(stats.consecutive_failures, 1);
+        assert_eq!(stats.l2_connection_failures, 1);
+
+        stats.record_cycle_success();
+        assert_eq!(stats.successful_cycles, 1);
+        assert_eq!(stats.consecutive_failures, 0);
+        assert!((stats.uptime_percent() - (100.0 / 3.0)).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_anchor_stats_success_rates() {
+        let mut stats = AnchorStats::default();
+        stats.total_cycles = 4;
+        stats.successful_cycles = 3;
+        stats.total_anchored = 6;
+        stats.total_failed = 2;
+
+        assert!((stats.anchor_success_rate() - 0.75).abs() < f64::EPSILON);
+        assert!((stats.cycle_success_rate() - 0.75).abs() < f64::EPSILON);
+        assert!((stats.uptime_percent() - 75.0).abs() < f64::EPSILON);
+    }
 }
 
 #[cfg(test)]

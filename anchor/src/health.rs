@@ -198,6 +198,9 @@ pub struct StatsResponse {
     pub total_failed: u64,
     pub total_events_anchored: u64,
     pub success_rate: f64,
+    pub successful_cycles: u64,
+    pub failed_cycles: u64,
+    pub cycle_success_rate: f64,
     pub last_anchor_time: Option<String>,
     pub last_batch_id: Option<String>,
     pub consecutive_failures: u64,
@@ -266,12 +269,8 @@ async fn metrics_handler(State(state): State<Arc<HealthState>>) -> String {
     let last_l2 = state.last_l2_check.read().await;
     let last_seq = state.last_sequencer_check.read().await;
 
-    let total = stats.total_anchored + stats.total_failed;
-    let success_rate = if total > 0 {
-        stats.total_anchored as f64 / total as f64
-    } else {
-        1.0
-    };
+    let success_rate = stats.anchor_success_rate();
+    let cycle_success_rate = stats.cycle_success_rate();
 
     let is_ready = *state.is_ready.read().await;
     let l2_healthy = last_l2.map(|t| t.elapsed().as_secs() < 60).unwrap_or(false);
@@ -320,6 +319,11 @@ set_anchor_avg_anchor_time_ms {}
 # TYPE set_anchor_cycles_total counter
 set_anchor_cycles_total {}
 
+# HELP set_anchor_cycles_by_status_total Anchor cycles grouped by outcome
+# TYPE set_anchor_cycles_by_status_total counter
+set_anchor_cycles_by_status_total{{status="success"}} {}
+set_anchor_cycles_by_status_total{{status="failed"}} {}
+
 # HELP set_anchor_l2_connected Whether L2 is reachable
 # TYPE set_anchor_l2_connected gauge
 set_anchor_l2_connected {}
@@ -339,6 +343,10 @@ set_anchor_sequencer_api_failures_total {}
 # HELP set_anchor_success_rate Ratio of successful anchors
 # TYPE set_anchor_success_rate gauge
 set_anchor_success_rate {}
+
+# HELP set_anchor_cycle_success_rate Ratio of successful cycles
+# TYPE set_anchor_cycle_success_rate gauge
+set_anchor_cycle_success_rate {}
 
 # HELP set_anchor_uptime_seconds Service uptime in seconds
 # TYPE set_anchor_uptime_seconds gauge
@@ -376,11 +384,14 @@ set_anchor_circuit_breaker_open_skips_total {}
         stats.consecutive_failures,
         stats.avg_anchor_time_ms,
         stats.total_cycles,
+        stats.successful_cycles,
+        stats.failed_cycles,
         l2_connected,
         sequencer_connected,
         stats.l2_connection_failures,
         stats.sequencer_api_failures,
         success_rate,
+        cycle_success_rate,
         uptime,
         is_ready,
         error_counts.config_errors,
@@ -411,18 +422,14 @@ async fn stats_handler(State(state): State<Arc<HealthState>>) -> Json<StatsRespo
     let stats = state.stats.read().await;
     let uptime = state.start_time.elapsed().as_secs();
 
-    let total = stats.total_anchored + stats.total_failed;
-    let success_rate = if total > 0 {
-        stats.total_anchored as f64 / total as f64
-    } else {
-        1.0
-    };
-
     Json(StatsResponse {
         total_anchored: stats.total_anchored,
         total_failed: stats.total_failed,
         total_events_anchored: stats.total_events_anchored,
-        success_rate,
+        success_rate: stats.anchor_success_rate(),
+        successful_cycles: stats.successful_cycles,
+        failed_cycles: stats.failed_cycles,
+        cycle_success_rate: stats.cycle_success_rate(),
         last_anchor_time: stats.last_anchor_time.map(|t| t.to_rfc3339()),
         last_batch_id: stats.last_batch_id.map(|id| id.to_string()),
         consecutive_failures: stats.consecutive_failures,

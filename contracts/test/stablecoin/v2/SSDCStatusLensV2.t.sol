@@ -42,6 +42,11 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         vm.stopPrank();
     }
 
+    function test_ConstructorRejectsZeroDependencies() public {
+        vm.expectRevert(SSDCStatusLensV2.ZeroAddress.selector);
+        new SSDCStatusLensV2(nav, vault, queue, bridge, escrow, YieldPaymasterV2(address(0)));
+    }
+
     function test_StatusHappyPath() public view {
         SSDCStatusLensV2.Status memory status = lens.getStatus();
 

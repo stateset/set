@@ -78,6 +78,11 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         address admin,
         address feeCollector_
     ) {
+        if (address(vault_) == address(0)) revert ZeroAddress();
+        if (address(navController_) == address(0)) revert ZeroAddress();
+        if (address(policyModule_) == address(0)) revert ZeroAddress();
+        if (address(groundingRegistry_) == address(0)) revert ZeroAddress();
+        if (address(ethUsdOracle_) == address(0)) revert ZeroAddress();
         if (admin == address(0)) revert ZeroAddress();
         if (feeCollector_ == address(0)) revert ZeroAddress();
         if (entryPoint_ == address(0)) revert ZeroAddress();

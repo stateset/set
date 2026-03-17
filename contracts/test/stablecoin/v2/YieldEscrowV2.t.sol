@@ -3,8 +3,10 @@ pragma solidity ^0.8.20;
 
 import {SSDCV2TestBase} from "./SSDCV2TestBase.sol";
 import {GroundingRegistryV2} from "../../../stablecoin/v2/GroundingRegistryV2.sol";
+import {NAVControllerV2} from "../../../stablecoin/v2/NAVControllerV2.sol";
 import {SSDCPolicyModuleV2} from "../../../stablecoin/v2/SSDCPolicyModuleV2.sol";
 import {YieldEscrowV2} from "../../../stablecoin/v2/YieldEscrowV2.sol";
+import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 contract YieldEscrowV2Test is SSDCV2TestBase {
     YieldEscrowV2 internal escrow;
@@ -55,6 +57,14 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
             false
         );
         vm.stopPrank();
+    }
+
+    function test_ConstructorRejectsZeroDependencies() public {
+        vm.expectRevert(YieldEscrowV2.ZeroAddress.selector);
+        new YieldEscrowV2(wSSDCVaultV2(address(0)), nav, policy, grounding, admin, user3);
+
+        vm.expectRevert(YieldEscrowV2.ZeroAddress.selector);
+        new YieldEscrowV2(vault, NAVControllerV2(address(0)), policy, grounding, admin, user3);
     }
 
     function _readEscrow(uint256 escrowId) internal view returns (EscrowView memory escrowView) {
@@ -653,7 +663,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(preview.canArbiterRelease);
         assertTrue(preview.canBuyerRefund);
         assertTrue(preview.canArbiterRefund);
-        assertTrue(preview.canArbiterResolve);
+        assertFalse(preview.canArbiterResolve);
         assertEq(preview.requiredMilestones, 0);
         assertEq(preview.completedMilestones, 0);
         assertEq(preview.nextMilestoneNumber, 0);
@@ -698,7 +708,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertTrue(preview.canArbiterRelease);
         assertFalse(preview.canBuyerRefund);
         assertFalse(preview.canArbiterRefund);
-        assertTrue(preview.canArbiterResolve);
+        assertFalse(preview.canArbiterResolve);
         assertEq(preview.requiredMilestones, 0);
         assertEq(preview.completedMilestones, 0);
         assertEq(preview.nextMilestoneNumber, 0);
@@ -707,6 +717,120 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertEq(uint8(preview.merchantReleaseMode), uint8(YieldEscrowV2.SettlementMode.DISPUTE_TIMEOUT_RELEASE));
         assertEq(uint8(preview.arbiterReleaseMode), uint8(YieldEscrowV2.SettlementMode.DISPUTE_TIMEOUT_RELEASE));
         assertEq(preview.disputeWindowEndsAt, uint40(block.timestamp));
+    }
+
+    function test_ResolveDisputeRevertsAfterArbiterDeadlineExpires() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
+            assetsDue: 40 ether,
+            expiry: uint40(block.timestamp + 1 days),
+            releaseAfter: uint40(block.timestamp),
+            maxNavAge: uint40(48 hours),
+            maxSharesIn: type(uint256).max,
+            requiresFulfillment: false,
+            fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
+            requiredMilestones: 0,
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
+        });
+
+        vm.startPrank(user1);
+        vault.approve(address(escrow), type(uint256).max);
+        uint256 escrowId = escrow.fundEscrow(user2, terms, 0);
+        vm.stopPrank();
+
+        vm.prank(user1);
+        escrow.dispute(escrowId, YieldEscrowV2.DisputeReason.QUALITY, keccak256("quality-issue"));
+
+        vm.warp(block.timestamp + 7 days);
+
+        YieldEscrowV2.SettlementPreview memory preview = escrow.previewSettlement(escrowId);
+        assertFalse(preview.canArbiterResolve);
+
+        vm.prank(admin);
+        vm.expectRevert(YieldEscrowV2.ARBITER_DEADLINE_EXPIRED.selector);
+        escrow.resolveDispute(escrowId, YieldEscrowV2.DisputeResolution.RELEASE, keccak256("late-arbiter"));
+    }
+
+    function test_EscrowPauseBlocksDisputeResolutionAndTimeoutFlows() public {
+        _mintAndDeposit(user1, 200 ether);
+
+        YieldEscrowV2.InvoiceTerms memory disputeTerms = YieldEscrowV2.InvoiceTerms({
+            assetsDue: 40 ether,
+            expiry: uint40(block.timestamp + 1 days),
+            releaseAfter: uint40(block.timestamp),
+            maxNavAge: uint40(48 hours),
+            maxSharesIn: type(uint256).max,
+            requiresFulfillment: false,
+            fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
+            requiredMilestones: 0,
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
+        });
+
+        vm.startPrank(user1);
+        vault.approve(address(escrow), type(uint256).max);
+        uint256 pausedDisputeEscrowId = escrow.fundEscrow(user2, disputeTerms, 0);
+        uint256 pausedTimeoutEscrowId = escrow.fundEscrow(user2, disputeTerms, 0);
+        vm.stopPrank();
+
+        vm.prank(admin);
+        escrow.setEscrowOpsPaused(true);
+
+        vm.prank(user1);
+        vm.expectRevert(YieldEscrowV2.ESCROW_OPS_PAUSED.selector);
+        escrow.dispute(pausedDisputeEscrowId, YieldEscrowV2.DisputeReason.OTHER, keccak256("paused-dispute"));
+
+        vm.prank(admin);
+        vm.expectRevert(YieldEscrowV2.ESCROW_OPS_PAUSED.selector);
+        escrow.resolveDispute(pausedDisputeEscrowId, YieldEscrowV2.DisputeResolution.REFUND, keccak256("paused-resolve"));
+
+        vm.prank(admin);
+        escrow.setEscrowOpsPaused(false);
+
+        vm.prank(user1);
+        escrow.dispute(pausedTimeoutEscrowId, YieldEscrowV2.DisputeReason.OTHER, keccak256("timeout-ready"));
+
+        vm.warp(block.timestamp + 7 days);
+
+        vm.prank(admin);
+        escrow.setEscrowOpsPaused(true);
+
+        vm.expectRevert(YieldEscrowV2.ESCROW_OPS_PAUSED.selector);
+        escrow.executeTimeout(pausedTimeoutEscrowId);
+    }
+
+    function test_EscrowPauseBlocksFulfillmentSubmission() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
+            assetsDue: 40 ether,
+            expiry: uint40(block.timestamp + 1 days),
+            releaseAfter: uint40(block.timestamp),
+            maxNavAge: uint40(48 hours),
+            maxSharesIn: type(uint256).max,
+            requiresFulfillment: true,
+            fulfillmentType: YieldEscrowV2.FulfillmentType.DELIVERY,
+            requiredMilestones: 1,
+            challengeWindow: uint40(6 hours),
+            arbiterDeadline: uint40(7 days),
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.REFUND
+        });
+
+        vm.startPrank(user1);
+        vault.approve(address(escrow), type(uint256).max);
+        uint256 escrowId = escrow.fundEscrow(user2, terms, 0);
+        vm.stopPrank();
+
+        vm.prank(admin);
+        escrow.setEscrowOpsPaused(true);
+
+        vm.prank(user2);
+        vm.expectRevert(YieldEscrowV2.ESCROW_OPS_PAUSED.selector);
+        escrow.submitFulfillment(escrowId, YieldEscrowV2.FulfillmentType.DELIVERY, keccak256("paused-fulfillment"));
     }
 
     function testFuzz_EscrowDustConservation(

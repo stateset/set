@@ -74,6 +74,8 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     event MinClaimSharesUpdated(uint256 minShares);
 
     constructor(wSSDCVaultV2 vault_, IERC20 settlementAsset_, address admin) ERC721("SSDC Claim", "SSDC_Claim") {
+        if (address(vault_) == address(0)) revert ZeroAddress();
+        if (address(settlementAsset_) == address(0)) revert ZeroAddress();
         if (admin == address(0)) revert ZeroAddress();
 
         vault = vault_;
@@ -121,6 +123,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     }
 
     function cancel(uint256 claimId, address receiver) external nonReentrant {
+        _requireQueueOpsActive();
         if (ownerOf(claimId) != msg.sender) {
             revert NOT_OWNER();
         }
@@ -187,6 +190,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     }
 
     function claim(uint256 claimId) external nonReentrant {
+        _requireQueueOpsActive();
         if (ownerOf(claimId) != msg.sender) {
             revert NOT_OWNER();
         }

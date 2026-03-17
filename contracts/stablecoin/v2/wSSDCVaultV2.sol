@@ -4,11 +4,15 @@ pragma solidity ^0.8.20;
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {NAVControllerV2} from "./NAVControllerV2.sol";
 import {RayMath} from "./RayMath.sol";
 
 contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
+    using SafeERC20 for IERC20;
+
     bytes32 public constant GATEWAY_ROLE = keccak256("GATEWAY_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
@@ -176,7 +180,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         }
 
         deployedReserveAssets += amount;
-        ERC20(asset()).transfer(reserveManager, amount);
+        IERC20(asset()).safeTransfer(reserveManager, amount);
 
         emit ReserveDeployed(reserveManager, amount, deployedReserveAssets);
     }
@@ -192,7 +196,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         }
 
         deployedReserveAssets -= amount;
-        ERC20(asset()).transferFrom(reserveManager, address(this), amount);
+        IERC20(asset()).safeTransferFrom(reserveManager, address(this), amount);
 
         emit ReserveRecalled(reserveManager, amount, deployedReserveAssets);
     }

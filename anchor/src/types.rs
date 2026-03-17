@@ -72,12 +72,17 @@ pub struct AnchorResult {
 #[derive(Debug, Clone, Default)]
 pub struct AnchorStats {
     pub total_anchored: u64,
+    /// Total failed batch anchors
     pub total_failed: u64,
     pub total_events_anchored: u64,
     pub last_anchor_time: Option<DateTime<Utc>>,
     pub last_batch_id: Option<Uuid>,
-    /// Consecutive failures (resets on success)
+    /// Consecutive failed cycles (resets on successful cycle)
     pub consecutive_failures: u64,
+    /// Total healthy anchor cycles
+    pub successful_cycles: u64,
+    /// Total unhealthy anchor cycles
+    pub failed_cycles: u64,
     /// Total L2 connection failures
     pub l2_connection_failures: u64,
     /// Total sequencer API failures
@@ -104,7 +109,6 @@ impl AnchorStats {
     /// Record a successful anchor
     pub fn record_success(&mut self, anchor_time_ms: u64) {
         self.total_anchored += 1;
-        self.consecutive_failures = 0;
         self.last_anchor_time = Some(Utc::now());
 
         // Update running average
@@ -116,9 +120,20 @@ impl AnchorStats {
         }
     }
 
-    /// Record a failed anchor
-    pub fn record_failure(&mut self, error_type: ErrorType) {
+    /// Record a failed anchor transaction
+    pub fn record_anchor_failure(&mut self) {
         self.total_failed += 1;
+    }
+
+    /// Record a successful cycle
+    pub fn record_cycle_success(&mut self) {
+        self.successful_cycles += 1;
+        self.consecutive_failures = 0;
+    }
+
+    /// Record a failed cycle
+    pub fn record_cycle_failure(&mut self, error_type: ErrorType) {
+        self.failed_cycles += 1;
         self.consecutive_failures += 1;
 
         match error_type {
@@ -127,6 +142,12 @@ impl AnchorStats {
             ErrorType::Transaction => {}
             ErrorType::Other => {}
         }
+    }
+
+    /// Record a cycle skipped because the circuit breaker is open
+    pub fn record_open_circuit_skip(&mut self) {
+        self.failed_cycles += 1;
+        self.circuit_breaker_open_skips += 1;
     }
 
     /// Record a gas price skip
@@ -144,13 +165,26 @@ impl AnchorStats {
         self.last_sequencer_healthy = Some(Utc::now());
     }
 
+    /// Get anchor success rate as a ratio between 0 and 1
+    pub fn anchor_success_rate(&self) -> f64 {
+        let total = self.total_anchored + self.total_failed;
+        if total == 0 {
+            return 1.0;
+        }
+        self.total_anchored as f64 / total as f64
+    }
+
+    /// Get cycle success rate as a ratio between 0 and 1
+    pub fn cycle_success_rate(&self) -> f64 {
+        if self.total_cycles == 0 {
+            return 1.0;
+        }
+        self.successful_cycles as f64 / self.total_cycles as f64
+    }
+
     /// Get uptime percentage
     pub fn uptime_percent(&self) -> f64 {
-        if self.total_cycles == 0 {
-            return 100.0;
-        }
-        let successful = self.total_cycles.saturating_sub(self.total_failed);
-        (successful as f64 / self.total_cycles as f64) * 100.0
+        self.cycle_success_rate() * 100.0
     }
 
     /// Check if circuit breaker should trip
