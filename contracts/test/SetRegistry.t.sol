@@ -225,6 +225,130 @@ contract SetRegistryTest is Test {
         assertEq(registry.totalStarkProofs(), 1);
     }
 
+    function test_CommitStarkProof() public {
+        bytes32 batchId = keccak256("batch-proof");
+        bytes32 prevStateRoot = bytes32(0);
+        bytes32 newStateRoot = keccak256("state-proof");
+        bytes32 proofHash = keccak256("proof");
+        bytes32 policyHash = keccak256("policy");
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            keccak256("events"),
+            prevStateRoot,
+            newStateRoot,
+            1,
+            10,
+            10
+        );
+
+        vm.prank(sequencer);
+        registry.commitStarkProof(
+            batchId,
+            proofHash,
+            prevStateRoot,
+            newStateRoot,
+            policyHash,
+            100,
+            true,
+            1024,
+            500
+        );
+
+        assertTrue(registry.hasStarkProof(batchId));
+        assertTrue(registry.verifyStarkProofHash(batchId, proofHash));
+        assertFalse(registry.verifyStarkProofHash(batchId, keccak256("wrong")));
+    }
+
+    function test_CommitStarkProof_InvalidProof() public {
+        bytes32 batchId = keccak256("batch-invalid-proof");
+        bytes32 prevStateRoot = bytes32(0);
+        bytes32 newStateRoot = keccak256("state-proof");
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            keccak256("events"),
+            prevStateRoot,
+            newStateRoot,
+            1,
+            10,
+            10
+        );
+
+        vm.prank(sequencer);
+        vm.expectRevert(SetRegistry.InvalidProof.selector);
+        registry.commitStarkProof(
+            batchId,
+            bytes32(0),
+            prevStateRoot,
+            newStateRoot,
+            keccak256("policy"),
+            100,
+            true,
+            1024,
+            500
+        );
+    }
+
+    function test_CommitStarkProof_StateRootMismatch() public {
+        bytes32 batchId = keccak256("batch-proof-mismatch");
+
+        vm.prank(sequencer);
+        registry.commitBatch(
+            batchId,
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state"),
+            1,
+            10,
+            10
+        );
+
+        vm.prank(sequencer);
+        vm.expectRevert(SetRegistry.StateRootMismatchInProof.selector);
+        registry.commitStarkProof(
+            batchId,
+            keccak256("proof"),
+            bytes32(0),
+            keccak256("wrong-state"),
+            keccak256("policy"),
+            100,
+            true,
+            1024,
+            500
+        );
+    }
+
+    function test_CommitBatchWithStarkProof_InvalidProof() public {
+        vm.prank(sequencer);
+        vm.expectRevert(SetRegistry.InvalidProof.selector);
+        registry.commitBatchWithStarkProof(
+            keccak256("batch-stark-invalid"),
+            tenantId,
+            storeId,
+            keccak256("events"),
+            bytes32(0),
+            keccak256("state1"),
+            1,
+            10,
+            10,
+            keccak256("proof"),
+            keccak256("policy"),
+            100,
+            true,
+            0,
+            500
+        );
+    }
+
     function test_CommitBatch_EmitsEvent() public {
         bytes32 batchId = keccak256("batch1");
         bytes32 eventsRoot = keccak256("events");
@@ -623,7 +747,7 @@ contract SetRegistryTest is Test {
         assertFalse(registry.verifyInclusion(batchId, leaf, wrongProof, 0));
     }
 
-    function test_VerifyInclusion_BatchNotExists() public {
+    function test_VerifyInclusion_BatchNotExists() public view {
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = keccak256("sibling");
 

@@ -73,6 +73,7 @@ contract IntegrationTest is Test {
         vm.deal(paymasterProxy, 10 ether);
         vm.deal(merchant, 5 ether);
         vm.deal(user, 1 ether);
+        vm.deal(operator, 5 ether);
     }
 
     // =========================================================================
@@ -426,7 +427,7 @@ contract IntegrationTest is Test {
 
         // Issue refund (simulating overcharge correction)
         vm.prank(operator);
-        paymaster.refundUnusedGas(merchant, 0.002 ether);
+        paymaster.refundUnusedGas{value: 0.002 ether}(merchant, 0.002 ether);
 
         // Verify refund recorded
         (, , uint256 spentToday, , uint256 totalSponsored) = paymaster.getMerchantDetails(merchant);

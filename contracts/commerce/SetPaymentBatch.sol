@@ -429,13 +429,12 @@ contract SetPaymentBatch is
 
     /**
      * @notice Settle a single payment (internal)
-     * @param _batchId Batch ID for logging
      * @param _payment Payment intent to settle
      * @return success Whether settlement succeeded
      * @return reason Failure reason if failed
      */
     function _settlePayment(
-        bytes32 _batchId,
+        bytes32,
         PaymentIntent calldata _payment
     ) internal returns (bool success, string memory reason) {
         // Check if already settled

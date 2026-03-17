@@ -20,7 +20,7 @@ use uuid::Uuid;
 use set_anchor::{
     client::SequencerApiClient,
     config::AnchorConfig,
-    health::{HealthServer, HealthState},
+    health::HealthState,
     types::AnchorStats,
     AnchorService,
 };
@@ -34,7 +34,12 @@ use common::{
 // Test Helpers
 // =============================================================================
 
-fn test_config(sequencer_api_url: &str, l2_rpc_url: &str, registry_address: &str, private_key: &str) -> AnchorConfig {
+fn test_config(
+    sequencer_api_url: &str,
+    l2_rpc_url: &str,
+    registry_address: &str,
+    private_key: &str,
+) -> AnchorConfig {
     AnchorConfig {
         l2_rpc_url: l2_rpc_url.to_string(),
         set_registry_address: registry_address.to_string(),
@@ -53,8 +58,8 @@ fn test_config(sequencer_api_url: &str, l2_rpc_url: &str, registry_address: &str
         circuit_breaker_failure_threshold: 5,
         circuit_breaker_reset_timeout_secs: 60,
         circuit_breaker_half_open_success_threshold: 3,
-    tx_confirmation_timeout_secs: 60,
-        }
+        tx_confirmation_timeout_secs: 60,
+    }
 }
 
 // =============================================================================

@@ -293,7 +293,7 @@ The paymaster supports efficient batch operations for high-volume merchants:
 
 - `batchSponsorMerchants()` — sponsor up to 100 merchants in one transaction.
 - `batchExecuteSponsorship()` — non-reverting batch processing that records per-merchant success/failure.
-- `batchRefundUnusedGas()` — reclaim unused allocations.
+- `batchRefundUnusedGas()` — reclaim unused allocations while returning the same ETH to the paymaster.
 
 ### 4.4 User Experience
 
@@ -823,7 +823,10 @@ interface ISetPaymaster {
         address[] calldata merchants, uint8[] calldata tiers
     ) external;
 
-    function batchRefundUnusedGas(address[] calldata merchants) external;
+    function batchRefundUnusedGas(
+        address[] calldata merchants,
+        uint256[] calldata refundAmounts
+    ) external payable;
 
     function getMerchantStats(address merchant)
         external view returns (

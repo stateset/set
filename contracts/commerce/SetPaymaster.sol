@@ -93,6 +93,7 @@ contract SetPaymaster is
     event MerchantSponsored(address indexed merchant, uint256 tierId);
     event MerchantRevoked(address indexed merchant);
     event GasSponsored(address indexed merchant, uint256 amount, OperationType operationType);
+    event GasRefunded(address indexed merchant, uint256 amount);
     event Deposited(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event OperatorUpdated(address indexed operator, bool authorized);
@@ -128,6 +129,9 @@ contract SetPaymaster is
     error TransferFailed();
     error BelowMinimumDeposit(uint256 sent, uint256 minimum);
     error WithdrawFailed();
+    error InvalidRefundAmount();
+    error RefundValueMismatch(uint256 expected, uint256 actual);
+    error RefundExceedsSponsored(uint256 requested, uint256 available);
 
     // =========================================================================
     // Modifiers
@@ -407,29 +411,13 @@ contract SetPaymaster is
     function refundUnusedGas(
         address _merchant,
         uint256 _refundAmount
-    ) external onlyOperator {
-        MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
-
-        // Reduce spent amounts (but not below 0)
-        if (_refundAmount <= sponsorship.spentToday) {
-            sponsorship.spentToday -= _refundAmount;
-        } else {
-            sponsorship.spentToday = 0;
+    ) external payable onlyOperator nonReentrant {
+        if (_merchant == address(0)) revert InvalidAddress();
+        if (msg.value != _refundAmount) {
+            revert RefundValueMismatch(_refundAmount, msg.value);
         }
 
-        if (_refundAmount <= sponsorship.spentThisMonth) {
-            sponsorship.spentThisMonth -= _refundAmount;
-        } else {
-            sponsorship.spentThisMonth = 0;
-        }
-
-        if (_refundAmount <= sponsorship.totalSponsored) {
-            sponsorship.totalSponsored -= _refundAmount;
-        }
-
-        if (_refundAmount <= totalGasSponsored) {
-            totalGasSponsored -= _refundAmount;
-        }
+        _applyRefund(_merchant, _refundAmount);
     }
 
     // =========================================================================
@@ -636,6 +624,35 @@ contract SetPaymaster is
         );
     }
 
+    function _applyRefund(address _merchant, uint256 _refundAmount) internal {
+        if (_refundAmount == 0) revert InvalidRefundAmount();
+
+        MerchantSponsorship storage sponsorship = merchantSponsorship[_merchant];
+        _resetDailyIfNeeded(sponsorship);
+        _resetMonthlyIfNeeded(sponsorship);
+
+        if (_refundAmount > sponsorship.totalSponsored) {
+            revert RefundExceedsSponsored(_refundAmount, sponsorship.totalSponsored);
+        }
+        if (_refundAmount > totalGasSponsored) {
+            revert RefundExceedsSponsored(_refundAmount, totalGasSponsored);
+        }
+
+        uint256 dailyRefund = _refundAmount > sponsorship.spentToday
+            ? sponsorship.spentToday
+            : _refundAmount;
+        uint256 monthlyRefund = _refundAmount > sponsorship.spentThisMonth
+            ? sponsorship.spentThisMonth
+            : _refundAmount;
+
+        sponsorship.spentToday -= dailyRefund;
+        sponsorship.spentThisMonth -= monthlyRefund;
+        sponsorship.totalSponsored -= _refundAmount;
+        totalGasSponsored -= _refundAmount;
+
+        emit GasRefunded(_merchant, _refundAmount);
+    }
+
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyOwner {
@@ -800,36 +817,23 @@ contract SetPaymaster is
     function batchRefundUnusedGas(
         address[] calldata _merchants,
         uint256[] calldata _refundAmounts
-    ) external onlyOperator {
+    ) external payable onlyOperator nonReentrant {
         if (_merchants.length == 0) revert EmptyArray();
         if (_merchants.length != _refundAmounts.length) revert ArrayLengthMismatch();
         if (_merchants.length > MAX_BATCH_SIZE) revert BatchTooLarge();
 
+        uint256 totalRefundAmount = 0;
         for (uint256 i = 0; i < _merchants.length; i++) {
             if (_merchants[i] == address(0)) revert InvalidAddress();
-            MerchantSponsorship storage sponsorship = merchantSponsorship[_merchants[i]];
-            uint256 refundAmount = _refundAmounts[i];
+            totalRefundAmount += _refundAmounts[i];
+        }
 
-            // Reduce spent amounts (but not below 0)
-            if (refundAmount <= sponsorship.spentToday) {
-                sponsorship.spentToday -= refundAmount;
-            } else {
-                sponsorship.spentToday = 0;
-            }
+        if (msg.value != totalRefundAmount) {
+            revert RefundValueMismatch(totalRefundAmount, msg.value);
+        }
 
-            if (refundAmount <= sponsorship.spentThisMonth) {
-                sponsorship.spentThisMonth -= refundAmount;
-            } else {
-                sponsorship.spentThisMonth = 0;
-            }
-
-            if (refundAmount <= sponsorship.totalSponsored) {
-                sponsorship.totalSponsored -= refundAmount;
-            }
-
-            if (refundAmount <= totalGasSponsored) {
-                totalGasSponsored -= refundAmount;
-            }
+        for (uint256 i = 0; i < _merchants.length; i++) {
+            _applyRefund(_merchants[i], _refundAmounts[i]);
         }
     }
 

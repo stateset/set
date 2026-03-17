@@ -331,28 +331,15 @@ contract SetRegistry is
             _prevStateRoot, _newStateRoot, _sequenceStart, _sequenceEnd, _eventCount
         );
 
-        // Store STARK proof (skip authorization + batch existence checks since batch was just stored)
-        starkProofs[_batchId] = StarkProofCommitment({
-            proofHash: _proofHash,
-            policyHash: _policyHash,
-            policyLimit: _policyLimit,
-            allCompliant: _allCompliant,
-            proofSize: _proofSize,
-            provingTimeMs: _provingTimeMs,
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
-        });
-
-        unchecked {
-            ++totalStarkProofs;
-        }
-
-        emit StarkProofCommitted(
+        _validateStarkProofMetadata(_proofHash, _proofSize);
+        _storeStarkProof(
             _batchId,
             _proofHash,
             _policyHash,
+            _policyLimit,
             _allCompliant,
-            _proofSize
+            _proofSize,
+            _provingTimeMs
         );
     }
 
@@ -873,6 +860,36 @@ contract SetRegistry is
             revert StateRootMismatchInProof();
         }
 
+        _validateStarkProofMetadata(_proofHash, _proofSize);
+        _storeStarkProof(
+            _batchId,
+            _proofHash,
+            _policyHash,
+            _policyLimit,
+            _allCompliant,
+            _proofSize,
+            _provingTimeMs
+        );
+    }
+
+    function _validateStarkProofMetadata(
+        bytes32 _proofHash,
+        uint64 _proofSize
+    ) internal pure {
+        if (_proofHash == bytes32(0) || _proofSize == 0) {
+            revert InvalidProof();
+        }
+    }
+
+    function _storeStarkProof(
+        bytes32 _batchId,
+        bytes32 _proofHash,
+        bytes32 _policyHash,
+        uint64 _policyLimit,
+        bool _allCompliant,
+        uint64 _proofSize,
+        uint64 _provingTimeMs
+    ) internal {
         starkProofs[_batchId] = StarkProofCommitment({
             proofHash: _proofHash,
             policyHash: _policyHash,

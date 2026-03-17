@@ -72,7 +72,7 @@ export const setPaymasterAbi = [
       { name: "_refundAmounts", type: "uint256[]" }
     ],
     outputs: [],
-    stateMutability: "nonpayable"
+    stateMutability: "payable"
   },
   {
     type: "function",

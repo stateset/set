@@ -423,14 +423,14 @@ mod service_tests {
             circuit_breaker_failure_threshold: 5,
             circuit_breaker_reset_timeout_secs: 60,
             circuit_breaker_half_open_success_threshold: 3,
-        tx_confirmation_timeout_secs: 60,
+            tx_confirmation_timeout_secs: 60,
         }
     }
 
     #[test]
     fn test_service_creation() {
         let config = test_config();
-        let service = AnchorService::new(config);
+        let _service = AnchorService::new(config);
 
         // Service should be created successfully
         assert!(true);

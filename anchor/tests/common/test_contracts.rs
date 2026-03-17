@@ -11,7 +11,6 @@ use alloy::{
     transports::http::Http,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
-use std::sync::Arc;
 
 type HttpTransport = Http<reqwest::Client>;
 
@@ -76,26 +75,18 @@ sol! {
 
 // Simplified SetRegistry bytecode for testing
 // This is a minimal implementation that matches the interface
-const SET_REGISTRY_BYTECODE: &str = include_str!("../fixtures/SetRegistry.bin");
-
 /// Test SetRegistry deployment wrapper
 pub struct TestSetRegistry {
     /// Anvil instance (keeps it alive)
-    pub anvil: AnvilInstance,
+    pub _anvil: AnvilInstance,
     /// Contract address
     pub address: Address,
-    /// Owner/deployer address
-    pub owner: Address,
-    /// Owner private key (hex string with 0x prefix)
-    pub owner_key: String,
     /// Sequencer address
     pub sequencer: Address,
     /// Sequencer private key (hex string with 0x prefix)
     pub sequencer_key: String,
     /// RPC URL
     pub rpc_url: String,
-    /// Chain ID
-    pub chain_id: u64,
 }
 
 impl TestSetRegistry {
@@ -105,8 +96,6 @@ impl TestSetRegistry {
         let anvil = Anvil::new().block_time(1).try_spawn()?;
 
         let rpc_url = anvil.endpoint();
-        let chain_id = anvil.chain_id();
-
         // Get test accounts
         let owner_key = anvil.keys()[0].clone();
         let sequencer_key = anvil.keys()[1].clone();
@@ -129,18 +118,14 @@ impl TestSetRegistry {
         let address = Self::deploy_mock_registry(&provider, owner, sequencer).await?;
 
         // Format private keys as hex strings
-        let owner_key_hex = format!("0x{}", hex::encode(owner_key.to_bytes()));
         let sequencer_key_hex = format!("0x{}", hex::encode(sequencer_key.to_bytes()));
 
         Ok(Self {
-            anvil,
+            _anvil: anvil,
             address,
-            owner,
-            owner_key: owner_key_hex,
             sequencer,
             sequencer_key: sequencer_key_hex,
             rpc_url,
-            chain_id,
         })
     }
 
@@ -209,37 +194,6 @@ impl TestSetRegistry {
         Ok(result._0)
     }
 
-    /// Get commitment details
-    pub async fn get_commitment(
-        &self,
-        batch_id: [u8; 32],
-    ) -> anyhow::Result<(
-        [u8; 32], // eventsRoot
-        [u8; 32], // prevStateRoot
-        [u8; 32], // newStateRoot
-        u64,      // sequenceStart
-        u64,      // sequenceEnd
-        u32,      // eventCount
-        u64,      // timestamp
-        Address,  // submitter
-    )> {
-        let provider = ProviderBuilder::new()
-            .on_http(self.rpc_url.parse()?);
-
-        let registry = SetRegistry::new(self.address, provider);
-        let result = registry.commitments(batch_id.into()).call().await?;
-
-        Ok((
-            result.eventsRoot.0,
-            result.prevStateRoot.0,
-            result.newStateRoot.0,
-            result.sequenceStart,
-            result.sequenceEnd,
-            result.eventCount,
-            result.timestamp,
-            result.submitter,
-        ))
-    }
 }
 
 #[cfg(test)]

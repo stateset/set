@@ -142,6 +142,7 @@ impl MockSequencerApi {
     }
 
     /// Clear all pending commitments
+    #[allow(dead_code)]
     pub async fn clear_pending(&self) {
         let mut state = self.state.write().unwrap();
         state.pending_commitments.clear();
@@ -153,6 +154,7 @@ impl MockSequencerApi {
     }
 
     /// Clear anchor notifications
+    #[allow(dead_code)]
     pub async fn clear_notifications(&self) {
         let mut state = self.state.write().unwrap();
         state.anchor_notifications.clear();

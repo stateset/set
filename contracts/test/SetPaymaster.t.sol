@@ -25,6 +25,7 @@ contract SetPaymasterTest is Test {
         uint256 amount,
         SetPaymaster.OperationType operationType
     );
+    event GasRefunded(address indexed merchant, uint256 amount);
     event Deposited(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event OperatorUpdated(address indexed operator, bool authorized);
@@ -44,6 +45,7 @@ contract SetPaymasterTest is Test {
 
         // Fund paymaster
         vm.deal(address(paymaster), 10 ether);
+        vm.deal(operator, 10 ether);
 
         // Set up operator
         vm.prank(owner);
@@ -527,13 +529,17 @@ contract SetPaymasterTest is Test {
         vm.prank(owner);
         paymaster.sponsorMerchant(merchant, 1);
 
+        uint256 paymasterBalanceBefore = paymaster.balance();
+
         vm.startPrank(operator);
 
         // Execute sponsorship
         paymaster.executeSponsorship(merchant, 0.005 ether, SetPaymaster.OperationType.ORDER_CREATE);
 
         // Refund some
-        paymaster.refundUnusedGas(merchant, 0.002 ether);
+        vm.expectEmit(true, false, false, true);
+        emit GasRefunded(merchant, 0.002 ether);
+        paymaster.refundUnusedGas{value: 0.002 ether}(merchant, 0.002 ether);
 
         vm.stopPrank();
 
@@ -544,6 +550,7 @@ contract SetPaymasterTest is Test {
         assertEq(spentMonth, 0.003 ether);
         assertEq(total, 0.003 ether);
         assertEq(paymaster.totalGasSponsored(), 0.003 ether);
+        assertEq(paymaster.balance(), paymasterBalanceBefore - 0.003 ether);
     }
 
     function test_RefundUnusedGas_MoreThanSpent() public {
@@ -554,14 +561,81 @@ contract SetPaymasterTest is Test {
 
         paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
 
-        // Refund more than spent - should clamp to 0
-        paymaster.refundUnusedGas(merchant, 0.01 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.RefundExceedsSponsored.selector,
+                0.01 ether,
+                0.001 ether
+            )
+        );
+        paymaster.refundUnusedGas{value: 0.01 ether}(merchant, 0.01 ether);
 
         vm.stopPrank();
 
-        (, , uint256 spentToday, uint256 spentMonth, ) = paymaster.getMerchantDetails(merchant);
-        assertEq(spentToday, 0);
-        assertEq(spentMonth, 0);
+        (, , uint256 spentToday, uint256 spentMonth, uint256 totalSponsored) = paymaster
+            .getMerchantDetails(merchant);
+        assertEq(spentToday, 0.001 ether);
+        assertEq(spentMonth, 0.001 ether);
+        assertEq(totalSponsored, 0.001 ether);
+    }
+
+    function test_RefundUnusedGas_RequiresMatchingValue() public {
+        vm.prank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+
+        vm.prank(operator);
+        paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
+
+        vm.prank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.RefundValueMismatch.selector,
+                0.001 ether,
+                0.0005 ether
+            )
+        );
+        paymaster.refundUnusedGas{value: 0.0005 ether}(merchant, 0.001 ether);
+    }
+
+    function test_BatchRefundUnusedGas() public {
+        address merchantTwo = address(0x6);
+
+        vm.startPrank(owner);
+        paymaster.sponsorMerchant(merchant, 1);
+        paymaster.sponsorMerchant(merchantTwo, 1);
+        vm.stopPrank();
+
+        vm.startPrank(operator);
+        paymaster.executeSponsorship(merchant, 0.002 ether, SetPaymaster.OperationType.ORDER_CREATE);
+        paymaster.executeSponsorship(
+            merchantTwo,
+            0.003 ether,
+            SetPaymaster.OperationType.PAYMENT_PROCESS
+        );
+
+        address[] memory merchants = new address[](2);
+        merchants[0] = merchant;
+        merchants[1] = merchantTwo;
+
+        uint256[] memory refunds = new uint256[](2);
+        refunds[0] = 0.001 ether;
+        refunds[1] = 0.002 ether;
+
+        paymaster.batchRefundUnusedGas{value: 0.003 ether}(merchants, refunds);
+        vm.stopPrank();
+
+        (, , uint256 spentTodayOne, uint256 spentMonthOne, uint256 totalOne) = paymaster
+            .getMerchantDetails(merchant);
+        (, , uint256 spentTodayTwo, uint256 spentMonthTwo, uint256 totalTwo) = paymaster
+            .getMerchantDetails(merchantTwo);
+
+        assertEq(spentTodayOne, 0.001 ether);
+        assertEq(spentMonthOne, 0.001 ether);
+        assertEq(totalOne, 0.001 ether);
+        assertEq(spentTodayTwo, 0.001 ether);
+        assertEq(spentMonthTwo, 0.001 ether);
+        assertEq(totalTwo, 0.001 ether);
+        assertEq(paymaster.totalGasSponsored(), 0.002 ether);
     }
 
     // =========================================================================
@@ -581,7 +655,13 @@ contract SetPaymasterTest is Test {
 
     function test_Deposit_BelowMinimum() public {
         vm.deal(address(this), 1 ether);
-        vm.expectRevert("Below minimum deposit");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SetPaymaster.BelowMinimumDeposit.selector,
+                0.001 ether,
+                0.01 ether
+            )
+        );
         paymaster.deposit{value: 0.001 ether}();
     }
 
@@ -616,7 +696,7 @@ contract SetPaymasterTest is Test {
 
     function test_Withdraw_InsufficientBalance() public {
         vm.prank(owner);
-        vm.expectRevert("Insufficient balance");
+        vm.expectRevert(SetPaymaster.InsufficientBalance.selector);
         paymaster.withdraw(100 ether);
     }
 
