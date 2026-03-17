@@ -75,6 +75,14 @@ sol!(
 
 type HttpTransport = Http<reqwest::Client>;
 
+/// Metadata for a batch that is already anchored on-chain.
+#[derive(Debug, Clone)]
+pub struct AnchoredBatchMetadata {
+    pub tx_hash: FixedBytes<32>,
+    pub block_number: u64,
+    pub gas_used: u64,
+}
+
 /// Client for SetRegistry contract interactions
 pub struct RegistryClient<P> {
     contract: SetRegistry::SetRegistryInstance<HttpTransport, P>,
@@ -179,6 +187,48 @@ impl<P: Provider<HttpTransport> + Clone> RegistryClient<P> {
     /// Get current gas price from provider
     pub async fn gas_price(&self) -> Result<U256> {
         Ok(U256::from(self.provider.get_gas_price().await?))
+    }
+
+    /// Recover anchoring metadata for a batch that has already been committed.
+    pub async fn find_anchored_batch_metadata(
+        &self,
+        batch_id: &Uuid,
+    ) -> Result<Option<AnchoredBatchMetadata>> {
+        let batch_id = uuid_to_bytes32(batch_id);
+        let mut matches = self
+            .contract
+            .BatchCommitted_filter()
+            .from_block(0u64)
+            .topic1(batch_id)
+            .query()
+            .await?;
+
+        matches.sort_by_key(|(_, log)| (log.block_number.unwrap_or(0), log.log_index.unwrap_or(0)));
+
+        let Some((_, log)) = matches.pop() else {
+            return Ok(None);
+        };
+
+        let tx_hash = log.transaction_hash.ok_or_else(|| {
+            anyhow::anyhow!(
+                "BatchCommitted log missing transaction hash for batch {}",
+                batch_id
+            )
+        })?;
+        let receipt = self
+            .provider
+            .get_transaction_receipt(tx_hash)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Missing receipt for recovered batch transaction"))?;
+        let block_number = log
+            .block_number
+            .unwrap_or_else(|| receipt.block_number.unwrap_or(0));
+
+        Ok(Some(AnchoredBatchMetadata {
+            tx_hash,
+            block_number,
+            gas_used: receipt.gas_used as u64,
+        }))
     }
 }
 

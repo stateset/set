@@ -7,6 +7,11 @@
 
 Set is an Ethereum Layer-2 (L2) network built on the **OP Stack**, designed for **commerce**. It offers faster, cheaper, and cryptographically verifiable transactions by leveraging optimistic rollups with Merkle root anchoring.
 
+Notes:
+- The Rust anchor service submits sequencer-provided UUID batch IDs encoded into `bytes32`.
+- `SetPaymaster` is an operator-managed sponsorship contract, not an ERC-4337 paymaster.
+- STARK proof submissions in `SetRegistry` store proof metadata and state-root bindings; proof validity is verified off-chain.
+
 ## Table of Contents
 
 - [Architecture](#architecture)
@@ -84,7 +89,7 @@ Set is an Ethereum Layer-2 (L2) network built on the **OP Stack**, designed for 
 | **Merkle root anchoring** | Verifiable event commitments from stateset-sequencer |
 | **Multi-tenant isolation** | Per-tenant/store state tracking via `keccak256(tenantId, storeId)` |
 | **Inclusion proof verification** | On-chain verification of off-chain events |
-| **Gas sponsorship** | Merchants can sponsor user transactions via SetPaymaster |
+| **Gas sponsorship** | Merchants can sponsor user transactions via an operator-managed sponsorship vault |
 | **Strict mode verification** | State chain continuity checking to prevent gaps/forks |
 
 ## Chain Configuration
@@ -219,6 +224,11 @@ The fastest way to get started for development and testing:
 ./scripts/dev.sh accounts  # List pre-funded accounts
 ./scripts/dev.sh console   # Open Foundry console
 ```
+
+`./scripts/dev.sh` auto-detects a usable Foundry backend. It prefers real local
+`forge`/`cast`/`anvil` binaries and otherwise falls back to the official Docker
+image from `docs/toolchain.md`. Set `FOUNDRY_USE_DOCKER=1` to force the Docker
+backend, or `FOUNDRY_DOCKER_IMAGE` to pin a specific GHCR image.
 
 **Pre-funded Test Accounts:**
 

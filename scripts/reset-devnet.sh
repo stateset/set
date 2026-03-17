@@ -9,6 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$ROOT_DIR/config/chain-config.toml"
+ANVIL_CONTAINER_NAME="${FOUNDRY_ANVIL_CONTAINER_NAME:-set-local-anvil}"
 
 CHAIN_ID_DEFAULT=84532001
 FORCE=false
@@ -56,7 +57,7 @@ read_toml_value() {
             val = parts[2]
             sub(/#.*/, "", val)
             gsub(/[[:space:]]+/, "", val)
-            gsub(/\"/, "", val)
+            gsub(/"/, "", val)
             print val
             exit
         }
@@ -92,6 +93,10 @@ if [ -n "$PIDS" ]; then
     sleep 1
 else
     echo "No Anvil process found on port 8545."
+fi
+
+if command -v docker >/dev/null 2>&1; then
+    docker rm -f "$ANVIL_CONTAINER_NAME" >/dev/null 2>&1 || true
 fi
 
 echo "Removing devnet artifacts..."

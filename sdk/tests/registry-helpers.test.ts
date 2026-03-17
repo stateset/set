@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { keccak256, solidityPacked } from "ethers";
 import {
+  batchIdFromUuid,
   computeEventLeaf,
   computeTenantStoreKey,
   generateBatchId,
@@ -32,6 +33,16 @@ describe("registry helpers", () => {
         )
       )
     );
+  });
+
+  it("encodes sequencer UUID batch ids into the on-chain bytes32 format", () => {
+    expect(batchIdFromUuid("123e4567-e89b-12d3-a456-426614174000")).toBe(
+      "0x123e4567e89b12d3a45642661417400000000000000000000000000000000000"
+    );
+  });
+
+  it("rejects invalid sequencer batch UUIDs", () => {
+    expect(() => batchIdFromUuid("not-a-uuid")).toThrow("Invalid batch UUID");
   });
 
   it("computes event leaf hashes", () => {

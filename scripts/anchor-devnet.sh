@@ -9,7 +9,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 ANCHOR_DIR="$ROOT_DIR/anchor"
+CONTRACTS_DIR="$ROOT_DIR/contracts"
 MOCK_SCRIPT="$SCRIPT_DIR/mock-sequencer.py"
+
+# shellcheck source=./foundry-common.sh
+. "$SCRIPT_DIR/foundry-common.sh"
 
 DEFAULT_RPC_URL="http://localhost:8545"
 DEFAULT_SEQUENCER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -226,19 +230,9 @@ cmd_smoke() {
     fi
     export SET_REGISTRY_ADDRESS
 
-    local cast_cmd=()
-    if command -v cast >/dev/null 2>&1; then
-        cast_cmd=(cast)
-    elif command -v docker >/dev/null 2>&1; then
-        cast_cmd=(docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable cast)
-    else
-        echo "cast not found. Install Foundry or use Docker."
-        exit 1
-    fi
-
     local before after
-    before=$("${cast_cmd[@]}" call "$SET_REGISTRY_ADDRESS" \
-        "totalCommitments()(uint256)" --rpc-url "$L2_RPC_URL" | tr -d '\r\n ')
+    before="$(run_foundry_tool cast call "$SET_REGISTRY_ADDRESS" \
+        "totalCommitments()(uint256)" --rpc-url "$L2_RPC_URL" | tr -d '\r\n ')"
 
     start_mock_sequencer "$mock_port"
     trap cleanup EXIT INT TERM
@@ -253,8 +247,8 @@ cmd_smoke() {
 
     local waited=0
     while [ "$waited" -lt "$max_wait" ]; do
-        after=$("${cast_cmd[@]}" call "$SET_REGISTRY_ADDRESS" \
-            "totalCommitments()(uint256)" --rpc-url "$L2_RPC_URL" | tr -d '\r\n ')
+        after="$(run_foundry_tool cast call "$SET_REGISTRY_ADDRESS" \
+            "totalCommitments()(uint256)" --rpc-url "$L2_RPC_URL" | tr -d '\r\n ')"
 
         if [ "$after" != "$before" ]; then
             echo "Anchor smoke succeeded: totalCommitments $before -> $after"

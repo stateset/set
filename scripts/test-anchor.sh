@@ -7,7 +7,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 ANCHOR_DIR="$(dirname "$SCRIPT_DIR")/anchor"
+
+# shellcheck source=./foundry-common.sh
+. "$SCRIPT_DIR/foundry-common.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -54,12 +58,12 @@ echo ""
 
 # Check if anvil is available
 ANVIL_AVAILABLE=false
-if command -v anvil &> /dev/null; then
+if [ "$(foundry_backend anvil)" != "none" ]; then
     ANVIL_AVAILABLE=true
-    log_info "Anvil found - contract tests available"
+    log_info "Anvil backend available - contract tests available"
 else
-    log_warn "Anvil not found - contract tests will be skipped"
-    log_info "Install with: curl -L https://foundry.paradigm.xyz | bash && foundryup"
+    log_warn "No Anvil backend found - contract tests will be skipped"
+    log_info "Install Foundry or Docker to enable the ignored contract tests"
 fi
 
 # Run unit tests

@@ -2,6 +2,11 @@ import { Contract } from "ethers";
 import type { MerchantDetails } from "../types.js";
 
 /**
+ * Helpers for SetPaymaster, an operator-managed ETH sponsorship contract.
+ * These helpers do not assume ERC-4337 paymaster semantics.
+ */
+
+/**
  * Paymaster status information
  */
 export interface PaymasterStatus {

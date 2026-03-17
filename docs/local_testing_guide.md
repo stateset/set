@@ -4,12 +4,16 @@ This guide covers how to run and test the Set Chain L2 locally using Anvil (Foun
 
 ## Prerequisites
 
-- Docker installed and running
+- Docker installed and running, or a valid local Foundry install
 - curl and jq for command-line interactions
 
-Foundry tools (forge, anvil, cast) run via Docker to avoid GLIBC compatibility issues.
-Use the `ghcr.io/foundry-rs/foundry:nightly-2024-05-20` image to match the
-pinned toolchain.
+`./scripts/dev.sh` and `./scripts/start-local-anvil.sh` auto-detect a usable
+Foundry backend. They prefer a real local `forge`/`cast`/`anvil` install, and
+fall back to the official Docker image when the local binary is missing or is
+not actually Foundry (for example, Electron Forge on `PATH`).
+
+Set `FOUNDRY_USE_DOCKER=1` to force the Docker backend. Set
+`FOUNDRY_DOCKER_IMAGE` if you want to pin a specific GHCR tag or digest.
 
 ## Toolchain Versions
 
@@ -140,15 +144,15 @@ curl -s http://localhost:8545 -X POST \
 
 Read SetRegistry owner:
 ```bash
-docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable \
-  cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "owner()" \
+docker run --rm --entrypoint cast --network=host ghcr.io/foundry-rs/foundry:nightly \
+  call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "owner()" \
   --rpc-url http://localhost:8545
 ```
 
 Check if sequencer is authorized:
 ```bash
-docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable \
-  cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 \
+docker run --rm --entrypoint cast --network=host ghcr.io/foundry-rs/foundry:nightly \
+  call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 \
   "authorizedSequencers(address)" 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
   --rpc-url http://localhost:8545
 ```
@@ -157,8 +161,8 @@ docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable \
 
 ```bash
 # Using the sequencer's private key
-docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable \
-  cast send 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 \
+docker run --rm --entrypoint cast --network=host ghcr.io/foundry-rs/foundry:nightly \
+  send 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 \
   "commitBatch(bytes32,bytes32,bytes32,bytes32,bytes32,bytes32,uint64,uint64,uint32)" \
   0x0000000000000000000000000000000000000000000000000000000000000001 \
   0x0000000000000000000000000000000000000000000000000000000000000000 \
@@ -185,10 +189,12 @@ Run the Foundry test suite:
 
 Run tests directly via Docker:
 ```bash
-docker run --rm -v $(pwd)/contracts:/app -w /app \
-  ghcr.io/foundry-rs/foundry:stable \
-  forge test -vvv
+docker run --rm --entrypoint forge -v $(pwd)/contracts:/app -w /app \
+  ghcr.io/foundry-rs/foundry:nightly test -vvv
 ```
+
+SDK tests require Node 20+. The SDK Vitest wrapper will use a local Node 20+
+binary when available, or fall back to Docker if `docker` is installed.
 
 ## Resetting the Devnet
 
@@ -274,22 +280,28 @@ chmod 777 contracts/out contracts/cache contracts/broadcast
 Foundry binaries require newer GLIBC. Use Docker-based commands instead:
 ```bash
 # Instead of: forge build
-docker run --rm -v $(pwd)/contracts:/app -w /app \
-  ghcr.io/foundry-rs/foundry:stable forge build
+docker run --rm --entrypoint forge -v $(pwd)/contracts:/app -w /app \
+  ghcr.io/foundry-rs/foundry:nightly build
 
 # Instead of: cast call ...
-docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable \
-  cast call ...
+docker run --rm --entrypoint cast --network=host ghcr.io/foundry-rs/foundry:nightly \
+  call ...
+```
+
+### Wrong `forge` binary on `PATH`
+If `forge --version` resolves to Electron Forge or another non-Foundry tool,
+the repo wrappers will ignore it and use Docker automatically. To force that
+behavior explicitly:
+
+```bash
+FOUNDRY_USE_DOCKER=1 ./scripts/dev.sh test
 ```
 
 ### Reset state
 Restart Anvil to reset all blockchain state:
 ```bash
-# Kill existing Anvil process
-pkill anvil
-
-# Start fresh
-./scripts/dev.sh start
+# Reset local artifacts and restart the node
+./scripts/dev.sh reset --force
 ```
 
 ## Architecture Overview

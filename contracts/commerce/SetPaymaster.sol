@@ -9,7 +9,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 /**
  * @title SetPaymaster
  * @notice Gas abstraction for commerce transactions on Set Chain
- * @dev Sponsors gas costs for authorized merchants, enabling frictionless commerce
+ * @dev Operator-managed ETH sponsorship vault for authorized merchants.
+ *      This contract does not implement ERC-4337 paymaster validation and does not
+ *      bind payouts to a specific transaction hash or measured gas usage.
  *
  * Key features:
  * - Merchant sponsorship with spend limits

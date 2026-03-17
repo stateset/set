@@ -8,6 +8,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+CONTRACTS_DIR="$ROOT_DIR/contracts"
+ANVIL_CONTAINER_NAME="${FOUNDRY_ANVIL_CONTAINER_NAME:-set-local-anvil}"
+
+# shellcheck source=./foundry-common.sh
+. "$SCRIPT_DIR/foundry-common.sh"
 
 # Colors
 GREEN='\033[0;32m'
@@ -38,7 +43,7 @@ read_toml_value() {
             val = parts[2]
             sub(/#.*/, "", val)
             gsub(/[[:space:]]+/, "", val)
-            gsub(/\"/, "", val)
+            gsub(/"/, "", val)
             print val
             exit
         }
@@ -74,14 +79,6 @@ echo "  Set Chain L2 - Local Development (Anvil)"
 echo "=============================================="
 echo -e "${NC}"
 
-# Check for anvil
-if ! command -v anvil &> /dev/null; then
-    echo "Anvil not found. Installing Foundry..."
-    curl -L https://foundry.paradigm.xyz | bash
-    source ~/.bashrc
-    foundryup
-fi
-
 echo ""
 echo "Configuration:"
 if [ -f "$CONFIG_FILE" ]; then
@@ -93,7 +90,7 @@ echo "  Gas Limit:    $GAS_LIMIT"
 echo ""
 
 # Stop any existing Docker L2 to avoid port conflicts
-if docker ps | grep -q "set-op-geth"; then
+if command -v docker >/dev/null 2>&1 && docker ps | grep -q "set-op-geth"; then
     echo -e "${YELLOW}Stopping Docker op-geth to avoid port conflicts...${NC}"
     cd "$ROOT_DIR/docker" && docker compose -f docker-compose.local.yml down 2>/dev/null || true
 fi
@@ -120,11 +117,34 @@ echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
 echo ""
 
 # Start Anvil
-exec anvil \
-    --chain-id $CHAIN_ID \
-    --block-time $BLOCK_TIME \
-    --gas-limit $GAS_LIMIT \
-    --accounts 10 \
-    --balance 10000 \
-    --host 0.0.0.0 \
-    --port 8545
+case "$(foundry_backend anvil)" in
+    host)
+        exec anvil \
+            --chain-id "$CHAIN_ID" \
+            --block-time "$BLOCK_TIME" \
+            --gas-limit "$GAS_LIMIT" \
+            --accounts 10 \
+            --balance 10000 \
+            --host 0.0.0.0 \
+            --port 8545
+        ;;
+    docker)
+        docker rm -f "$ANVIL_CONTAINER_NAME" >/dev/null 2>&1 || true
+        exec docker run --rm \
+            --name "$ANVIL_CONTAINER_NAME" \
+            -p 8545:8545 \
+            --entrypoint anvil \
+            "$(foundry_image)" \
+            --chain-id "$CHAIN_ID" \
+            --block-time "$BLOCK_TIME" \
+            --gas-limit "$GAS_LIMIT" \
+            --accounts 10 \
+            --balance 10000 \
+            --host 0.0.0.0 \
+            --port 8545
+        ;;
+    *)
+        echo "No usable anvil backend found. Install Foundry or Docker, or set FOUNDRY_USE_DOCKER=1."
+        exit 1
+        ;;
+esac

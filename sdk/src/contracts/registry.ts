@@ -1,6 +1,9 @@
 import { Contract, keccak256, solidityPacked } from "ethers";
 import type { BatchCommitment, RegistryStats } from "../types.js";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Extended registry status
  */
@@ -35,12 +38,15 @@ export function computeTenantStoreKey(tenantId: string, storeId: string): string
 
 /**
  * Generate a unique batch ID
+ * @deprecated This is an off-chain helper only. Batches anchored by the Rust anchor service
+ * use sequencer-provided UUIDs encoded into bytes32. Use `batchIdFromUuid` when querying
+ * sequencer-anchored batches.
  * @param tenantId Tenant identifier
  * @param storeId Store identifier
  * @param sequenceStart Start sequence number
  * @param sequenceEnd End sequence number
  * @param timestamp Timestamp in seconds
- * @returns A unique batch ID
+ * @returns A deterministic off-chain batch key
  */
 export function generateBatchId(
   tenantId: string,
@@ -55,6 +61,21 @@ export function generateBatchId(
       [tenantId, storeId, sequenceStart, sequenceEnd, timestamp]
     )
   );
+}
+
+/**
+ * Convert a sequencer batch UUID into the bytes32 format used by the anchor service.
+ * The UUID bytes occupy the high 16 bytes and the remaining bytes are zero-padded.
+ * @param uuid Sequencer batch UUID
+ * @returns The on-chain batch ID used by SetRegistry
+ */
+export function batchIdFromUuid(uuid: string): string {
+  const normalized = uuid.trim().toLowerCase();
+  if (!UUID_PATTERN.test(normalized)) {
+    throw new Error(`Invalid batch UUID: ${uuid}`);
+  }
+
+  return `0x${normalized.replace(/-/g, "")}${"0".repeat(32)}`;
 }
 
 /**

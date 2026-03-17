@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 CONTRACTS_DIR="$ROOT_DIR/contracts"
 
+# shellcheck source=./foundry-common.sh
+. "$SCRIPT_DIR/foundry-common.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -28,9 +31,9 @@ ensure_deps() {
        [ ! -d "lib/openzeppelin-contracts/contracts" ] || \
        [ ! -d "lib/openzeppelin-contracts-upgradeable/contracts" ]; then
         log_info "Installing Foundry dependencies..."
-        forge install foundry-rs/forge-std --no-commit 2>/dev/null || true
-        forge install OpenZeppelin/openzeppelin-contracts --no-commit 2>/dev/null || true
-        forge install OpenZeppelin/openzeppelin-contracts-upgradeable --no-commit 2>/dev/null || true
+        run_foundry_tool forge install foundry-rs/forge-std --no-commit 2>/dev/null || true
+        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts --no-commit 2>/dev/null || true
+        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts-upgradeable --no-commit 2>/dev/null || true
     fi
 }
 
@@ -97,7 +100,7 @@ cmd_deploy() {
     log_info "Deploying contracts..."
     echo ""
 
-    forge script script/Deploy.s.sol \
+    run_foundry_tool forge script script/Deploy.s.sol \
         --rpc-url "$RPC_URL" \
         --broadcast \
         -vvv
@@ -114,7 +117,7 @@ cmd_test() {
 
     ensure_deps
 
-    forge test -vvv "$@"
+    run_foundry_tool forge test -vvv "$@"
 }
 
 cmd_status() {
@@ -182,15 +185,6 @@ cmd_smoke() {
         exit 1
     fi
 
-    if command -v cast >/dev/null 2>&1; then
-        CAST_CMD=(cast)
-    elif command -v docker >/dev/null 2>&1; then
-        CAST_CMD=(docker run --rm --network=host ghcr.io/foundry-rs/foundry:stable cast)
-    else
-        log_error "cast not found. Install Foundry or use Docker."
-        exit 1
-    fi
-
     SEQUENCER_ADDRESS="${SEQUENCER_ADDRESS:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
     SEQUENCER_PRIVATE_KEY="${SEQUENCER_PRIVATE_KEY:-0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d}"
     TENANT_ID="${TENANT_ID:-0x00000000000000000000000000000000000000000000000000000000000000a1}"
@@ -205,8 +199,8 @@ cmd_smoke() {
     fi
 
     SEQUENCER_ADDRESS_NORMALIZED="$(echo "$SEQUENCER_ADDRESS" | tr 'A-F' 'a-f')"
-    SEQUENCER_FROM_KEY=$("${CAST_CMD[@]}" wallet address --private-key "$SEQUENCER_PRIVATE_KEY" 2>/dev/null \
-        | tr -d '\r\n ' | tr 'A-F' 'a-f' || true)
+    SEQUENCER_FROM_KEY="$(run_foundry_tool cast wallet address --private-key "$SEQUENCER_PRIVATE_KEY" 2>/dev/null \
+        | tr -d '\r\n ' | tr 'A-F' 'a-f' || true)"
 
     if [ -n "$SEQUENCER_FROM_KEY" ] && [ "$SEQUENCER_FROM_KEY" != "$SEQUENCER_ADDRESS_NORMALIZED" ]; then
         log_error "SEQUENCER_ADDRESS does not match SEQUENCER_PRIVATE_KEY"
@@ -239,13 +233,13 @@ cmd_smoke() {
 
     EVENT_LEAF_0_HEX="${EVENT_LEAF_0#0x}"
     EVENT_LEAF_1_HEX="${EVENT_LEAF_1#0x}"
-    EVENTS_ROOT=$("${CAST_CMD[@]}" keccak "0x${EVENT_LEAF_0_HEX}${EVENT_LEAF_1_HEX}" | tr -d '\r\n ')
+    EVENTS_ROOT="$(run_foundry_tool cast keccak "0x${EVENT_LEAF_0_HEX}${EVENT_LEAF_1_HEX}" | tr -d '\r\n ')"
 
     log_info "SetRegistry owner:"
-    "${CAST_CMD[@]}" call "$REGISTRY_PROXY" "owner()(address)" --rpc-url "$RPC_URL"
+    run_foundry_tool cast call "$REGISTRY_PROXY" "owner()(address)" --rpc-url "$RPC_URL"
     log_info "SetRegistry authorizedSequencers:"
-    AUTHORIZED=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" "authorizedSequencers(address)(bool)" \
-        "$SEQUENCER_ADDRESS" --rpc-url "$RPC_URL" | tr -d '\r\n ')
+    AUTHORIZED="$(run_foundry_tool cast call "$REGISTRY_PROXY" "authorizedSequencers(address)(bool)" \
+        "$SEQUENCER_ADDRESS" --rpc-url "$RPC_URL" | tr -d '\r\n ')"
 
     if [ "$AUTHORIZED" != "true" ] && [ "$AUTHORIZED" != "1" ]; then
         log_error "Sequencer $SEQUENCER_ADDRESS is not authorized"
@@ -255,21 +249,21 @@ cmd_smoke() {
 
     if [ -n "$PAYMASTER_PROXY" ]; then
         log_info "SetPaymaster owner:"
-        "${CAST_CMD[@]}" call "$PAYMASTER_PROXY" "owner()(address)" --rpc-url "$RPC_URL"
+        run_foundry_tool cast call "$PAYMASTER_PROXY" "owner()(address)" --rpc-url "$RPC_URL"
         log_info "SetPaymaster treasury:"
-        "${CAST_CMD[@]}" call "$PAYMASTER_PROXY" "treasury()(address)" --rpc-url "$RPC_URL"
+        run_foundry_tool cast call "$PAYMASTER_PROXY" "treasury()(address)" --rpc-url "$RPC_URL"
     else
         log_warn "SetPaymaster proxy not found in $BROADCAST_FILE"
     fi
 
-    HEAD_SEQ_BEFORE=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" \
+    HEAD_SEQ_BEFORE="$(run_foundry_tool cast call "$REGISTRY_PROXY" \
         "getHeadSequence(bytes32,bytes32)(uint64)" \
-        "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ')
+        "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ')"
 
     if [[ "$HEAD_SEQ_BEFORE" =~ ^[0-9]+$ ]] && [ "$HEAD_SEQ_BEFORE" -gt 0 ]; then
-        PREV_STATE_ROOT=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" \
+        PREV_STATE_ROOT="$(run_foundry_tool cast call "$REGISTRY_PROXY" \
             "getLatestStateRoot(bytes32,bytes32)(bytes32)" \
-            "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ')
+            "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ')"
         SEQUENCE_START=$((HEAD_SEQ_BEFORE + 1))
     else
         SEQUENCE_START=1
@@ -283,7 +277,7 @@ cmd_smoke() {
     fi
 
     log_info "Committing test batch..."
-    "${CAST_CMD[@]}" send "$REGISTRY_PROXY" \
+    run_foundry_tool cast send "$REGISTRY_PROXY" \
         "commitBatch(bytes32,bytes32,bytes32,bytes32,bytes32,bytes32,uint64,uint64,uint32)" \
         "$BATCH_ID" "$TENANT_ID" "$STORE_ID" "$EVENTS_ROOT" "$PREV_STATE_ROOT" "$NEW_STATE_ROOT" \
         "$SEQUENCE_START" "$SEQUENCE_END" "$EVENT_COUNT" \
@@ -294,10 +288,10 @@ cmd_smoke() {
     MULTI_LEAVES="[$EVENT_LEAF_0,$EVENT_LEAF_1]"
     MULTI_PROOFS="[[${EVENT_LEAF_1}],[${EVENT_LEAF_0}]]"
     MULTI_INDICES="[0,1]"
-    MULTI_RESULT=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" \
+    MULTI_RESULT="$(run_foundry_tool cast call "$REGISTRY_PROXY" \
         "verifyMultipleInclusions(bytes32,bytes32[],bytes32[][],uint256[])(bool)" \
         "$BATCH_ID" "$MULTI_LEAVES" "$MULTI_PROOFS" "$MULTI_INDICES" \
-        --rpc-url "$RPC_URL" | tr -d '\r\n ')
+        --rpc-url "$RPC_URL" | tr -d '\r\n ')"
 
     if [ "$MULTI_RESULT" != "true" ] && [ "$MULTI_RESULT" != "1" ]; then
         log_error "verifyMultipleInclusions returned: $MULTI_RESULT"
@@ -306,10 +300,10 @@ cmd_smoke() {
     log_success "Multiproof verified"
 
     log_info "Verifying single inclusion..."
-    INCLUSION_RESULT=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" \
+    INCLUSION_RESULT="$(run_foundry_tool cast call "$REGISTRY_PROXY" \
         "verifyInclusion(bytes32,bytes32,bytes32[],uint256)(bool)" \
         "$BATCH_ID" "$EVENT_LEAF_0" "[$EVENT_LEAF_1]" 0 \
-        --rpc-url "$RPC_URL" | tr -d '\r\n ')
+        --rpc-url "$RPC_URL" | tr -d '\r\n ')"
 
     if [ "$INCLUSION_RESULT" != "true" ] && [ "$INCLUSION_RESULT" != "1" ]; then
         log_error "verifyInclusion returned: $INCLUSION_RESULT"
@@ -317,9 +311,9 @@ cmd_smoke() {
     fi
     log_success "Inclusion proof verified"
 
-    LATEST_STATE=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" \
+    LATEST_STATE="$(run_foundry_tool cast call "$REGISTRY_PROXY" \
         "getLatestStateRoot(bytes32,bytes32)(bytes32)" \
-        "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ' | tr 'A-F' 'a-f')
+        "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ' | tr 'A-F' 'a-f')"
     EXPECTED_STATE="$(echo "$NEW_STATE_ROOT" | tr 'A-F' 'a-f')"
 
     if [ "$LATEST_STATE" != "$EXPECTED_STATE" ]; then
@@ -328,9 +322,9 @@ cmd_smoke() {
     fi
     log_success "Latest state root matches"
 
-    HEAD_SEQ_AFTER=$("${CAST_CMD[@]}" call "$REGISTRY_PROXY" \
+    HEAD_SEQ_AFTER="$(run_foundry_tool cast call "$REGISTRY_PROXY" \
         "getHeadSequence(bytes32,bytes32)(uint64)" \
-        "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ')
+        "$TENANT_ID" "$STORE_ID" --rpc-url "$RPC_URL" | tr -d '\r\n ')"
 
     if [ "$HEAD_SEQ_AFTER" != "$SEQUENCE_END" ]; then
         log_error "Head sequence mismatch: expected $SEQUENCE_END, got $HEAD_SEQ_AFTER"
@@ -384,7 +378,7 @@ cmd_fund() {
     log_info "Sending $AMOUNT ETH to $ADDRESS..."
 
     # Use cast to send from first account
-    cast send "$ADDRESS" \
+    run_foundry_tool cast send "$ADDRESS" \
         --value "${AMOUNT}ether" \
         --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
         --rpc-url "$RPC_URL"
@@ -395,7 +389,7 @@ cmd_fund() {
 cmd_console() {
     log_info "Opening Foundry console..."
     cd "$CONTRACTS_DIR"
-    cast shell --rpc-url "$RPC_URL"
+    run_foundry_tool cast shell --rpc-url "$RPC_URL"
 }
 
 # Main

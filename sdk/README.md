@@ -2,6 +2,11 @@
 
 A comprehensive TypeScript SDK for interacting with Set Chain, a commerce-optimized Ethereum Layer 2.
 
+Notes:
+- Sequencer-anchored batches use UUIDs encoded into `bytes32` on-chain. Use `batchIdFromUuid(...)`
+  when querying batches created by the Rust anchor service.
+- `SetPaymaster` is an operator-managed sponsorship contract, not an ERC-4337 paymaster.
+
 ## Features
 
 - **SetRegistry** - Batch commitment anchoring and Merkle proof verification
@@ -15,6 +20,10 @@ A comprehensive TypeScript SDK for interacting with Set Chain, a commerce-optimi
 ```bash
 npm install @setchain/sdk ethers
 ```
+
+SDK tests require Node 20+. `npm test` will use a local Node 20+ binary when
+available, honor `SET_SDK_NODE_BIN`, and otherwise fall back to Docker when
+`docker` is installed.
 
 ## Quick Start
 
@@ -63,6 +72,16 @@ const isValid = await registry.verifyInclusion(batchId, leaf, proof, index);
 const stateRoot = await registry.getLatestStateRoot(tenantId, storeId);
 ```
 
+If you need to query a batch anchored by the sequencer/anchor service:
+
+```typescript
+import { batchIdFromUuid, fetchBatchCommitment, getSetRegistry } from "@setchain/sdk";
+
+const registry = getSetRegistry(registryAddress, provider);
+const batchId = batchIdFromUuid("123e4567-e89b-12d3-a456-426614174000");
+const batch = await fetchBatchCommitment(registry, batchId);
+```
+
 ### SetPaymaster
 
 Gas sponsorship for commerce transactions:
@@ -81,6 +100,9 @@ await paymaster.executeSponsorship(merchantAddress, amount, operationType);
 // Get merchant details
 const details = await paymaster.getMerchantDetails(merchantAddress);
 ```
+
+`SetPaymaster` manages sponsored ETH balances and operator-approved payouts. It should not be
+treated as an ERC-4337-compatible paymaster or as an on-chain source of truth for actual gas used.
 
 ### Stablecoin Client
 

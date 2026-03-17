@@ -502,9 +502,14 @@ mod service_tests {
     use crate::config::AnchorConfig;
     use crate::health::HealthState;
     use crate::service::AnchorService;
-    use crate::types::AnchorStats;
+    use crate::types::{AnchorNotification, AnchorStats};
     use std::sync::Arc;
     use tokio::sync::RwLock;
+    use uuid::Uuid;
+    use wiremock::{
+        matchers::{method, path_regex},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     fn test_config() -> AnchorConfig {
         AnchorConfig {
@@ -561,5 +566,72 @@ mod service_tests {
         let stats = service.stats().await;
         assert_eq!(stats.total_anchored, 0);
         assert_eq!(stats.total_failed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_flush_pending_notifications_success() {
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/v1/commitments/[0-9a-f-]+/anchored"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&mock)
+            .await;
+
+        let mut config = test_config();
+        config.sequencer_api_url = mock.uri();
+
+        let service = AnchorService::new(config);
+        let batch_id = Uuid::new_v4();
+
+        service
+            .queue_notification_for_test(
+                batch_id,
+                AnchorNotification {
+                    chain_tx_hash: "0x1234".to_string(),
+                    chain_id: 84532001,
+                    block_number: Some(42),
+                    gas_used: Some(21_000),
+                },
+            )
+            .await;
+        assert_eq!(service.queued_notification_count().await, 1);
+
+        service.flush_pending_notifications_for_test().await;
+
+        assert_eq!(service.queued_notification_count().await, 0);
+        assert_eq!(mock.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_flush_pending_notifications_requeues_on_failure() {
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/v1/commitments/[0-9a-f-]+/anchored"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock)
+            .await;
+
+        let mut config = test_config();
+        config.sequencer_api_url = mock.uri();
+
+        let service = AnchorService::new(config);
+        let batch_id = Uuid::new_v4();
+
+        service
+            .queue_notification_for_test(
+                batch_id,
+                AnchorNotification {
+                    chain_tx_hash: "0x1234".to_string(),
+                    chain_id: 84532001,
+                    block_number: Some(42),
+                    gas_used: Some(21_000),
+                },
+            )
+            .await;
+
+        service.flush_pending_notifications_for_test().await;
+
+        assert_eq!(service.queued_notification_count().await, 1);
+        assert_eq!(mock.received_requests().await.unwrap().len(), 1);
     }
 }

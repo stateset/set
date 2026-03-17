@@ -1,5 +1,6 @@
 //! Main anchor service implementation
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,9 +13,10 @@ use anyhow::Result;
 use chrono::Utc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::{
-    client::{create_provider, RegistryClient, SequencerApiClient},
+    client::{create_provider, AnchoredBatchMetadata, RegistryClient, SequencerApiClient},
     config::AnchorConfig,
     error::{
         AnchorError, AuthorizationError, ConfigError, L2Error, SequencerApiError, TransactionError,
@@ -40,6 +42,7 @@ pub struct AnchorService {
     stats: Arc<RwLock<AnchorStats>>,
     health_state: Option<Arc<HealthState>>,
     circuit_breaker: Arc<RwLock<CircuitBreaker>>,
+    pending_notifications: Arc<RwLock<HashMap<Uuid, AnchorNotification>>>,
 }
 
 impl AnchorService {
@@ -63,6 +66,7 @@ impl AnchorService {
             stats: Arc::new(RwLock::new(AnchorStats::default())),
             health_state: None,
             circuit_breaker: Arc::new(RwLock::new(circuit_breaker)),
+            pending_notifications: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -86,6 +90,7 @@ impl AnchorService {
             stats: health_state.stats.clone(),
             health_state: Some(health_state),
             circuit_breaker: Arc::new(RwLock::new(circuit_breaker)),
+            pending_notifications: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -117,6 +122,23 @@ impl AnchorService {
         stats.record_anchor_failure();
     }
 
+    async fn record_notification_failure(&self, batch_id: Uuid, error_message: String) {
+        {
+            let mut stats = self.stats.write().await;
+            stats.sequencer_api_failures += 1;
+        }
+
+        self.record_error(AnchorError::SequencerApi(
+            SequencerApiError::NotificationFailed(error_message.clone()),
+        ))
+        .await;
+        warn!(
+            batch_id = %batch_id,
+            error = %error_message,
+            "Failed to notify sequencer of anchoring"
+        );
+    }
+
     async fn record_cycle_success(&self) {
         let state = {
             let mut breaker = self.circuit_breaker.write().await;
@@ -144,6 +166,100 @@ impl AnchorService {
 
         let mut stats = self.stats.write().await;
         stats.circuit_breaker_state = state;
+    }
+
+    async fn queue_notification(&self, batch_id: Uuid, notification: AnchorNotification) {
+        self.pending_notifications
+            .write()
+            .await
+            .insert(batch_id, notification);
+    }
+
+    async fn has_pending_notification(&self, batch_id: &Uuid) -> bool {
+        self.pending_notifications
+            .read()
+            .await
+            .contains_key(batch_id)
+    }
+
+    async fn flush_pending_notifications(&self) {
+        let pending_notifications = self.pending_notifications.read().await.clone();
+
+        for (batch_id, notification) in pending_notifications {
+            match self
+                .sequencer_client
+                .notify_anchored(batch_id, &notification)
+                .await
+            {
+                Ok(()) => {
+                    self.pending_notifications.write().await.remove(&batch_id);
+                    info!(batch_id = %batch_id, "Flushed queued anchor notification");
+                }
+                Err(e) => {
+                    self.record_notification_failure(batch_id, e.to_string())
+                        .await;
+                }
+            }
+        }
+    }
+
+    async fn notify_sequencer_or_queue(&self, batch_id: Uuid, notification: AnchorNotification) {
+        if let Err(e) = self
+            .sequencer_client
+            .notify_anchored(batch_id, &notification)
+            .await
+        {
+            self.queue_notification(batch_id, notification).await;
+            self.record_notification_failure(batch_id, e.to_string())
+                .await;
+            warn!(
+                batch_id = %batch_id,
+                "Queued anchor notification for retry after sequencer acknowledgement failure"
+            );
+        }
+    }
+
+    async fn recover_already_anchored<P: Provider<HttpTransport> + Clone>(
+        &self,
+        registry: &RegistryClient<P>,
+        commitment: &BatchCommitment,
+    ) -> Result<Option<AnchorResult>> {
+        let Some(AnchoredBatchMetadata {
+            tx_hash,
+            block_number,
+            gas_used,
+        }) = registry
+            .find_anchored_batch_metadata(&commitment.batch_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let tx_hash_hex = format!("0x{}", hex::encode(tx_hash.as_slice()));
+        let notification = AnchorNotification {
+            chain_tx_hash: tx_hash_hex.clone(),
+            chain_id: registry.chain_id(),
+            block_number: Some(block_number),
+            gas_used: Some(gas_used),
+        };
+        self.notify_sequencer_or_queue(commitment.batch_id, notification)
+            .await;
+
+        info!(
+            batch_id = %commitment.batch_id,
+            tx_hash = %tx_hash_hex,
+            block_number = block_number,
+            "Recovered already-anchored commitment from on-chain event history"
+        );
+
+        Ok(Some(AnchorResult {
+            batch_id: commitment.batch_id,
+            tx_hash: tx_hash_hex,
+            block_number,
+            gas_used,
+            success: true,
+            error: None,
+        }))
     }
 
     /// Run the anchor service loop
@@ -357,6 +473,8 @@ impl AnchorService {
             }
         }
 
+        self.flush_pending_notifications().await;
+
         // Fetch pending commitments from sequencer
         let mut commitments = match self.sequencer_client.get_pending_commitments().await {
             Ok(c) => {
@@ -416,6 +534,14 @@ impl AnchorService {
                 continue;
             }
 
+            if self.has_pending_notification(&commitment.batch_id).await {
+                debug!(
+                    batch_id = %commitment.batch_id,
+                    "Skipping batch: awaiting sequencer acknowledgement retry"
+                );
+                continue;
+            }
+
             // Anchor with retries
             let result = self.anchor_with_retry(registry, &commitment).await;
             results.push(result);
@@ -442,6 +568,25 @@ impl AnchorService {
                     return result;
                 }
                 Err(e) => {
+                    match self.recover_already_anchored(registry, commitment).await {
+                        Ok(Some(result)) => {
+                            self.record_anchor_success(
+                                commitment,
+                                start.elapsed().as_millis() as u64,
+                            )
+                            .await;
+                            return result;
+                        }
+                        Ok(None) => {}
+                        Err(recovery_error) => {
+                            warn!(
+                                batch_id = %commitment.batch_id,
+                                error = %recovery_error,
+                                "Failed to recover already-anchored batch metadata"
+                            );
+                        }
+                    }
+
                     warn!(
                         batch_id = %commitment.batch_id,
                         attempt = attempt,
@@ -507,27 +652,8 @@ impl AnchorService {
             block_number: Some(block_number),
             gas_used: Some(gas_used),
         };
-
-        if let Err(e) = self
-            .sequencer_client
-            .notify_anchored(commitment.batch_id, &notification)
-            .await
-        {
-            {
-                let mut stats = self.stats.write().await;
-                stats.sequencer_api_failures += 1;
-            }
-            self.record_error(AnchorError::SequencerApi(
-                SequencerApiError::NotificationFailed(e.to_string()),
-            ))
+        self.notify_sequencer_or_queue(commitment.batch_id, notification)
             .await;
-            warn!(
-                batch_id = %commitment.batch_id,
-                error = %e,
-                "Failed to notify sequencer of anchoring"
-            );
-            // Don't fail the anchor - the on-chain tx succeeded
-        }
 
         info!(
             batch_id = %commitment.batch_id,
@@ -558,5 +684,24 @@ impl AnchorService {
     /// Get current statistics
     pub async fn stats(&self) -> AnchorStats {
         self.stats.read().await.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn queue_notification_for_test(
+        &self,
+        batch_id: Uuid,
+        notification: AnchorNotification,
+    ) {
+        self.queue_notification(batch_id, notification).await;
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn flush_pending_notifications_for_test(&self) {
+        self.flush_pending_notifications().await;
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn queued_notification_count(&self) -> usize {
+        self.pending_notifications.read().await.len()
     }
 }

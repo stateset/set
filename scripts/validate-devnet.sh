@@ -77,7 +77,7 @@ read_toml_value() {
             val = parts[2]
             sub(/#.*/, "", val)
             gsub(/[[:space:]]+/, "", val)
-            gsub(/\"/, "", val)
+            gsub(/"/, "", val)
             print val
             exit
         }

@@ -11,6 +11,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
  * @title SetRegistry
  * @notice Merkle Root Anchoring for Commerce Events on Set Chain
  * @dev Stores batch commitments from the stateset-sequencer for verifiable commerce
+ *      and records STARK proof metadata. Proof validity itself is not verified on-chain.
  *
  * Key features:
  * - Multi-sequencer authorization
@@ -278,6 +279,8 @@ contract SetRegistry is
 
     /**
      * @notice Submit a STARK proof for a batch
+     * @dev Stores proof metadata and state-root bindings. This does not verify STARK validity
+     *      on-chain; callers should treat it as an integrity commitment for off-chain verification.
      * @param _batchId Batch this proof is for (must already be committed)
      * @param _proofHash Hash of the STARK proof bytes
      * @param _prevStateRoot Previous state root (must match batch)
@@ -307,7 +310,7 @@ contract SetRegistry is
 
     /**
      * @notice Commit batch and STARK proof together in a single transaction
-     * @dev Combines commitBatch and commitStarkProof for gas efficiency
+     * @dev Combines commitBatch and proof-metadata storage for gas efficiency.
      */
     function commitBatchWithStarkProof(
         bytes32 _batchId,
