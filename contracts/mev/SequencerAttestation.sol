@@ -93,6 +93,8 @@ contract SequencerAttestation is
         bool valid
     );
 
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -103,6 +105,8 @@ contract SequencerAttestation is
     error InvalidSignature();
     error InvalidProof();
     error BlockNumberMismatch();
+    error LengthMismatch();
+    error InvalidProofsLength();
 
     // =========================================================================
     // Initialization
@@ -297,8 +301,8 @@ contract SequencerAttestation is
         bytes32[] calldata _proofs,
         uint256 _proofLength
     ) external view returns (bool[] memory results) {
-        require(_txHashes.length == _positions.length, "Length mismatch");
-        require(_proofs.length == _txHashes.length * _proofLength, "Invalid proofs length");
+        if (_txHashes.length != _positions.length) revert LengthMismatch();
+        if (_proofs.length != _txHashes.length * _proofLength) revert InvalidProofsLength();
 
         OrderingCommitment storage commitment = commitments[_blockHash];
         if (commitment.timestamp == 0) {
@@ -388,6 +392,8 @@ contract SequencerAttestation is
 
     /**
      * @dev Verify a Merkle proof (memory version for batch operations)
+     * NOTE: Intentional duplication of _verifyMerkleProof logic — Solidity requires
+     * separate functions for calldata vs memory parameter types.
      */
     function _verifyMerkleProofMemory(
         bytes32[] memory _proof,
@@ -417,5 +423,13 @@ contract SequencerAttestation is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

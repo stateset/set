@@ -19,6 +19,9 @@ contract GroundingRegistryV2 is AccessControl {
     mapping(address => uint256) private collateralProviderIndexPlusOne;
     address[] public collateralProviders;
 
+    error ZeroAddress();
+    error MaxProvidersReached();
+
     event AgentGrounded(
         address indexed agent,
         uint256 assetsNow,
@@ -41,7 +44,7 @@ contract GroundingRegistryV2 is AccessControl {
         wSSDCVaultV2 vault_,
         address admin
     ) {
-        require(admin != address(0), "admin=0");
+        if (admin == address(0)) revert ZeroAddress();
 
         policyModule = policyModule_;
         navController = navController_;
@@ -51,12 +54,12 @@ contract GroundingRegistryV2 is AccessControl {
     }
 
     function setCollateralProvider(address provider, bool enabled) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(provider != address(0), "provider=0");
+        if (provider == address(0)) revert ZeroAddress();
 
         uint256 indexPlusOne = collateralProviderIndexPlusOne[provider];
         if (enabled) {
             if (indexPlusOne == 0) {
-                require(collateralProviders.length < MAX_PROVIDERS, "max providers");
+                if (collateralProviders.length >= MAX_PROVIDERS) revert MaxProvidersReached();
                 collateralProviders.push(provider);
                 collateralProviderIndexPlusOne[provider] = collateralProviders.length;
             }

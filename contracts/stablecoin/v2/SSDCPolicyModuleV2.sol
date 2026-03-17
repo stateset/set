@@ -21,6 +21,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     mapping(address => AgentPolicy) public policies;
     mapping(address => mapping(address => bool)) public merchantAllowlist;
 
+    error ZeroAddress();
     error POLICY_NOT_SET();
     error POLICY_LIMIT();
     error POLICY_DAILY_LIMIT();
@@ -44,7 +45,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     event PolicyCommitmentReleased(address indexed agent, uint256 assetsReleased, uint256 committedAssets);
 
     constructor(address admin) {
-        require(admin != address(0), "admin=0");
+        if (admin == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(POLICY_CONSUMER_ROLE, admin);
     }
@@ -57,7 +58,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
         uint40 sessionExpiry,
         bool enforceMerchantAllowlist
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(agent != address(0), "agent=0");
+        if (agent == address(0)) revert ZeroAddress();
         AgentPolicy storage policy = policies[agent];
         policy.perTxLimitAssets = perTxLimitAssets;
         policy.dailyLimitAssets = dailyLimitAssets;
@@ -81,8 +82,8 @@ contract SSDCPolicyModuleV2 is AccessControl {
     }
 
     function setMerchantAllowed(address agent, address merchant, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(agent != address(0), "agent=0");
-        require(merchant != address(0), "merchant=0");
+        if (agent == address(0)) revert ZeroAddress();
+        if (merchant == address(0)) revert ZeroAddress();
         merchantAllowlist[agent][merchant] = allowed;
         emit MerchantAllowlistUpdated(agent, merchant, allowed);
     }

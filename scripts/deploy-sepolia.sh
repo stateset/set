@@ -2,7 +2,7 @@
 # Sepolia Deployment Script for Set Chain
 # Deploys the complete L2 stack to Sepolia testnet
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"

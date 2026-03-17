@@ -9,7 +9,13 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/**/index.ts', 'src/**/abis.ts', 'src/**/types.ts']
+      exclude: ['src/**/*.d.ts', 'src/**/index.ts', 'src/**/abis.ts', 'src/**/types.ts'],
+      thresholds: {
+        lines: 60,
+        functions: 50,
+        branches: 50,
+        statements: 60,
+      }
     }
   }
 });

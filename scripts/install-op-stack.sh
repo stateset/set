@@ -2,7 +2,7 @@
 # Set Chain - OP Stack Installation Script
 # Installs op-deployer, op-node, op-geth, op-batcher, op-proposer, op-challenger
 
-set -e
+set -euo pipefail
 
 echo "=== Set Chain OP Stack Installation ==="
 echo ""

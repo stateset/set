@@ -40,6 +40,8 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     mapping(address => uint256) public gasTankShares;
     mapping(bytes32 => PendingCharge) public pendingCharges;
 
+    error ZeroAddress();
+    error InvalidAmount();
     error PAYMASTER_PAUSED();
     error GROUNDED();
     error PRICE_STALE();
@@ -76,9 +78,9 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
         address admin,
         address feeCollector_
     ) {
-        require(admin != address(0), "admin=0");
-        require(feeCollector_ != address(0), "fee=0");
-        require(entryPoint_ != address(0), "entry=0");
+        if (admin == address(0)) revert ZeroAddress();
+        if (feeCollector_ == address(0)) revert ZeroAddress();
+        if (entryPoint_ == address(0)) revert ZeroAddress();
 
         vault = vault_;
         navController = navController_;
@@ -103,7 +105,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     }
 
     function setEthUsdOracle(IETHUSDOracleV2 oracle) external onlyRole(PAYMASTER_ADMIN_ROLE) {
-        require(address(oracle) != address(0), "oracle=0");
+        if (address(oracle) == address(0)) revert ZeroAddress();
         ethUsdOracle = oracle;
         emit EthUsdOracleUpdated(address(oracle));
     }
@@ -114,19 +116,19 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     }
 
     function setMaxPriceStaleness(uint256 staleness) external onlyRole(PAYMASTER_ADMIN_ROLE) {
-        require(staleness > 0, "staleness=0");
+        if (staleness == 0) revert InvalidAmount();
         maxPriceStaleness = staleness;
         emit MaxPriceStalenessUpdated(staleness);
     }
 
     function setFeeCollector(address collector) external onlyRole(PAYMASTER_ADMIN_ROLE) {
-        require(collector != address(0), "collector=0");
+        if (collector == address(0)) revert ZeroAddress();
         feeCollector = collector;
         emit FeeCollectorUpdated(collector);
     }
 
     function setEntryPoint(address entryPoint_) external onlyRole(PAYMASTER_ADMIN_ROLE) {
-        require(entryPoint_ != address(0), "entry=0");
+        if (entryPoint_ == address(0)) revert ZeroAddress();
         entryPoint = entryPoint_;
         emit EntryPointUpdated(entryPoint_);
     }
@@ -138,13 +140,13 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
     function topUpGasTankFor(address agent, uint256 shares) external nonReentrant {
         if (paymasterPaused) revert PAYMASTER_PAUSED();
-        require(agent != address(0), "agent=0");
+        if (agent == address(0)) revert ZeroAddress();
         _topUpGasTank(agent, shares);
     }
 
     function withdrawGasTank(uint256 shares, address to) external nonReentrant {
         uint256 tank = gasTankShares[msg.sender];
-        require(shares <= tank, "tank<shares");
+        if (shares > tank) revert INSUFFICIENT_SHARES();
 
         unchecked {
             gasTankShares[msg.sender] = tank - shares;

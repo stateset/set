@@ -145,6 +145,8 @@ contract ThresholdKeyRegistry is
 
     event DKGAborted(string reason);
 
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -169,6 +171,7 @@ contract ThresholdKeyRegistry is
     error KeyRevoked();
     error InvalidAddress();
     error EmptyArray();
+    error TransferFailed();
 
     // =========================================================================
     // Initialization
@@ -303,7 +306,7 @@ contract ThresholdKeyRegistry is
         stakes[msg.sender] = 0;
 
         (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Transfer failed");
+        if (!success) revert TransferFailed();
     }
 
     // =========================================================================
@@ -985,10 +988,18 @@ contract ThresholdKeyRegistry is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
 
     /**
      * @notice Receive function to accept stake deposits
      */
     receive() external payable {}
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

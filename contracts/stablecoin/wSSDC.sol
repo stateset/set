@@ -93,6 +93,8 @@ contract wSSDC is
     event SharePriceSnapshotRecorded(uint256 price, uint256 totalAssets, uint256 totalSupply);
     event BatchWrapped(address indexed caller, uint256 totalSSDC, uint256 totalWSSDC, uint256 count);
     event BatchUnwrapped(address indexed caller, uint256 totalWSSDC, uint256 totalSSDC, uint256 count);
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Initialization
     // =========================================================================
@@ -897,5 +899,13 @@ contract wSSDC is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

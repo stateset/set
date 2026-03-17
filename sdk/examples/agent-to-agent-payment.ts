@@ -209,6 +209,22 @@ async function agentA_verifyAndRelease(escrowId: bigint, expectedEvidence: strin
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // Validate required environment variables before proceeding
+  const requiredVars = [
+    "VAULT_ADDRESS", "GATEWAY_ADDRESS", "NAV_CONTROLLER_ADDRESS",
+    "ESCROW_ADDRESS", "CLAIM_QUEUE_ADDRESS", "POLICY_MODULE_ADDRESS",
+    "GROUNDING_REGISTRY_ADDRESS", "PAYMASTER_ADDRESS", "BRIDGE_ADDRESS",
+    "STATUS_LENS_ADDRESS", "CIRCUIT_BREAKER_ADDRESS", "SETTLEMENT_ASSET_ADDRESS",
+    "AGENT_A_KEY", "AGENT_B_KEY"
+  ];
+
+  const missing = requiredVars.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.error(`Missing required environment variables: ${missing.join(", ")}`);
+    console.error("Copy .env.example to .env and fill in the values.");
+    process.exit(1);
+  }
+
   console.log("=== Agent-to-Agent Payment on Set Chain L2 ===\n");
 
   // 1. Provider agent creates an offer
@@ -228,4 +244,9 @@ async function main() {
   console.log("\n=== Payment complete! Both agents earned yield. ===");
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error("Payment flow failed:", error.message || error);
+  if (error.code) console.error("Error code:", error.code);
+  if (error.details) console.error("Details:", JSON.stringify(error.details, null, 2));
+  process.exit(1);
+});

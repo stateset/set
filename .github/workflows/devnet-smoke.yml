@@ -35,6 +35,7 @@ jobs:
         run: ./scripts/start-local-anvil.sh > /tmp/anvil.log 2>&1 &
 
       - name: Wait for RPC
+        timeout-minutes: 1
         run: |
           for i in {1..30}; do
             if curl -sf http://localhost:8545 -X POST \
@@ -49,13 +50,31 @@ jobs:
           exit 1
 
       - name: Validate config
+        timeout-minutes: 2
         run: ./scripts/dev.sh validate
 
       - name: Contract tests
+        timeout-minutes: 10
         run: ./scripts/dev.sh test
 
       - name: Smoke test
+        timeout-minutes: 5
         run: ./scripts/dev.sh smoke
 
       - name: Anchor smoke test
+        timeout-minutes: 5
         run: ./scripts/dev.sh anchor-smoke
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devnet-logs
+          path: /tmp/anvil.log
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          pkill -f anvil 2>/dev/null || true
+          pkill -f "start-local-anvil" 2>/dev/null || true

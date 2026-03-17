@@ -2,7 +2,7 @@
 # Set Chain - L1 Contract Deployment Script
 # Deploys OP Stack contracts to Ethereum Sepolia
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"

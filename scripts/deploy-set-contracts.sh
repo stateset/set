@@ -4,7 +4,7 @@
 # Deploy SetRegistry and SetPaymaster contracts to Set Chain L2
 # =============================================================================
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"

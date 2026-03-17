@@ -102,6 +102,9 @@ contract SSDC is
         string indexed changeType  // "mint" or "burn"
     );
 
+    /// @notice Emitted when contract is upgraded
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -460,79 +463,70 @@ contract SSDC is
      * @dev Get NAV per share from oracle with staleness check
      * @notice If enforceNavStaleness is true:
      *         - revertOnStaleNav = true: reverts with StaleNAV error
-     *         - revertOnStaleNav = false: returns $1.00 fallback (emits event)
+     *         - revertOnStaleNav = false: returns $1.00 fallback (emits event in non-view context)
      */
     function _getNavPerShare() internal returns (uint256) {
+        uint256 nav = _resolveNav();
+        if (nav == PRECISION && navOracle != address(0) && enforceNavStaleness) {
+            // Stale NAV fallback — emit warning only in non-view context
+            emit StaleNavFallback(block.timestamp, PRECISION);
+        }
+        return nav;
+    }
+
+    /**
+     * @dev Get NAV per share (view version - no event emission)
+     */
+    function _getNavPerShareView() internal view returns (uint256) {
+        return _resolveNav();
+    }
+
+    /**
+     * @dev Core NAV resolution logic shared by view and non-view callers
+     */
+    function _resolveNav() internal view returns (uint256) {
         if (navOracle == address(0)) {
             return PRECISION; // $1.00 default
         }
 
         INAVOracle oracle = INAVOracle(navOracle);
 
-        // Check staleness if enforcement is enabled
         if (enforceNavStaleness && !oracle.isNAVFresh()) {
             if (revertOnStaleNav) {
                 revert StaleNAV();
             }
-            // Fallback to $1.00 and emit warning event
-            emit StaleNavFallback(block.timestamp, PRECISION);
-            return PRECISION;
+            return PRECISION; // Fallback to $1.00
         }
 
         return oracle.getCurrentNAVPerShare();
     }
 
     /**
-     * @dev Get NAV per share (view version - no staleness event emission)
-     * @notice For view functions that can't emit events
-     */
-    function _getNavPerShareView() internal view returns (uint256) {
-        if (navOracle == address(0)) {
-            return PRECISION;
-        }
-
-        INAVOracle oracle = INAVOracle(navOracle);
-
-        if (enforceNavStaleness && !oracle.isNAVFresh()) {
-            if (revertOnStaleNav) {
-                revert StaleNAV();
-            }
-            return PRECISION; // Fallback without event
-        }
-
-        return oracle.getCurrentNAVPerShare();
-    }
-
-    /**
-     * @dev Convert amount to shares (non-view, can emit stale warning)
+     * @dev Convert amount to shares using current NAV
      */
     function _amountToShares(uint256 amount) internal returns (uint256) {
-        uint256 nav = _getNavPerShare();
-        return (amount * PRECISION) / nav;
+        return (amount * PRECISION) / _getNavPerShare();
     }
 
     /**
      * @dev Convert amount to shares (view version)
      */
     function _amountToSharesView(uint256 amount) internal view returns (uint256) {
-        uint256 nav = _getNavPerShareView();
-        return (amount * PRECISION) / nav;
+        return (amount * PRECISION) / _resolveNav();
     }
 
     /**
-     * @dev Convert shares to amount (non-view, can emit stale warning)
+     * @dev Convert shares to amount using current NAV
      */
     function _sharesToAmount(uint256 shares) internal returns (uint256) {
-        uint256 nav = _getNavPerShare();
-        return (shares * nav) / PRECISION;
+        return (shares * _getNavPerShare()) / PRECISION;
     }
 
     /**
      * @dev Convert shares to amount (view version)
      */
     function _sharesToAmountView(uint256 shares) internal view returns (uint256) {
-        uint256 nav = _getNavPerShareView();
-        return (shares * nav) / PRECISION;
+        return (shares * _resolveNav()) / PRECISION;
     }
 
     /**
@@ -613,7 +607,9 @@ contract SSDC is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
 
     // =========================================================================
     // Batch Operations
@@ -815,4 +811,10 @@ contract SSDC is
 
         return (yieldAccrued, yieldPercent);
     }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

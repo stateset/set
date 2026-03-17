@@ -2,7 +2,7 @@
 # Set Chain - Start Local Devnet
 # Starts all OP Stack components for local development
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"

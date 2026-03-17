@@ -1,18 +1,47 @@
 {
   "name": "@setchain/sdk",
   "version": "0.2.1",
-  "description": "Set Chain SDK for SetRegistry and SetPaymaster",
+  "description": "TypeScript SDK for Set Chain — commerce-optimized Ethereum L2. Provides contract interaction, gas sponsorship, MEV protection, and stablecoin operations.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["dist"],
+  "keywords": [
+    "ethereum",
+    "l2",
+    "set-chain",
+    "commerce",
+    "blockchain",
+    "web3",
+    "sdk",
+    "op-stack",
+    "stablecoin",
+    "paymaster"
+  ],
+  "author": "Set Chain <engineering@setchain.io>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stateset/set.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://docs.setchain.io/sdk",
+  "bugs": {
+    "url": "https://github.com/stateset/set/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node ./tests/run-vitest.cjs run",
     "test:watch": "node ./tests/run-vitest.cjs",
     "test:coverage": "node ./tests/run-vitest.cjs run --coverage",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
     "ethers": "^6.12.0"

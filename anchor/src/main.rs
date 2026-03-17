@@ -32,8 +32,9 @@ async fn main() -> Result<()> {
         "Set Chain Anchor Service starting"
     );
 
-    // Load configuration
+    // Load and validate configuration
     let config = AnchorConfig::from_env()?;
+    config.validate()?;
 
     info!(
         l2_rpc = %config.l2_rpc_url,
@@ -77,10 +78,19 @@ async fn main() -> Result<()> {
             }
         }
         _ = tokio::signal::ctrl_c() => {
-            info!("Received shutdown signal");
+            info!("Received shutdown signal, shutting down gracefully");
         }
     }
 
-    info!("Anchor service stopped");
+    // Log final stats before exit
+    let final_stats = stats.read().await;
+    info!(
+        total_anchored = final_stats.total_anchored,
+        total_failed = final_stats.total_failed,
+        total_events = final_stats.total_events_anchored,
+        total_cycles = final_stats.total_cycles,
+        uptime_percent = format!("{:.1}%", final_stats.uptime_percent()),
+        "Anchor service stopped"
+    );
     Ok(())
 }

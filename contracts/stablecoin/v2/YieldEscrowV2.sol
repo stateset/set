@@ -152,6 +152,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
     mapping(uint256 => uint8) public escrowCompletedMilestones;
     mapping(uint256 => uint8) public escrowDisputedMilestones;
 
+    error ZeroAddress();
+    error SPLIT_INVARIANT();
     error ESCROW_OPS_PAUSED();
     error INVOICE_EXPIRED();
     error NAV_TOO_STALE();
@@ -259,10 +261,10 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         address admin,
         address feeRecipient_
     ) {
-        require(admin != address(0), "admin=0");
-        require(feeRecipient_ != address(0), "fee=0");
-        require(address(policyModule_) != address(0), "policy=0");
-        require(address(groundingRegistry_) != address(0), "grounding=0");
+        if (admin == address(0)) revert ZeroAddress();
+        if (feeRecipient_ == address(0)) revert ZeroAddress();
+        if (address(policyModule_) == address(0)) revert ZeroAddress();
+        if (address(groundingRegistry_) == address(0)) revert ZeroAddress();
 
         vault = vault_;
         navController = navController_;
@@ -396,7 +398,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         if (escrowOpsPaused) {
             revert ESCROW_OPS_PAUSED();
         }
-        require(buyer != address(0), "buyer=0");
+        if (buyer == address(0)) revert ZeroAddress();
         if (merchant == address(0)) {
             revert INVALID_MERCHANT();
         }
@@ -598,10 +600,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             vault.transfer(feeRecipient, split.feeShares);
         }
 
-        require(
-            merchantShares + split.buyerYieldShares + split.reserveShares + split.feeShares == split.totalShares,
-            "split invariant"
-        );
+        if (merchantShares + split.buyerYieldShares + split.reserveShares + split.feeShares != split.totalShares) {
+            revert SPLIT_INVARIANT();
+        }
 
         emit EscrowReleased(
             escrowId,

@@ -171,6 +171,8 @@ contract SetPaymentBatch is
         string reason
     );
 
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -601,5 +603,13 @@ contract SetPaymentBatch is
     // Upgrade Authorization
     // =========================================================================
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

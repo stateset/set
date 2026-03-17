@@ -46,6 +46,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     bool public skipBlockedClaims;
     bool public queueOpsPaused;
 
+    error ZeroAddress();
     error MINT_REDEEM_PAUSED();
     error QUEUE_OPS_PAUSED();
     error NOT_PENDING();
@@ -73,7 +74,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
     event MinClaimSharesUpdated(uint256 minShares);
 
     constructor(wSSDCVaultV2 vault_, IERC20 settlementAsset_, address admin) ERC721("SSDC Claim", "SSDC_Claim") {
-        require(admin != address(0), "admin=0");
+        if (admin == address(0)) revert ZeroAddress();
 
         vault = vault_;
         settlementAsset = settlementAsset_;

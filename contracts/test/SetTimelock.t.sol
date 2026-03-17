@@ -359,4 +359,23 @@ contract SetTimelockTest is Test {
     function test_MaxDelay() public view {
         assertEq(timelock.MAX_DELAY(), 30 days);
     }
+
+    function test_RevertOnZeroDelay() public {
+        address[] memory proposers = new address[](1);
+        proposers[0] = multisig;
+        address[] memory executors = new address[](1);
+        executors[0] = multisig;
+
+        vm.expectRevert(abi.encodeWithSelector(SetTimelock.DelayTooShort.selector, 0, 1));
+        new SetTimelock(0, proposers, executors, deployer);
+    }
+
+    event AdminRenounced(address indexed admin, uint256 timestamp);
+
+    function test_AdminRenounceEmitsEvent() public {
+        vm.prank(deployer);
+        vm.expectEmit(true, false, false, true);
+        emit AdminRenounced(deployer, block.timestamp);
+        timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), deployer);
+    }
 }

@@ -77,6 +77,81 @@ mod config_tests {
 
     #[test]
     #[serial]
+    fn test_config_validate_valid() {
+        clear_env_vars();
+        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
+        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+
+        let config = AnchorConfig::from_env().unwrap();
+        assert!(config.validate().is_ok());
+
+        clear_env_vars();
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_bad_registry_address() {
+        clear_env_vars();
+        env::set_var("SET_REGISTRY_ADDRESS", "not-an-address");
+        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+
+        let config = AnchorConfig::from_env().unwrap();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SET_REGISTRY_ADDRESS"));
+
+        clear_env_vars();
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_bad_private_key() {
+        clear_env_vars();
+        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
+        env::set_var("SEQUENCER_PRIVATE_KEY", "too-short");
+
+        let config = AnchorConfig::from_env().unwrap();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SEQUENCER_PRIVATE_KEY"));
+
+        clear_env_vars();
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_bad_url() {
+        clear_env_vars();
+        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
+        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var("L2_RPC_URL", "ftp://invalid-scheme");
+
+        let config = AnchorConfig::from_env().unwrap();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("L2_RPC_URL"));
+
+        clear_env_vars();
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_zero_timeout() {
+        clear_env_vars();
+        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
+        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var("ANCHOR_INTERVAL_SECS", "0");
+
+        let config = AnchorConfig::from_env().unwrap();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ANCHOR_INTERVAL_SECS"));
+
+        clear_env_vars();
+    }
+
+    #[test]
+    #[serial]
     fn test_config_custom_values() {
         clear_env_vars();
         env::set_var("SET_REGISTRY_ADDRESS", "0xabc");

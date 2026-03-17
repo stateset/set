@@ -11,6 +11,13 @@ services:
   l1-geth:
     image: ethereum/client-go:v1.14.11
     container_name: set-l1-geth
+    mem_limit: 2g
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     command:
       - --dev
       - --dev.period=12
@@ -43,6 +50,13 @@ services:
   op-geth:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
     container_name: set-op-geth
+    mem_limit: 4g
+    cpus: 2.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
     command:
       - --datadir=/data
       - --networkid=84532001
@@ -91,6 +105,13 @@ services:
   op-node:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.9.4
     container_name: set-op-node
+    mem_limit: 2g
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     command:
       - op-node
       - --l1=${L1_RPC_URL:-http://l1-geth:8545}
@@ -117,6 +138,12 @@ services:
     environment:
       - L1_RPC_URL=${L1_RPC_URL:-http://l1-geth:8545}
       - L1_BEACON_URL=${L1_BEACON_URL:-http://l1-geth:8545}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9545/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # =========================================================================
   # op-batcher - Batch Submitter
@@ -125,6 +152,13 @@ services:
   op-batcher:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:v1.9.4
     container_name: set-op-batcher
+    mem_limit: 1g
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     command:
       - op-batcher
       - --l1-eth-rpc=${L1_RPC_URL:-http://l1-geth:8545}
@@ -153,6 +187,13 @@ services:
   op-proposer:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-proposer:v1.9.4
     container_name: set-op-proposer
+    mem_limit: 1g
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     command:
       - op-proposer
       - --l1-eth-rpc=${L1_RPC_URL:-http://l1-geth:8545}
@@ -181,6 +222,13 @@ services:
       context: ../anchor
       dockerfile: Dockerfile
     container_name: set-anchor
+    mem_limit: 512m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     environment:
       - L2_RPC_URL=http://op-geth:8547
       - SEQUENCER_API_URL=${SEQUENCER_API_URL:-http://host.docker.internal:3000}
@@ -210,7 +258,7 @@ services:
   # Block Explorer (optional)
   # =========================================================================
   blockscout:
-    image: blockscout/blockscout:latest
+    image: blockscout/blockscout:6.10.1
     container_name: set-blockscout
     environment:
       - ETHEREUM_JSONRPC_VARIANT=geth
@@ -230,7 +278,7 @@ services:
       - explorer
 
   blockscout-db:
-    image: postgres:16
+    image: postgres:16.6
     container_name: set-blockscout-db
     environment:
       - POSTGRES_USER=blockscout

@@ -254,4 +254,56 @@ contract SetRegistryInvariants is StdInvariant, Test {
             assertEq(storedSubmitter, expectedSubmitter);
         }
     }
+
+    /// @notice Verify sequence continuity: no gaps or overlaps within each tenant/store
+    function invariant_sequenceContinuity() public view {
+        uint256 tenantCount = handler.tenantKeyCount();
+        for (uint256 t = 0; t < tenantCount; t++) {
+            bytes32 tenantStoreKey = handler.tenantKeyAt(t);
+            (bytes32 lastBatchId, , uint64 lastSequence) =
+                handler.tenantStateSummary(tenantStoreKey);
+
+            // Head sequence on-chain must match handler's tracked value
+            assertEq(registry.headSequence(tenantStoreKey), lastSequence);
+
+            // If there's a latest batch, its sequenceEnd must equal the head
+            if (lastBatchId != bytes32(0)) {
+                (, , , , uint64 storedEnd, , ,) = registry.commitments(lastBatchId);
+                assertEq(storedEnd, lastSequence, "sequenceEnd != headSequence");
+            }
+        }
+    }
+
+    /// @notice Verify state root chain: each batch's prevStateRoot matches the prior batch's newStateRoot
+    function invariant_stateRootChain() public view {
+        uint256 count = handler.batchIdCount();
+        for (uint256 i = 0; i < count; i++) {
+            bytes32 batchId = handler.batchIdAt(i);
+            (
+                ,
+                bytes32 storedPrevStateRoot,
+                ,
+                ,
+                ,
+                ,
+                ,
+            ) = registry.commitments(batchId);
+
+            // prevStateRoot must match what the handler expected
+            (, bytes32 expectedPrev, , , , ,) = handler.commitmentExpectation(batchId);
+            assertEq(storedPrevStateRoot, expectedPrev, "state root chain broken");
+        }
+    }
+
+    /// @notice Verify no batch can have sequenceEnd < sequenceStart
+    function invariant_validSequenceRanges() public view {
+        uint256 count = handler.batchIdCount();
+        for (uint256 i = 0; i < count; i++) {
+            bytes32 batchId = handler.batchIdAt(i);
+            (, , , uint64 start, uint64 end, uint32 eventCount, ,) =
+                registry.commitments(batchId);
+            assertGe(end, start, "sequenceEnd < sequenceStart");
+            assertEq(uint256(end - start + 1), uint256(eventCount), "eventCount mismatch");
+        }
+    }
 }

@@ -183,6 +183,8 @@ contract EncryptedMempool is
 
     event SequencerUpdated(address oldSequencer, address newSequencer);
 
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -205,6 +207,7 @@ contract EncryptedMempool is
     error InvalidAddress();
     error QueueFull();
     error RateLimitExceeded();
+    error RefundFailed();
 
     // =========================================================================
     // Modifiers
@@ -367,7 +370,7 @@ contract EncryptedMempool is
         // Refund prepaid fee
         uint256 refund = (etx.gasLimit * etx.maxFeePerGas) + etx.valueDeposit;
         (bool success, ) = msg.sender.call{value: refund}("");
-        require(success, "Refund failed");
+        if (!success) revert RefundFailed();
 
         emit TxExpired(_txId);
     }
@@ -958,10 +961,18 @@ contract EncryptedMempool is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
 
     /**
      * @notice Receive function to accept payments
      */
     receive() external payable {}
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

@@ -42,6 +42,7 @@ contract SetTimelock is TimelockController {
     error NoProposersProvided();
     error NoExecutorsProvided();
     error DelayTooLong();
+    error DelayTooShort(uint256 provided, uint256 minimum);
     error ZeroAddressProposer();
     error ZeroAddressExecutor();
     error ArrayLengthMismatch();
@@ -57,6 +58,8 @@ contract SetTimelock is TimelockController {
         uint256 executorCount,
         address indexed admin
     );
+
+    event AdminRenounced(address indexed admin, uint256 timestamp);
 
     // =========================================================================
     // Constructor
@@ -78,6 +81,7 @@ contract SetTimelock is TimelockController {
         // Input validation
         if (proposers.length == 0) revert NoProposersProvided();
         if (executors.length == 0) revert NoExecutorsProvided();
+        if (minDelay == 0) revert DelayTooShort(minDelay, 1);
         if (minDelay > MAX_DELAY) revert DelayTooLong();
 
         // Validate no zero addresses in proposers
@@ -92,6 +96,25 @@ contract SetTimelock is TimelockController {
 
         emit TimelockDeployed(minDelay, proposers.length, executors.length, admin);
     }
+
+    // =========================================================================
+    // Overrides
+    // =========================================================================
+
+    /**
+     * @notice Override renounceRole to emit AdminRenounced when admin gives up control
+     * @dev This is a critical governance event — monitoring systems should alert on it
+     */
+    function renounceRole(bytes32 role, address callerConfirmation) public override {
+        if (role == DEFAULT_ADMIN_ROLE && callerConfirmation == msg.sender) {
+            emit AdminRenounced(msg.sender, block.timestamp);
+        }
+        super.renounceRole(role, callerConfirmation);
+    }
+
+    // =========================================================================
+    // View Functions
+    // =========================================================================
 
     /**
      * @notice Helper to check if caller can propose

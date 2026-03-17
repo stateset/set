@@ -46,6 +46,12 @@ contract TokenRegistry is
     error InvalidDecimals();
 
     // =========================================================================
+    // Events
+    // =========================================================================
+
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
+
+    // =========================================================================
     // Initialization
     // =========================================================================
 
@@ -287,5 +293,13 @@ contract TokenRegistry is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

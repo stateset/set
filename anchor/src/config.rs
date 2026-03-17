@@ -160,6 +160,65 @@ fn parse_optional_u16(var: &str, default: u16) -> anyhow::Result<u16> {
 }
 
 impl AnchorConfig {
+    /// Validate configuration values after loading
+    pub fn validate(&self) -> anyhow::Result<()> {
+        // Validate Ethereum address format (0x + 40 hex chars)
+        if !self.set_registry_address.starts_with("0x")
+            || self.set_registry_address.len() != 42
+            || !self.set_registry_address[2..].chars().all(|c| c.is_ascii_hexdigit())
+        {
+            anyhow::bail!(
+                "SET_REGISTRY_ADDRESS must be a valid Ethereum address (0x + 40 hex chars), got: {}",
+                self.set_registry_address
+            );
+        }
+
+        // Validate private key format (0x + 64 hex chars)
+        let key = self.sequencer_private_key.strip_prefix("0x")
+            .unwrap_or(&self.sequencer_private_key);
+        if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+            anyhow::bail!("SEQUENCER_PRIVATE_KEY must be 64 hex characters (with optional 0x prefix)");
+        }
+
+        // Validate URL formats
+        if !self.l2_rpc_url.starts_with("http://") && !self.l2_rpc_url.starts_with("https://") {
+            anyhow::bail!("L2_RPC_URL must start with http:// or https://, got: {}", self.l2_rpc_url);
+        }
+        if !self.sequencer_api_url.starts_with("http://") && !self.sequencer_api_url.starts_with("https://") {
+            anyhow::bail!("SEQUENCER_API_URL must start with http:// or https://, got: {}", self.sequencer_api_url);
+        }
+
+        // Validate timeouts are not zero
+        if self.anchor_interval_secs == 0 {
+            anyhow::bail!("ANCHOR_INTERVAL_SECS must be > 0");
+        }
+        if self.sequencer_request_timeout_secs == 0 {
+            anyhow::bail!("SEQUENCER_REQUEST_TIMEOUT_SECS must be > 0");
+        }
+        if self.sequencer_connect_timeout_secs == 0 {
+            anyhow::bail!("SEQUENCER_CONNECT_TIMEOUT_SECS must be > 0");
+        }
+        if self.tx_confirmation_timeout_secs == 0 {
+            anyhow::bail!("TX_CONFIRMATION_TIMEOUT_SECS must be > 0");
+        }
+        if self.retry_delay_secs == 0 {
+            anyhow::bail!("RETRY_DELAY_SECS must be > 0");
+        }
+
+        // Validate circuit breaker settings
+        if self.circuit_breaker_failure_threshold == 0 {
+            anyhow::bail!("CIRCUIT_BREAKER_FAILURE_THRESHOLD must be > 0");
+        }
+        if self.circuit_breaker_reset_timeout_secs == 0 {
+            anyhow::bail!("CIRCUIT_BREAKER_RESET_TIMEOUT_SECS must be > 0");
+        }
+        if self.circuit_breaker_half_open_success_threshold == 0 {
+            anyhow::bail!("CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD must be > 0");
+        }
+
+        Ok(())
+    }
+
     /// Load configuration from environment variables
     pub fn from_env() -> anyhow::Result<Self> {
         let expected_l2_chain_id = if let Ok(v) = std::env::var("EXPECTED_L2_CHAIN_ID") {

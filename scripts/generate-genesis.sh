@@ -2,7 +2,7 @@
 # Set Chain - Genesis Generation Script
 # Generates genesis.json and rollup.json from deployment state
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"

@@ -22,6 +22,7 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
 
     uint256 public maxOutstandingShares;
 
+    error ZeroAddress();
     error BRIDGE_PAUSED();
     error UNTRUSTED_PEER();
     error REPLAY();
@@ -45,7 +46,7 @@ contract WSSDCCrossChainBridgeV2 is AccessControl, ReentrancyGuard {
     event NAVRelayed(uint64 indexed navEpoch, uint256 nav0Ray, uint40 t0, int256 ratePerSecondRay);
 
     constructor(wSSDCVaultV2 vault_, NAVControllerV2 navController_, address admin) {
-        require(admin != address(0), "admin=0");
+        if (admin == address(0)) revert ZeroAddress();
 
         vault = vault_;
         navController = navController_;

@@ -15,6 +15,7 @@ contract SSDCVaultGatewayV2 is AccessControl, ReentrancyGuard {
     wSSDCVaultV2 public immutable vault;
     IERC20 public immutable settlementAsset;
 
+    error ZeroAddress();
     error MIN_SHARES_OUT();
     error MAX_ASSETS_IN();
     error MAX_SHARES_BURNED();
@@ -54,8 +55,8 @@ contract SSDCVaultGatewayV2 is AccessControl, ReentrancyGuard {
     event Swept(address indexed token, address indexed to, uint256 amount);
 
     constructor(wSSDCVaultV2 vault_, address admin) {
-        require(address(vault_) != address(0), "vault=0");
-        require(admin != address(0), "admin=0");
+        if (address(vault_) == address(0)) revert ZeroAddress();
+        if (admin == address(0)) revert ZeroAddress();
 
         vault = vault_;
         settlementAsset = IERC20(vault_.asset());
@@ -168,7 +169,7 @@ contract SSDCVaultGatewayV2 is AccessControl, ReentrancyGuard {
     }
 
     function sweep(IERC20 token, address to, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(to != address(0), "to=0");
+        if (to == address(0)) revert ZeroAddress();
         token.safeTransfer(to, amount);
         emit Swept(address(token), to, amount);
     }

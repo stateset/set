@@ -29,6 +29,8 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     uint256 public maxDeployBps; // max percentage of total assets deployable per call (basis points)
     uint256 public deployedReserveAssets; // total assets currently deployed to reserve manager
 
+    error ZeroAddress();
+    error InvalidBps();
     error MINT_REDEEM_PAUSED();
     error GATEWAY_ONLY();
     error LIQUIDITY_COVERAGE();
@@ -91,8 +93,8 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         NAVControllerV2 navController_,
         address admin
     ) ERC20("Wrapped SSDC", "wSSDC") ERC4626(settlementAsset) {
-        require(admin != address(0), "admin=0");
-        require(address(navController_) != address(0), "nav=0");
+        if (admin == address(0)) revert ZeroAddress();
+        if (address(navController_) == address(0)) revert ZeroAddress();
         if (settlementAsset.decimals() != 6) {
             revert INVALID_SETTLEMENT_ASSET_DECIMALS();
         }
@@ -135,7 +137,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     }
 
     function setMinBridgeLiquidityCoverageBps(uint256 minCoverageBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(minCoverageBps_ <= 10_000, "coverage>100%");
+        if (minCoverageBps_ > 10_000) revert InvalidBps();
         minBridgeLiquidityCoverageBps = minCoverageBps_;
         emit MinBridgeLiquidityCoverageSet(minCoverageBps_);
     }
@@ -145,7 +147,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     // -------------------------------------------------------------------------
 
     function setReserveConfig(address reserveManager_, uint256 reserveFloor_, uint256 maxDeployBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(maxDeployBps_ <= 10_000, "deploy>100%");
+        if (maxDeployBps_ > 10_000) revert InvalidBps();
         reserveManager = reserveManager_;
         reserveFloor = reserveFloor_;
         maxDeployBps = maxDeployBps_;

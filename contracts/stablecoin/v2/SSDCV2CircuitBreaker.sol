@@ -34,6 +34,7 @@ contract SSDCV2CircuitBreaker is AccessControl {
     bool public escrowWasPaused;
     bool public paymasterWasPaused;
 
+    error ZeroAddress();
     error BREAKER_ALREADY_TRIPPED();
     error BREAKER_NOT_TRIPPED();
 
@@ -49,7 +50,7 @@ contract SSDCV2CircuitBreaker is AccessControl {
         YieldPaymasterV2 paymaster_,
         address admin
     ) {
-        require(admin != address(0), "admin=0");
+        if (admin == address(0)) revert ZeroAddress();
 
         navController = navController_;
         vault = vault_;

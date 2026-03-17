@@ -179,6 +179,7 @@ contract TreasuryVault is
     event CircuitBreakerTriggered(uint256 collateralRatio, uint256 threshold, uint256 timestamp);
     event CircuitBreakerReset(address indexed by, uint256 timestamp);
     event CircuitBreakerConfigured(bool enabled, uint256 threshold);
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
 
     // =========================================================================
     // Initialization
@@ -977,5 +978,13 @@ contract TreasuryVault is
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }

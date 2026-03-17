@@ -177,6 +177,7 @@ contract NAVOracle is
     event ThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
     event PendingExpiryUpdated(uint256 oldExpiry, uint256 newExpiry);
     event ssUSDUpdated(address indexed ssUSD);
+    event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
 
     /**
      * @notice Attest T-Bill NAV (multi-sig when threshold > 1)
@@ -868,7 +869,9 @@ function getOracleHealth() external view returns (
      */
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyOwner {
+        emit ContractUpgraded(newImplementation, msg.sender);
+    }
 
     function _setSSDC(address ssdc_) internal {
         if (ssdc_ == address(0)) revert InvalidAddress();
@@ -876,4 +879,10 @@ function getOracleHealth() external view returns (
         emit SSDCUpdated(ssdc_);
         emit ssUSDUpdated(ssdc_);
     }
+
+    // =========================================================================
+    // Storage Gap
+    // =========================================================================
+
+    uint256[50] private __gap;
 }
