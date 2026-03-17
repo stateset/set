@@ -1,6 +1,6 @@
 {
   "name": "@setchain/sdk",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "TypeScript SDK for Set Chain — commerce-optimized Ethereum L2. Provides contract interaction, gas sponsorship, MEV protection, and stablecoin operations.",
   "license": "MIT",
   "type": "module",

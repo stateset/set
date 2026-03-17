@@ -35,8 +35,14 @@ impl TestBatchCommitment {
             tenant_id: Uuid::new_v4(),
             store_id: Uuid::new_v4(),
             prev_state_root: format!("0x{}", "0".repeat(64)),
-            new_state_root: format!("0x{}", hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64].to_string()),
-            events_root: format!("0x{}", hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64].to_string()),
+            new_state_root: format!(
+                "0x{}",
+                hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64].to_string()
+            ),
+            events_root: format!(
+                "0x{}",
+                hex::encode(Uuid::new_v4().as_bytes()).repeat(2)[..64].to_string()
+            ),
             sequence_start,
             sequence_end,
             event_count,

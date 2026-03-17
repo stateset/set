@@ -165,7 +165,9 @@ impl AnchorConfig {
         // Validate Ethereum address format (0x + 40 hex chars)
         if !self.set_registry_address.starts_with("0x")
             || self.set_registry_address.len() != 42
-            || !self.set_registry_address[2..].chars().all(|c| c.is_ascii_hexdigit())
+            || !self.set_registry_address[2..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit())
         {
             anyhow::bail!(
                 "SET_REGISTRY_ADDRESS must be a valid Ethereum address (0x + 40 hex chars), got: {}",
@@ -174,18 +176,30 @@ impl AnchorConfig {
         }
 
         // Validate private key format (0x + 64 hex chars)
-        let key = self.sequencer_private_key.strip_prefix("0x")
+        let key = self
+            .sequencer_private_key
+            .strip_prefix("0x")
             .unwrap_or(&self.sequencer_private_key);
         if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
-            anyhow::bail!("SEQUENCER_PRIVATE_KEY must be 64 hex characters (with optional 0x prefix)");
+            anyhow::bail!(
+                "SEQUENCER_PRIVATE_KEY must be 64 hex characters (with optional 0x prefix)"
+            );
         }
 
         // Validate URL formats
         if !self.l2_rpc_url.starts_with("http://") && !self.l2_rpc_url.starts_with("https://") {
-            anyhow::bail!("L2_RPC_URL must start with http:// or https://, got: {}", self.l2_rpc_url);
+            anyhow::bail!(
+                "L2_RPC_URL must start with http:// or https://, got: {}",
+                self.l2_rpc_url
+            );
         }
-        if !self.sequencer_api_url.starts_with("http://") && !self.sequencer_api_url.starts_with("https://") {
-            anyhow::bail!("SEQUENCER_API_URL must start with http:// or https://, got: {}", self.sequencer_api_url);
+        if !self.sequencer_api_url.starts_with("http://")
+            && !self.sequencer_api_url.starts_with("https://")
+        {
+            anyhow::bail!(
+                "SEQUENCER_API_URL must start with http:// or https://, got: {}",
+                self.sequencer_api_url
+            );
         }
 
         // Validate timeouts are not zero
@@ -203,6 +217,9 @@ impl AnchorConfig {
         }
         if self.retry_delay_secs == 0 {
             anyhow::bail!("RETRY_DELAY_SECS must be > 0");
+        }
+        if self.max_retries == 0 {
+            anyhow::bail!("MAX_RETRIES must be > 0");
         }
 
         // Validate circuit breaker settings
@@ -232,8 +249,7 @@ impl AnchorConfig {
         };
 
         Ok(Self {
-            l2_rpc_url: std::env::var("L2_RPC_URL")
-                .unwrap_or_else(|_| default_l2_rpc()),
+            l2_rpc_url: std::env::var("L2_RPC_URL").unwrap_or_else(|_| default_l2_rpc()),
             set_registry_address: std::env::var("SET_REGISTRY_ADDRESS")
                 .map_err(|_| anyhow::anyhow!("SET_REGISTRY_ADDRESS not set"))?,
             sequencer_private_key: std::env::var("SEQUENCER_PRIVATE_KEY")
@@ -241,7 +257,10 @@ impl AnchorConfig {
             sequencer_api_url: std::env::var("SEQUENCER_API_URL")
                 .unwrap_or_else(|_| default_sequencer_api()),
             anchor_interval_secs: parse_optional_u64("ANCHOR_INTERVAL_SECS", default_interval())?,
-            min_events_for_anchor: parse_optional_u32("MIN_EVENTS_FOR_ANCHOR", default_min_events())?,
+            min_events_for_anchor: parse_optional_u32(
+                "MIN_EVENTS_FOR_ANCHOR",
+                default_min_events(),
+            )?,
             max_retries: parse_optional_u32("MAX_RETRIES", default_max_retries())?,
             retry_delay_secs: parse_optional_u64("RETRY_DELAY_SECS", default_retry_delay())?,
             max_gas_price_gwei: parse_optional_u64("MAX_GAS_PRICE_GWEI", 0)?,

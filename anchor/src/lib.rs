@@ -18,6 +18,6 @@ pub use error::{AnchorError, ErrorSeverity};
 pub use health::{HealthServer, HealthState};
 pub use service::AnchorService;
 pub use types::{
-    AnchorNotification, AnchorResult, AnchorStats, BatchCommitment,
-    CircuitBreaker, CircuitBreakerState, ErrorType, PendingCommitmentsResponse,
+    AnchorNotification, AnchorResult, AnchorStats, BatchCommitment, CircuitBreaker,
+    CircuitBreakerState, ErrorType, PendingCommitmentsResponse,
 };

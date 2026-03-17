@@ -1,4 +1,4 @@
-import { Contract } from "ethers";
+import { Contract, keccak256, solidityPacked } from "ethers";
 import type { BatchCommitment, RegistryStats } from "../types.js";
 
 /**
@@ -30,7 +30,6 @@ export interface TenantStoreSummary {
  * @returns The keccak256 hash of the packed tenant and store IDs
  */
 export function computeTenantStoreKey(tenantId: string, storeId: string): string {
-  const { keccak256, solidityPacked } = require("ethers");
   return keccak256(solidityPacked(["bytes32", "bytes32"], [tenantId, storeId]));
 }
 
@@ -50,7 +49,6 @@ export function generateBatchId(
   sequenceEnd: bigint,
   timestamp: bigint
 ): string {
-  const { keccak256, solidityPacked } = require("ethers");
   return keccak256(
     solidityPacked(
       ["bytes32", "bytes32", "uint64", "uint64", "uint64"],
@@ -71,7 +69,6 @@ export function computeEventLeaf(
   payload: string,
   metadata: string
 ): string {
-  const { keccak256, solidityPacked } = require("ethers");
   return keccak256(solidityPacked(["string", "bytes", "bytes"], [eventType, payload, metadata]));
 }
 
@@ -89,7 +86,6 @@ export function verifyMerkleProof(
   index: number,
   expectedRoot: string
 ): boolean {
-  const { keccak256, solidityPacked } = require("ethers");
   let computedHash = leaf;
 
   for (let i = 0; i < proof.length; i++) {

@@ -160,7 +160,8 @@ export interface NetworkConfig {
  */
 export const NETWORKS: Record<string, NetworkConfig> = {
   local: {
-    chainId: 31337,
+    // Local Anvil is configured to mirror Set Chain's chain ID for realistic integration testing.
+    chainId: 84532001,
     name: "Set Chain Local",
     rpcUrl: "http://localhost:8545",
     explorerUrl: "http://localhost:4000",

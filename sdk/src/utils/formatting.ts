@@ -21,6 +21,10 @@ export interface FormatBalanceOptions {
   suffix?: string;
 }
 
+function addThousandsSeparators(value: string): string {
+  return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 /**
  * Format a balance for display
  * @param amount Amount in wei/smallest unit
@@ -57,7 +61,7 @@ export function formatBalance(
   // Format integer part with separators if requested
   let formattedInt = intPart;
   if (separators) {
-    formattedInt = parseInt(intPart, 10).toLocaleString("en-US");
+    formattedInt = addThousandsSeparators(intPart);
   }
 
   // Combine

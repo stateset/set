@@ -295,5 +295,4 @@ impl CircuitBreaker {
     pub fn is_open(&self) -> bool {
         matches!(self.state, CircuitBreakerState::Open)
     }
-
 }

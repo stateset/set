@@ -3,7 +3,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::{primitives::{Address, U256}, providers::Provider, transports::http::Http};
+use alloy::{
+    primitives::{Address, U256},
+    providers::Provider,
+    transports::http::Http,
+};
 use anyhow::Result;
 use chrono::Utc;
 use tokio::sync::RwLock;
@@ -12,9 +16,14 @@ use tracing::{debug, error, info, warn};
 use crate::{
     client::{create_provider, RegistryClient, SequencerApiClient},
     config::AnchorConfig,
-    error::{AnchorError, AuthorizationError, ConfigError, L2Error, SequencerApiError, TransactionError},
+    error::{
+        AnchorError, AuthorizationError, ConfigError, L2Error, SequencerApiError, TransactionError,
+    },
     health::HealthState,
-    types::{AnchorNotification, AnchorResult, AnchorStats, BatchCommitment, CircuitBreaker, CircuitBreakerState, ErrorType},
+    types::{
+        AnchorNotification, AnchorResult, AnchorStats, BatchCommitment, CircuitBreaker,
+        CircuitBreakerState, ErrorType,
+    },
 };
 
 type HttpTransport = Http<reqwest::Client>;
@@ -40,7 +49,8 @@ impl AnchorService {
             config.circuit_breaker_failure_threshold,
             config.circuit_breaker_reset_timeout_secs,
         );
-        circuit_breaker.half_open_success_threshold = config.circuit_breaker_half_open_success_threshold;
+        circuit_breaker.half_open_success_threshold =
+            config.circuit_breaker_half_open_success_threshold;
 
         Self {
             config,
@@ -62,7 +72,8 @@ impl AnchorService {
             config.circuit_breaker_failure_threshold,
             config.circuit_breaker_reset_timeout_secs,
         );
-        circuit_breaker.half_open_success_threshold = config.circuit_breaker_half_open_success_threshold;
+        circuit_breaker.half_open_success_threshold =
+            config.circuit_breaker_half_open_success_threshold;
 
         Self {
             config,
@@ -140,13 +151,16 @@ impl AnchorService {
         let provider = match create_provider(
             &self.config.l2_rpc_url,
             &self.config.sequencer_private_key,
-        ).await {
+        )
+        .await
+        {
             Ok(provider) => provider,
             Err(e) => {
                 self.record_error(AnchorError::Config(ConfigError::InvalidValue {
                     field: "provider".to_string(),
                     message: e.to_string(),
-                })).await;
+                }))
+                .await;
                 return Err(e);
             }
         };
@@ -154,7 +168,8 @@ impl AnchorService {
         let chain_id = match provider.get_chain_id().await {
             Ok(chain_id) => chain_id,
             Err(e) => {
-                self.record_error(AnchorError::L2Connection(L2Error::RpcError(e.to_string()))).await;
+                self.record_error(AnchorError::L2Connection(L2Error::RpcError(e.to_string())))
+                    .await;
                 self.record_failure(ErrorType::L2Connection).await;
                 return Err(e.into());
             }
@@ -164,7 +179,8 @@ impl AnchorService {
             self.record_error(AnchorError::L2Connection(L2Error::ChainIdMismatch {
                 expected: self.config.expected_l2_chain_id,
                 actual: chain_id,
-            })).await;
+            }))
+            .await;
             self.record_failure(ErrorType::L2Connection).await;
             anyhow::bail!(
                 "L2 chain ID mismatch: expected {}, got {}",
@@ -184,15 +200,19 @@ impl AnchorService {
             Err(e) => {
                 self.record_error(AnchorError::Authorization(AuthorizationError::CheckFailed(
                     e.to_string(),
-                ))).await;
+                )))
+                .await;
                 return Err(e);
             }
         };
 
         if !is_authorized {
-            self.record_error(AnchorError::Authorization(AuthorizationError::NotAuthorized {
-                address: format!("{:?}", signer_address),
-            })).await;
+            self.record_error(AnchorError::Authorization(
+                AuthorizationError::NotAuthorized {
+                    address: format!("{:?}", signer_address),
+                },
+            ))
+            .await;
             error!(
                 address = %signer_address,
                 "Sequencer address not authorized in SetRegistry"
@@ -258,10 +278,8 @@ impl AnchorService {
                     }
                 }
                 Err(e) => {
-                    self.record_error(AnchorError::Internal(format!(
-                        "Anchor cycle failed: {}",
-                        e
-                    ))).await;
+                    self.record_error(AnchorError::Internal(format!("Anchor cycle failed: {}", e)))
+                        .await;
                     self.record_failure(ErrorType::Other).await;
                     error!(error = %e, "Anchor cycle failed");
                 }
@@ -290,7 +308,8 @@ impl AnchorService {
             Err(e) => {
                 self.record_error(AnchorError::L2Connection(L2Error::GasPriceError(
                     e.to_string(),
-                ))).await;
+                )))
+                .await;
                 self.record_failure(ErrorType::L2Connection).await;
                 warn!(error = %e, "Failed to fetch gas price");
                 return Ok(vec![]);
@@ -298,8 +317,8 @@ impl AnchorService {
         };
 
         if self.config.max_gas_price_gwei > 0 {
-            let max_gas_price = U256::from(self.config.max_gas_price_gwei)
-                * U256::from(1_000_000_000u64);
+            let max_gas_price =
+                U256::from(self.config.max_gas_price_gwei) * U256::from(1_000_000_000u64);
 
             if gas_price > max_gas_price {
                 {
@@ -335,7 +354,8 @@ impl AnchorService {
                         url: self.config.sequencer_api_url.clone(),
                         message: e.to_string(),
                     },
-                )).await;
+                ))
+                .await;
                 debug!(error = %e, "Failed to fetch pending commitments");
                 return Ok(vec![]);
             }
@@ -346,10 +366,7 @@ impl AnchorService {
             return Ok(vec![]);
         }
 
-        info!(
-            count = commitments.len(),
-            "Found pending commitments"
-        );
+        info!(count = commitments.len(), "Found pending commitments");
 
         if self.config.max_commitments_per_cycle > 0 {
             let limit = self.config.max_commitments_per_cycle as usize;
@@ -397,7 +414,8 @@ impl AnchorService {
             let start = std::time::Instant::now();
             match self.anchor_commitment(registry, commitment).await {
                 Ok(result) => {
-                    self.record_success(commitment, start.elapsed().as_millis() as u64).await;
+                    self.record_success(commitment, start.elapsed().as_millis() as u64)
+                        .await;
 
                     return result;
                 }
@@ -425,9 +443,10 @@ impl AnchorService {
         self.record_failure(ErrorType::Transaction).await;
 
         let error_message = last_error.unwrap_or_else(|| "unknown error".to_string());
-        self.record_error(AnchorError::Transaction(TransactionError::SubmissionFailed(
-            error_message.clone(),
-        ))).await;
+        self.record_error(AnchorError::Transaction(
+            TransactionError::SubmissionFailed(error_message.clone()),
+        ))
+        .await;
 
         AnchorResult {
             batch_id: commitment.batch_id,

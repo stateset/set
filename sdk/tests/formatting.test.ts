@@ -46,6 +46,12 @@ describe('formatBalance', () => {
     const balance = 1000000000000000000000n; // 1000 tokens
     expect(formatBalance(balance, 18, { separators: true })).toBe('1,000');
   });
+
+  it('should preserve precision for very large balances with separators', () => {
+    const balance = 1234567890123456789012345678901234567890n;
+    expect(formatBalance(balance, 18, { separators: true, maxDecimals: 0 }))
+      .toBe('1,234,567,890,123,456,789,012');
+  });
 });
 
 describe('parseAmount', () => {

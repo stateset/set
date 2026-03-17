@@ -140,8 +140,7 @@ impl TestSetRegistry {
 
         // Try to load bytecode from fixtures, otherwise use inline mock
         let bytecode = if let Ok(hex_bytecode) = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/SetRegistry.bin"),
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/SetRegistry.bin"),
         ) {
             hex::decode(hex_bytecode.trim()).unwrap_or_else(|_| Self::mock_bytecode())
         } else {
@@ -149,8 +148,7 @@ impl TestSetRegistry {
         };
 
         // Deploy contract
-        let tx = alloy::rpc::types::TransactionRequest::default()
-            .with_deploy_code(bytecode);
+        let tx = alloy::rpc::types::TransactionRequest::default().with_deploy_code(bytecode);
 
         let pending = provider.send_transaction(tx).await?;
         let receipt = pending.get_receipt().await?;
@@ -161,7 +159,12 @@ impl TestSetRegistry {
 
         // Initialize the contract
         let registry = SetRegistry::new(address, provider.clone());
-        registry.initialize(owner, sequencer).send().await?.get_receipt().await?;
+        registry
+            .initialize(owner, sequencer)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
 
         Ok(address)
     }
@@ -176,8 +179,7 @@ impl TestSetRegistry {
 
     /// Check if sequencer is authorized
     pub async fn is_sequencer_authorized(&self, address: Address) -> anyhow::Result<bool> {
-        let provider = ProviderBuilder::new()
-            .on_http(self.rpc_url.parse()?);
+        let provider = ProviderBuilder::new().on_http(self.rpc_url.parse()?);
 
         let registry = SetRegistry::new(self.address, provider);
         let result = registry.authorizedSequencers(address).call().await?;
@@ -186,14 +188,12 @@ impl TestSetRegistry {
 
     /// Get total commitments count
     pub async fn total_commitments(&self) -> anyhow::Result<U256> {
-        let provider = ProviderBuilder::new()
-            .on_http(self.rpc_url.parse()?);
+        let provider = ProviderBuilder::new().on_http(self.rpc_url.parse()?);
 
         let registry = SetRegistry::new(self.address, provider);
         let result = registry.totalCommitments().call().await?;
         Ok(result._0)
     }
-
 }
 
 #[cfg(test)]
@@ -209,7 +209,10 @@ mod tests {
         assert!(!registry.rpc_url.is_empty());
 
         // Verify sequencer is authorized
-        let is_auth = registry.is_sequencer_authorized(registry.sequencer).await.unwrap();
+        let is_auth = registry
+            .is_sequencer_authorized(registry.sequencer)
+            .await
+            .unwrap();
         assert!(is_auth);
     }
 }

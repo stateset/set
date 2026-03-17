@@ -18,10 +18,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use set_anchor::{
-    client::SequencerApiClient,
-    config::AnchorConfig,
-    health::HealthState,
-    types::AnchorStats,
+    client::SequencerApiClient, config::AnchorConfig, health::HealthState, types::AnchorStats,
     AnchorService,
 };
 
@@ -74,7 +71,8 @@ async fn test_sequencer_api_client_fetch_pending() {
     // Add some commitments
     let commitment1 = TestBatchCommitment::new(1, 10, 10);
     let commitment2 = TestBatchCommitment::new(11, 20, 10);
-    mock.add_pending_commitments(vec![commitment1.clone(), commitment2.clone()]).await;
+    mock.add_pending_commitments(vec![commitment1.clone(), commitment2.clone()])
+        .await;
 
     // Create client and fetch
     let client = SequencerApiClient::new(&mock.url());
@@ -126,7 +124,10 @@ async fn test_anchor_notification_recorded() {
         gas_used: Some(50000),
     };
 
-    client.notify_anchored(batch_id, &notification).await.unwrap();
+    client
+        .notify_anchored(batch_id, &notification)
+        .await
+        .unwrap();
 
     // Verify notification was recorded
     let notifications = mock.get_notifications().await;
@@ -163,7 +164,12 @@ async fn test_health_endpoint_returns_ok() {
     use tower::util::ServiceExt;
 
     let response = router
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -196,7 +202,12 @@ async fn test_ready_endpoint_not_ready_initially() {
     use tower::util::ServiceExt;
 
     let response = router
-        .oneshot(Request::builder().uri("/ready").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -228,7 +239,12 @@ async fn test_ready_endpoint_becomes_ready() {
     use tower::util::ServiceExt;
 
     let response = router
-        .oneshot(Request::builder().uri("/ready").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -270,7 +286,12 @@ async fn test_metrics_endpoint_format() {
     use tower::util::ServiceExt;
 
     let response = router
-        .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -319,7 +340,12 @@ async fn test_stats_endpoint_json() {
     use tower::util::ServiceExt;
 
     let response = router
-        .oneshot(Request::builder().uri("/stats").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -355,7 +381,8 @@ async fn test_service_skips_below_threshold() {
     let config = AnchorConfig {
         l2_rpc_url: "http://localhost:8547".to_string(),
         set_registry_address: "0x0000000000000000000000000000000000000000".to_string(),
-        sequencer_private_key: "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+        sequencer_private_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+            .to_string(),
         sequencer_api_url: mock.url(),
         anchor_interval_secs: 1,
         min_events_for_anchor: 10, // Threshold
@@ -370,8 +397,8 @@ async fn test_service_skips_below_threshold() {
         circuit_breaker_failure_threshold: 5,
         circuit_breaker_reset_timeout_secs: 60,
         circuit_breaker_half_open_success_threshold: 3,
-    tx_confirmation_timeout_secs: 60,
-        };
+        tx_confirmation_timeout_secs: 60,
+    };
 
     // We can't run the full service without a real L2, but we can verify
     // the pending commitments are fetched correctly
@@ -394,7 +421,9 @@ async fn test_service_skips_below_threshold() {
 #[serial]
 async fn test_full_anchor_flow_with_anvil() {
     // Deploy contract to Anvil
-    let registry = TestSetRegistry::deploy().await.expect("Failed to deploy registry");
+    let registry = TestSetRegistry::deploy()
+        .await
+        .expect("Failed to deploy registry");
 
     // Start mock sequencer API
     let mock = MockSequencerApi::start().await;
@@ -417,7 +446,10 @@ async fn test_full_anchor_flow_with_anvil() {
     assert_eq!(initial_count, alloy::primitives::U256::ZERO);
 
     // Verify sequencer is authorized
-    let is_auth = registry.is_sequencer_authorized(registry.sequencer).await.unwrap();
+    let is_auth = registry
+        .is_sequencer_authorized(registry.sequencer)
+        .await
+        .unwrap();
     assert!(is_auth);
 
     // Create anchor service config
@@ -436,9 +468,10 @@ async fn test_full_anchor_flow_with_anvil() {
     let service = AnchorService::with_health_state(config, Arc::clone(&health_state));
 
     // Run service in background with timeout
-    let service_handle = tokio::spawn(async move {
-        tokio::time::timeout(Duration::from_secs(10), service.run()).await
-    });
+    let service_handle =
+        tokio::spawn(
+            async move { tokio::time::timeout(Duration::from_secs(10), service.run()).await },
+        );
 
     // Wait for anchoring to complete
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -466,7 +499,9 @@ async fn test_full_anchor_flow_with_anvil() {
 #[ignore = "requires anvil binary - run with: cargo test -- --ignored"]
 #[serial]
 async fn test_multiple_commitments_anchored_sequentially() {
-    let registry = TestSetRegistry::deploy().await.expect("Failed to deploy registry");
+    let registry = TestSetRegistry::deploy()
+        .await
+        .expect("Failed to deploy registry");
 
     let mock = MockSequencerApi::start().await;
     mock.setup_standard_mocks().await;
@@ -478,7 +513,8 @@ async fn test_multiple_commitments_anchored_sequentially() {
     let commitment1 = TestBatchCommitment::with_tenant_store(tenant_id, store_id, 1, 10, 10);
     let commitment2 = TestBatchCommitment::with_tenant_store(tenant_id, store_id, 11, 20, 10);
 
-    mock.add_pending_commitments(vec![commitment1, commitment2]).await;
+    mock.add_pending_commitments(vec![commitment1, commitment2])
+        .await;
 
     let config = test_config(
         &mock.url(),
@@ -491,9 +527,10 @@ async fn test_multiple_commitments_anchored_sequentially() {
     let health_state = Arc::new(HealthState::new(config.clone(), Arc::clone(&stats)));
     let service = AnchorService::with_health_state(config, Arc::clone(&health_state));
 
-    let service_handle = tokio::spawn(async move {
-        tokio::time::timeout(Duration::from_secs(15), service.run()).await
-    });
+    let service_handle =
+        tokio::spawn(
+            async move { tokio::time::timeout(Duration::from_secs(15), service.run()).await },
+        );
 
     tokio::time::sleep(Duration::from_secs(5)).await;
     service_handle.abort();
@@ -510,7 +547,9 @@ async fn test_multiple_commitments_anchored_sequentially() {
 #[ignore = "requires anvil binary - run with: cargo test -- --ignored"]
 #[serial]
 async fn test_unauthorized_sequencer_fails() {
-    let registry = TestSetRegistry::deploy().await.expect("Failed to deploy registry");
+    let registry = TestSetRegistry::deploy()
+        .await
+        .expect("Failed to deploy registry");
 
     let mock = MockSequencerApi::start().await;
     mock.setup_standard_mocks().await;

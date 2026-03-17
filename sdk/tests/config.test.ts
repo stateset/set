@@ -52,6 +52,11 @@ describe('NETWORKS', () => {
     expect(NETWORKS.mainnet).toBeDefined();
   });
 
+  it('should align local config with the repo devnet chain ID', () => {
+    expect(NETWORKS.local.chainId).toBe(84532001);
+    expect(NETWORKS.local.rpcUrl).toBe('http://localhost:8545');
+  });
+
   it('should have correct Set Chain Sepolia config', () => {
     expect(NETWORKS.sepolia.chainId).toBe(84532001);
     expect(NETWORKS.sepolia.name).toBe('Set Chain Sepolia');
@@ -113,7 +118,7 @@ describe('Config Functions', () => {
   });
 
   it('should get contract addresses by chain ID', () => {
-    const addrs = getContractAddresses(31337);
+    const addrs = getContractAddresses(84532001);
     expect(addrs).toBeDefined();
   });
 

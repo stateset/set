@@ -238,9 +238,7 @@ async fn ready_handler(State(state): State<Arc<HealthState>>) -> Response {
     let last_seq = state.last_sequencer_check.read().await;
 
     // Consider healthy if checked within last 60 seconds
-    let l2_healthy = last_l2
-        .map(|t| t.elapsed().as_secs() < 60)
-        .unwrap_or(false);
+    let l2_healthy = last_l2.map(|t| t.elapsed().as_secs() < 60).unwrap_or(false);
     let seq_healthy = last_seq
         .map(|t| t.elapsed().as_secs() < 60)
         .unwrap_or(false);
@@ -276,13 +274,15 @@ async fn metrics_handler(State(state): State<Arc<HealthState>>) -> String {
     };
 
     let is_ready = *state.is_ready.read().await;
-    let l2_healthy = last_l2
-        .map(|t| t.elapsed().as_secs() < 60)
-        .unwrap_or(false);
+    let l2_healthy = last_l2.map(|t| t.elapsed().as_secs() < 60).unwrap_or(false);
     let seq_healthy = last_seq
         .map(|t| t.elapsed().as_secs() < 60)
         .unwrap_or(false);
-    let is_ready = if is_ready && l2_healthy && seq_healthy { 1 } else { 0 };
+    let is_ready = if is_ready && l2_healthy && seq_healthy {
+        1
+    } else {
+        0
+    };
     let l2_connected = if l2_healthy { 1 } else { 0 };
     let sequencer_connected = if seq_healthy { 1 } else { 0 };
 
@@ -500,7 +500,8 @@ mod tests {
         AnchorConfig {
             l2_rpc_url: "http://localhost:8547".to_string(),
             set_registry_address: "0x0000000000000000000000000000000000000000".to_string(),
-            sequencer_private_key: "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+            sequencer_private_key:
+                "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
             sequencer_api_url: "http://localhost:8080".to_string(),
             anchor_interval_secs: 30,
             min_events_for_anchor: 1,
@@ -515,7 +516,7 @@ mod tests {
             circuit_breaker_failure_threshold: 5,
             circuit_breaker_reset_timeout_secs: 60,
             circuit_breaker_half_open_success_threshold: 3,
-        tx_confirmation_timeout_secs: 60,
+            tx_confirmation_timeout_secs: 60,
         }
     }
 

@@ -36,11 +36,17 @@ mod config_tests {
         assert!(result.is_err());
 
         // Set required fields
-        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
         let result = AnchorConfig::from_env();
         assert!(result.is_err()); // Still missing SEQUENCER_PRIVATE_KEY
 
-        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
         let result = AnchorConfig::from_env();
         assert!(result.is_ok());
 
@@ -51,8 +57,14 @@ mod config_tests {
     #[serial]
     fn test_config_defaults() {
         clear_env_vars();
-        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
-        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
 
         let config = AnchorConfig::from_env().unwrap();
 
@@ -79,8 +91,14 @@ mod config_tests {
     #[serial]
     fn test_config_validate_valid() {
         clear_env_vars();
-        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
-        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
 
         let config = AnchorConfig::from_env().unwrap();
         assert!(config.validate().is_ok());
@@ -93,12 +111,18 @@ mod config_tests {
     fn test_config_validate_bad_registry_address() {
         clear_env_vars();
         env::set_var("SET_REGISTRY_ADDRESS", "not-an-address");
-        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
 
         let config = AnchorConfig::from_env().unwrap();
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("SET_REGISTRY_ADDRESS"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("SET_REGISTRY_ADDRESS"));
 
         clear_env_vars();
     }
@@ -107,13 +131,19 @@ mod config_tests {
     #[serial]
     fn test_config_validate_bad_private_key() {
         clear_env_vars();
-        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
         env::set_var("SEQUENCER_PRIVATE_KEY", "too-short");
 
         let config = AnchorConfig::from_env().unwrap();
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("SEQUENCER_PRIVATE_KEY"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("SEQUENCER_PRIVATE_KEY"));
 
         clear_env_vars();
     }
@@ -122,8 +152,14 @@ mod config_tests {
     #[serial]
     fn test_config_validate_bad_url() {
         clear_env_vars();
-        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
-        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
         env::set_var("L2_RPC_URL", "ftp://invalid-scheme");
 
         let config = AnchorConfig::from_env().unwrap();
@@ -138,14 +174,45 @@ mod config_tests {
     #[serial]
     fn test_config_validate_zero_timeout() {
         clear_env_vars();
-        env::set_var("SET_REGISTRY_ADDRESS", "0x1234567890123456789012345678901234567890");
-        env::set_var("SEQUENCER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
         env::set_var("ANCHOR_INTERVAL_SECS", "0");
 
         let config = AnchorConfig::from_env().unwrap();
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("ANCHOR_INTERVAL_SECS"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("ANCHOR_INTERVAL_SECS"));
+
+        clear_env_vars();
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_zero_max_retries() {
+        clear_env_vars();
+        env::set_var(
+            "SET_REGISTRY_ADDRESS",
+            "0x1234567890123456789012345678901234567890",
+        );
+        env::set_var(
+            "SEQUENCER_PRIVATE_KEY",
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        );
+        env::set_var("MAX_RETRIES", "0");
+
+        let config = AnchorConfig::from_env().unwrap();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("MAX_RETRIES"));
 
         clear_env_vars();
     }
@@ -309,7 +376,8 @@ mod health_tests {
         AnchorConfig {
             l2_rpc_url: "http://localhost:8547".to_string(),
             set_registry_address: "0x0000000000000000000000000000000000000000".to_string(),
-            sequencer_private_key: "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+            sequencer_private_key:
+                "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
             sequencer_api_url: "http://localhost:8080".to_string(),
             anchor_interval_secs: 30,
             min_events_for_anchor: 1,
@@ -324,7 +392,7 @@ mod health_tests {
             circuit_breaker_failure_threshold: 5,
             circuit_breaker_reset_timeout_secs: 60,
             circuit_breaker_half_open_success_threshold: 3,
-        tx_confirmation_timeout_secs: 60,
+            tx_confirmation_timeout_secs: 60,
         }
     }
 
@@ -398,8 +466,8 @@ mod health_tests {
 #[cfg(test)]
 mod service_tests {
     use crate::config::AnchorConfig;
-    use crate::service::AnchorService;
     use crate::health::HealthState;
+    use crate::service::AnchorService;
     use crate::types::AnchorStats;
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -408,7 +476,8 @@ mod service_tests {
         AnchorConfig {
             l2_rpc_url: "http://localhost:8547".to_string(),
             set_registry_address: "0x1234567890123456789012345678901234567890".to_string(),
-            sequencer_private_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
+            sequencer_private_key:
+                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".to_string(),
             sequencer_api_url: "http://localhost:3000".to_string(),
             anchor_interval_secs: 60,
             min_events_for_anchor: 100,

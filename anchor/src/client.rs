@@ -85,7 +85,11 @@ impl<P: Provider<HttpTransport> + Clone> RegistryClient<P> {
     /// Create a new registry client
     pub fn new(address: Address, provider: P, chain_id: u64) -> Self {
         let contract = SetRegistry::new(address, provider.clone());
-        Self { contract, provider, chain_id }
+        Self {
+            contract,
+            provider,
+            chain_id,
+        }
     }
 
     /// Check if an address is authorized as a sequencer
@@ -244,11 +248,7 @@ impl SequencerApiClient {
     ) -> Result<()> {
         let url = format!("{}/v1/commitments/{}/anchored", self.base_url, batch_id);
 
-        let response = self.client
-            .post(&url)
-            .json(notification)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(notification).send().await?;
 
         if !response.status().is_success() {
             let status = response.status();
