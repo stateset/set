@@ -1105,21 +1105,21 @@ FUNCTION _ethToSettlementAssets(weiAmount) → assets:
   REQUIRE ethUsdcPriceE18 > 0                             // PRICE_ZERO
   REQUIRE now - updatedAt <= maxPriceStaleness            // PRICE_STALE
 
-  assets = ceil(weiAmount * ethUsdcPriceE18 / 1e18)       // Rounding.Ceil
+  assets = ceil(weiAmount * ethUsdcPriceE18 / 1e30)       // Rounding.Ceil to 6-decimal settlement units
 ```
 
 **Pricing basis**: The oracle provides **ETH/USDC** price (not ETH/USD). This is consistent with Section 1.5 — the system is denominated in the settlement asset (USDC), not fiat dollars. If USDC depegs from USD, the oracle must track the ETH/USDC pair, not ETH/USD. Operators must select an oracle that quotes ETH in terms of USDC specifically.
 
 **Oracle latency risk**: `Rounding.Ceil` ensures the agent always pays at least the true cost. The `maxPriceStaleness` parameter bounds oracle lag. Operators should set this conservatively (e.g., 15 minutes).
 
-**Gas markup formula**:
+**Share charge formula**:
 
 ```
-chargedAssets = ceil(totalCostWei × ethUsdcPriceE18 / 1e18) × (BPS + gasMarkupBps) / BPS
+chargedAssets = ceil(totalCostWei × ethUsdcPriceE18 / 1e30)
 chargedShares = convertToSharesUp(chargedAssets)
 ```
 
-Where `gasMarkupBps` (e.g., 500 = 5%) absorbs oracle latency and fee volatility. The markup accrues to the paymaster as protocol revenue.
+V2 applies `Rounding.Ceil` but no configurable markup. A future version may add a markup parameter as an additional buffer against oracle latency and fee volatility.
 
 **Gas vs commerce spend**: Gas charges use `consumeGasSpend(agent, assetsCost)` — a separate spend path that increments `spentTodayAssets` but does **not** check merchant allowlists. Gas payments are infrastructure costs, not commerce transactions, and should not be subject to merchant-level restrictions. The daily limit and per-tx limit still apply as global safety caps.
 
@@ -1471,11 +1471,11 @@ shares = ceil(assets × RAY / NAV)            (convertToSharesUp)
 shares = floor(assets × RAY / NAV)           (convertToSharesDown)
 ```
 
-**NAV Rate Smoothing** (on oracle update, non-stale):
+**NAV Update** (snap-to-current model):
 ```
-currentNAV = nav0Ray + ratePerSecondRay × (now - t0)
-delta = attestedNAV - currentNAV
-rate_new = clamp(delta / smoothingWindow, -maxRateAbsRay, +maxRateAbsRay)
+nav0Ray = attestedCurrentNAV
+t0 = now
+ratePerSecondRay = clamp(forwardRateRay, -maxRateAbsRay, +maxRateAbsRay)
 ```
 
 **Yield Split** (on escrow release):
@@ -1495,7 +1495,7 @@ refundRecipient receives: S (all shares, no split)
 
 **Gas Cost Conversion** (Paymaster):
 ```
-assetsCost = ceil(gasCostWei × ethUsdPrice / 1e18)
+assetsCost = ceil(gasCostWei × ethUsdPrice / 1e30)
 chargeShares = ceil(assetsCost × RAY / NAV)
 ```
 
@@ -1618,20 +1618,21 @@ All tools return structured JSON. Errors follow the SDK error code system (see [
 ### B.1 Deployment Order
 
 ```
-1.  NAVControllerV2(admin, oracle, minNavRay, maxRateAbs, maxJumpBps,
-                    maxStaleness, smoothingWindow, initialNAVRay)
+1.  NAVControllerV2(admin, initialNAVRay, minNavRay, maxRateAbsRay,
+                    maxStaleness, maxNavJumpBps, staleRecoveryJumpMultiplier)
 2.  wSSDCVaultV2(settlementAsset, navController, admin)
 3.  SSDCPolicyModuleV2(admin)
-4.  GroundingRegistryV2(vault, navController, policyModule, admin)
+4.  GroundingRegistryV2(policyModule, navController, vault, admin)
 5.  SSDCClaimQueueV2(vault, settlementAsset, admin)
-6.  YieldEscrowV2(vault, navController, groundingRegistry, policyModule, admin)
-7.  YieldPaymasterV2(vault, navController, groundingRegistry, policyModule,
-                     ethUsdOracle, entryPoint, admin)
+6.  YieldEscrowV2(vault, navController, policyModule, groundingRegistry,
+                  admin, feeRecipient)
+7.  YieldPaymasterV2(vault, navController, policyModule, groundingRegistry,
+                     ethUsdOracle, entryPoint, admin, feeCollector)
 8.  SSDCVaultGatewayV2(vault, admin)
 9.  WSSDCCrossChainBridgeV2(vault, navController, admin)
-10. SSDCStatusLensV2(vault, navController, claimQueue, escrow, paymaster, bridge)
-11. SSDCV2CircuitBreaker(navController, vault, claimQueue, escrow,
-                          paymaster, bridge, admin)
+10. SSDCStatusLensV2(navController, vault, claimQueue, bridge, escrow, paymaster)
+11. SSDCV2CircuitBreaker(navController, vault, claimQueue, bridge,
+                          escrow, paymaster, admin)
 ```
 
 ### B.2 Role Grants

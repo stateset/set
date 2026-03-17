@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {SSDCV2TestBase} from "./SSDCV2TestBase.sol";
+import {NAVControllerV2} from "../../../stablecoin/v2/NAVControllerV2.sol";
 import {wSSDCVaultV2} from "../../../stablecoin/v2/wSSDCVaultV2.sol";
 
 contract MockBadDecimalsAsset is ERC20 {
@@ -156,6 +157,19 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         vault.mintBridgeShares(user2, 1 ether);
     }
 
+    function test_BridgeMintCoverageGuardFailsClosedWhenNAVStale() public {
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.prank(admin);
+        vault.setMinBridgeLiquidityCoverageBps(1);
+
+        vm.warp(block.timestamp + nav.maxStaleness() + 1);
+
+        vm.prank(admin);
+        vm.expectRevert(NAVControllerV2.NAV_STALE.selector);
+        vault.mintBridgeShares(user2, 1 ether);
+    }
+
     function test_BridgedShareProvenanceMovesWithTransfersAndBurns() public {
         _mintAndDeposit(user1, 10 ether);
 
@@ -237,5 +251,25 @@ contract wSSDCVaultV2Test is SSDCV2TestBase {
         vm.expectRevert(wSSDCVaultV2.MINT_REDEEM_PAUSED.selector);
         vault.deployReserve(10 ether);
         vm.stopPrank();
+    }
+
+    function test_ReserveDeployFailsClosedWhenNAVBelowFloor() public {
+        address reserveManager = address(0x515E);
+        _mintAndDeposit(user1, 100 ether);
+
+        vm.prank(admin);
+        vault.setReserveConfig(reserveManager, 0, 2_000);
+
+        uint64 nextEpoch = nav.navEpoch() + 1;
+        uint256 minNavRay = nav.minNavRay();
+        int256 maxNegativeRate = -nav.maxRateAbsRay();
+        vm.prank(admin);
+        nav.relayNAV(minNavRay, uint40(block.timestamp), maxNegativeRate, nextEpoch);
+
+        vm.warp(block.timestamp + 1);
+
+        vm.prank(admin);
+        vm.expectRevert(NAVControllerV2.NAV_BELOW_MIN.selector);
+        vault.deployReserve(1 ether);
     }
 }

@@ -43,6 +43,7 @@ export interface AgentStatus {
   address: string;
   shares: bigint;
   assets: bigint;
+  effectiveFloorAssets: bigint;
   gasTankShares: bigint;
   policy: AgentPolicy;
   isGrounded: boolean;
@@ -126,6 +127,13 @@ export interface EscrowInfo {
   disputeReason: DisputeReason;
   fulfilledAt: number;
   fulfillmentEvidence: string;
+  resolution: DisputeResolution;
+  resolvedAt: number;
+  resolutionEvidence: string;
+  challengeWindow: number;
+  arbiterDeadline: number;
+  timeoutResolution: DisputeResolution;
+  disputedAt: number;
   settlementMode: SettlementMode;
   settledAt: number;
 }
@@ -138,6 +146,53 @@ export interface ReleaseSplit {
   feeShares: bigint;
   buyerYieldShares: bigint;
   merchantYieldShares: bigint;
+}
+
+export interface SettlementPreview {
+  status: EscrowStatus;
+  releaseAfterPassed: boolean;
+  fulfillmentSubmitted: boolean;
+  fulfillmentComplete: boolean;
+  disputeActive: boolean;
+  disputeResolved: boolean;
+  disputeTimedOut: boolean;
+  requiresArbiterResolution: boolean;
+  canBuyerRelease: boolean;
+  canMerchantRelease: boolean;
+  canArbiterRelease: boolean;
+  canBuyerRefund: boolean;
+  canArbiterRefund: boolean;
+  canArbiterResolve: boolean;
+  buyerReleaseMode: SettlementMode;
+  merchantReleaseMode: SettlementMode;
+  arbiterReleaseMode: SettlementMode;
+  buyerRefundMode: SettlementMode;
+  arbiterRefundMode: SettlementMode;
+  requiredMilestones: number;
+  completedMilestones: number;
+  nextMilestoneNumber: number;
+  disputedMilestone: number;
+  challengeWindowEndsAt: number;
+  disputeWindowEndsAt: number;
+}
+
+export type SettlementActionType =
+  | "release"
+  | "refund"
+  | "resolve_dispute"
+  | "execute_timeout";
+
+export type SettlementActor =
+  | "buyer"
+  | "merchant"
+  | "arbiter"
+  | "anyone";
+
+export interface SettlementAction {
+  type: SettlementActionType;
+  actor: SettlementActor;
+  settlementMode?: SettlementMode;
+  resolution?: DisputeResolution;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +234,28 @@ export interface SystemStatus {
   reserveDeployedAssets: bigint;
 }
 
+export interface BridgeStatus {
+  bridgePaused: boolean;
+  bridgingAllowed: boolean;
+  bridgeMintAllowed: boolean;
+  outstandingShares: bigint;
+  maxOutstandingShares: bigint;
+  remainingMintCapacityShares: bigint;
+}
+
+export interface BridgeOutPreview extends BridgeStatus {
+  dstChain: number;
+  recipient: string;
+  recipientBytes32: string;
+  shares: bigint;
+  assetsEquivalent: bigint;
+  shareBalance: bigint;
+  trustedPeer: string;
+  routeTrusted: boolean;
+  contractCanBridge: boolean;
+  canBridgeNow: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Transaction Results
 // ---------------------------------------------------------------------------
@@ -203,6 +280,23 @@ export interface RedeemRequestResult extends TxResult {
 
 export interface GasTankTopUpResult extends TxResult {
   sharesDeposited: bigint;
+}
+
+export interface BridgeOutResult extends TxResult {
+  msgId: string;
+  dstChain: number;
+  recipient: string;
+  recipientBytes32: string;
+  sharesBurned: bigint;
+}
+
+export interface EscrowDisputeResolutionResult extends TxResult {
+  resolution: DisputeResolution;
+}
+
+export interface EscrowTimeoutExecutionResult extends TxResult {
+  resolution: DisputeResolution;
+  settlementMode: SettlementMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +332,20 @@ export interface PaymentAcceptance {
   txHash: string;
   sharesLocked: bigint;
   estimatedYield: bigint;
+}
+
+/** Read-only quote for whether and how a payment request can be accepted now */
+export interface PaymentAcceptancePreview {
+  requestId: string;
+  payee: string;
+  assetsDue: bigint;
+  principalAssetsSnapshot: bigint;
+  estimatedAssetsIn: bigint;
+  sharesLocked: bigint;
+  projectedNavRay: bigint;
+  estimatedYield: bigint;
+  releaseAfter: number;
+  expiresAt: number;
 }
 
 /** Fulfillment proof submitted by service provider agent */

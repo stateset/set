@@ -12,7 +12,9 @@ export const wSSDCVaultV2Abi = [
   "function balanceOf(address) view returns (uint256)",
   "function convertToAssets(uint256 shares) view returns (uint256)",
   "function convertToShares(uint256 assets) view returns (uint256)",
+  "function convertToSharesInvoiceOrWithdraw(uint256 assets) view returns (uint256)",
   "function previewDeposit(uint256 assets) view returns (uint256)",
+  "function previewMint(uint256 shares) view returns (uint256)",
   "function previewRedeem(uint256 shares) view returns (uint256)",
   "function deposit(uint256 assets, address receiver) returns (uint256)",
   "function redeem(uint256 shares, address receiver, address owner) returns (uint256)",
@@ -37,6 +39,7 @@ export const navControllerV2Abi = [
   "function tryCurrentNAVRay() view returns (uint256 navRay, bool stale)",
   "function navEpoch() view returns (uint64)",
   "function nav0Ray() view returns (uint256)",
+  "function t0() view returns (uint40)",
   "function ratePerSecondRay() view returns (int256)",
   "function maxStaleness() view returns (uint256)",
   "function lastKnownGoodNAV() view returns (uint256)",
@@ -115,8 +118,13 @@ export const ssdcVaultGatewayV2Abi = [
 ] as const;
 
 export const wssdcCrossChainBridgeV2Abi = [
+  "function bridgePaused() view returns (bool)",
+  "function trustedPeer(uint32) view returns (bytes32)",
+  "function bridgeOutNonce(address) view returns (uint256)",
   "function bridgeOut(uint32 dstChain, bytes32 recipient, uint256 shares) returns (bytes32 msgId)",
   "function canBridge(uint32 dstChain, uint256 shares) view returns (bool)",
+  "function outstandingShares() view returns (uint256)",
+  "function maxOutstandingShares() view returns (uint256)",
   "function remainingMintCapacityShares() view returns (uint256)",
   "event BridgeOut(bytes32 indexed msgId, address indexed from, uint32 indexed dstChain, bytes32 recipient, uint256 shares)",
   "event BridgeIn(bytes32 indexed msgId, address indexed to, uint32 indexed srcChain, uint256 shares)",

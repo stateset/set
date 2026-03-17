@@ -12,7 +12,7 @@
  *   await agent.fundEscrow(merchant, terms, 2000);        // Escrowed payment (2000 bps yield)
  */
 
-import { Contract, JsonRpcProvider, Wallet, formatUnits, MaxUint256 } from "ethers";
+import { Contract, JsonRpcProvider, Wallet, formatUnits, MaxUint256, zeroPadValue } from "ethers";
 import {
   wSSDCVaultV2Abi,
   navControllerV2Abi,
@@ -23,6 +23,7 @@ import {
   yieldPaymasterV2Abi,
   ssdcVaultGatewayV2Abi,
   ssdcStatusLensV2Abi,
+  wssdcCrossChainBridgeV2Abi,
   erc20Abi,
 } from "./abis.js";
 import {
@@ -32,25 +33,36 @@ import {
   InvoiceTerms,
   EscrowInfo,
   ReleaseSplit,
+  SettlementPreview,
+  SettlementAction,
   SystemStatus,
+  BridgeStatus,
+  BridgeOutPreview,
   DepositResult,
+  BridgeOutResult,
   EscrowFundResult,
+  EscrowDisputeResolutionResult,
+  EscrowTimeoutExecutionResult,
   RedeemRequestResult,
   GasTankTopUpResult,
   PaymentRequest,
   PaymentAcceptance,
+  PaymentAcceptancePreview,
   FulfillmentProof,
   FulfillmentType,
+  DisputeReason,
   DisputeResolution,
   EscrowStatus,
+  SettlementMode,
   TxResult,
 } from "./types.js";
 import { SDKError, SDKErrorCode, wrapError } from "../../errors.js";
 import { getConfig, debugLog } from "../../config.js";
 import { withRetry } from "../../utils/retry.js";
-import { validateAddress, validatePositiveAmount } from "../../utils/validation.js";
+import { validateAddress, validateBytes32, validatePositiveAmount } from "../../utils/validation.js";
 import { extractEventArgOrThrow } from "../../utils/events.js";
 import { estimateGas } from "../../utils/gas.js";
+import { computeAvailableSpendAssets, projectNAVRayFromBase } from "./math.js";
 
 // ---------------------------------------------------------------------------
 // Agent-specific error codes
@@ -65,6 +77,11 @@ export enum AgentErrorCode {
   NAV_STALE = "AGENT_8006",
   PAYMENT_EXPIRED = "AGENT_8007",
   INSUFFICIENT_SHARES = "AGENT_8008",
+  INVALID_PAYMENT_REQUEST = "AGENT_8009",
+  INVALID_SETTLEMENT_REQUEST = "AGENT_8010",
+  SETTLEMENT_ACTION_UNAVAILABLE = "AGENT_8011",
+  BRIDGE_ROUTE_UNAVAILABLE = "AGENT_8012",
+  INVALID_BRIDGE_REQUEST = "AGENT_8013",
 }
 
 export class AgentError extends Error {
@@ -103,6 +120,7 @@ export class AgentClient {
   private groundingRegistry: Contract;
   private paymaster: Contract;
   private gateway: Contract;
+  private bridge: Contract;
   private statusLens: Contract;
   private settlementAsset: Contract;
 
@@ -119,6 +137,7 @@ export class AgentClient {
     this.groundingRegistry = new Contract(addresses.groundingRegistry, groundingRegistryV2Abi, signer);
     this.paymaster = new Contract(addresses.paymaster, yieldPaymasterV2Abi, signer);
     this.gateway = new Contract(addresses.gateway, ssdcVaultGatewayV2Abi, signer);
+    this.bridge = new Contract(addresses.bridge, wssdcCrossChainBridgeV2Abi, signer);
     this.statusLens = new Contract(addresses.statusLens, ssdcStatusLensV2Abi, signer);
     this.settlementAsset = new Contract(addresses.settlementAsset, erc20Abi, signer);
   }
@@ -197,14 +216,14 @@ export class AgentClient {
   async getStatus(): Promise<AgentStatus> {
     const agentAddr = await this.signer.getAddress();
 
-    const [shares, gasTankShares, policyRaw, isGrounded] = await Promise.all([
+    const [shares, gasTankShares, policyRaw, isGrounded, collateralState] = await Promise.all([
       withRetry(() => this.vault.balanceOf(agentAddr)),
       withRetry(() => this.paymaster.gasTankShares(agentAddr)),
       withRetry(() => this.policyModule.policies(agentAddr)),
       withRetry(() => this.groundingRegistry.isGroundedNow(agentAddr)),
+      withRetry(() => this.groundingRegistry.currentAssets(agentAddr)),
     ]);
-
-    const assets = await this.sharesToAssets(shares);
+    const [assets, effectiveFloorAssets, navRay] = collateralState;
 
     const policy: AgentPolicy = {
       perTxLimitAssets: policyRaw.perTxLimitAssets,
@@ -220,19 +239,22 @@ export class AgentClient {
 
     const now = Math.floor(Date.now() / 1000);
     const sessionActive = policy.sessionExpiry === 0 || policy.sessionExpiry > now;
-
-    // Available spend = min(perTxLimit, dailyLimit - spentToday) capped by (assets - floor - committed)
-    let budgetRemaining = policy.dailyLimitAssets - policy.spentTodayAssets;
-    if (budgetRemaining < 0n) budgetRemaining = 0n;
-    let availableSpend = budgetRemaining < policy.perTxLimitAssets ? budgetRemaining : policy.perTxLimitAssets;
-    const collateralCap = assets - policy.minAssetsFloor - policy.committedAssets;
-    if (collateralCap < availableSpend) availableSpend = collateralCap;
-    if (availableSpend < 0n) availableSpend = 0n;
+    const availableSpend = computeAvailableSpendAssets({
+      collateralAssets: assets,
+      effectiveFloorAssets,
+      navRay,
+      perTxLimitAssets: policy.perTxLimitAssets,
+      dailyLimitAssets: policy.dailyLimitAssets,
+      spentTodayAssets: policy.spentTodayAssets,
+      policyExists: policy.exists,
+      sessionActive,
+    });
 
     return {
       address: agentAddr,
       shares,
       assets,
+      effectiveFloorAssets,
       gasTankShares,
       policy,
       isGrounded,
@@ -360,11 +382,17 @@ export class AgentClient {
 
   /**
    * Transfer a specific asset amount worth of shares to another agent.
-   * Converts assets to shares at current NAV, then transfers.
+   * Applies SDK policy/session preflight, converts assets to shares at current
+   * NAV, then sends the underlying transfer.
    */
   async pay(to: string, assetAmount: bigint): Promise<TxResult & { sharesSent: bigint }> {
+    const validTo = validateAddress(to, "to");
+    validatePositiveAmount(assetAmount, "assetAmount");
+
+    await this.assertSpendAllowed(validTo, assetAmount);
+
     const shares = await this.assetsToShares(assetAmount);
-    const result = await this.transfer(to, shares);
+    const result = await this.transfer(validTo, shares);
     return { ...result, sharesSent: shares };
   }
 
@@ -394,22 +422,7 @@ export class AgentClient {
 
     await this.assertSystemReady("escrow");
 
-    // Check agent won't be grounded
-    const status = await this.getStatus();
-    if (status.isGrounded) {
-      throw new AgentError(
-        AgentErrorCode.AGENT_GROUNDED,
-        "Agent is below collateral floor, cannot fund escrow",
-        { assets: status.assets.toString(), floor: status.policy.minAssetsFloor.toString() }
-      );
-    }
-    if (terms.assetsDue > status.availableSpend) {
-      throw new AgentError(
-        AgentErrorCode.POLICY_VIOLATION,
-        `Payment ${formatUnits(terms.assetsDue, 6)} exceeds available spend ${formatUnits(status.availableSpend, 6)}`,
-        { requested: terms.assetsDue.toString(), available: status.availableSpend.toString() }
-      );
-    }
+    await this.assertSpendAllowed(validMerchant, terms.assetsDue);
 
     // Ensure allowance for gateway
     const allowance = await withRetry(() =>
@@ -467,6 +480,232 @@ export class AgentClient {
     return { txHash: receipt.hash, escrowId, sharesLocked: sharesOut, assetsIn };
   }
 
+  private async assertSpendAllowed(merchant: string, assets: bigint): Promise<AgentStatus> {
+    const status = await this.getStatus();
+    if (status.isGrounded) {
+      throw new AgentError(
+        AgentErrorCode.AGENT_GROUNDED,
+        "Agent is below collateral floor, cannot spend",
+        {
+          assets: status.assets.toString(),
+          floor: status.effectiveFloorAssets.toString(),
+        }
+      );
+    }
+    if (!status.sessionActive) {
+      throw new AgentError(AgentErrorCode.SESSION_EXPIRED, "Agent session has expired");
+    }
+    if (status.policy.enforceMerchantAllowlist && !(await this.isMerchantAllowed(merchant))) {
+      throw new AgentError(
+        AgentErrorCode.POLICY_VIOLATION,
+        `Merchant ${merchant} is not on the agent allowlist`,
+        { merchant }
+      );
+    }
+    if (assets > status.availableSpend) {
+      throw new AgentError(
+        AgentErrorCode.POLICY_VIOLATION,
+        `Payment ${formatUnits(assets, 6)} exceeds available spend ${formatUnits(status.availableSpend, 6)}`,
+        { requested: assets.toString(), available: status.availableSpend.toString() }
+      );
+    }
+    return status;
+  }
+
+  private assertValidPaymentRequest(request: PaymentRequest, now: number): string {
+    const payee = validateAddress(request.payee, "request.payee");
+    validatePositiveAmount(request.amount, "request.amount");
+    validatePositiveAmount(request.terms.assetsDue, "request.terms.assetsDue");
+
+    if (request.requestId.trim().length === 0) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request ID cannot be empty"
+      );
+    }
+    if (request.amount !== request.terms.assetsDue) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request amount does not match invoice terms",
+        {
+          amount: request.amount.toString(),
+          assetsDue: request.terms.assetsDue.toString(),
+        }
+      );
+    }
+    if (request.expiresAt !== request.terms.expiry) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request expiry does not match invoice terms",
+        {
+          expiresAt: request.expiresAt,
+          termsExpiry: request.terms.expiry,
+        }
+      );
+    }
+    if (!Number.isInteger(request.buyerBps) || request.buyerBps < 0 || request.buyerBps > 10_000) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request buyer yield split must be an integer between 0 and 10000 bps",
+        { buyerBps: request.buyerBps }
+      );
+    }
+    if (request.expiresAt <= now) {
+      throw new AgentError(
+        AgentErrorCode.PAYMENT_EXPIRED,
+        `Payment request ${request.requestId} expired at ${new Date(request.expiresAt * 1000).toISOString()}`
+      );
+    }
+    if (request.terms.releaseAfter < now) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request release time is already in the past",
+        { releaseAfter: request.terms.releaseAfter, now }
+      );
+    }
+    if (request.terms.requiresFulfillment) {
+      if (request.terms.fulfillmentType === FulfillmentType.NONE) {
+        throw new AgentError(
+          AgentErrorCode.INVALID_PAYMENT_REQUEST,
+          "Payment request requires fulfillment but does not specify a fulfillment type"
+        );
+      }
+      if (request.terms.requiredMilestones === 0) {
+        throw new AgentError(
+          AgentErrorCode.INVALID_PAYMENT_REQUEST,
+          "Payment request requires fulfillment but has zero milestones"
+        );
+      }
+    } else {
+      if (request.terms.fulfillmentType !== FulfillmentType.NONE) {
+        throw new AgentError(
+          AgentErrorCode.INVALID_PAYMENT_REQUEST,
+          "Payment request marks fulfillment as optional but still sets a fulfillment type"
+        );
+      }
+      if (request.terms.requiredMilestones !== 0) {
+        throw new AgentError(
+          AgentErrorCode.INVALID_PAYMENT_REQUEST,
+          "Payment request marks fulfillment as optional but still sets milestones"
+        );
+      }
+    }
+    if (request.terms.challengeWindow === 0 && request.terms.arbiterDeadline === 0) {
+      if (request.terms.disputeTimeoutResolution !== DisputeResolution.NONE) {
+        throw new AgentError(
+          AgentErrorCode.INVALID_PAYMENT_REQUEST,
+          "Payment request cannot set timeout resolution without a challenge or arbiter window"
+        );
+      }
+    } else if (
+      request.terms.arbiterDeadline > 0
+      && request.terms.disputeTimeoutResolution === DisputeResolution.NONE
+    ) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request with an arbiter deadline must define a timeout resolution"
+      );
+    }
+
+    return payee;
+  }
+
+  private validateNonZeroBytes32(value: string, name: string): string {
+    const normalized = validateBytes32(value, name);
+    if (normalized === `0x${"0".repeat(64)}`) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_SETTLEMENT_REQUEST,
+        `${name} cannot be zero`
+      );
+    }
+    return normalized;
+  }
+
+  private timeoutSettlementMode(timeoutResolution: DisputeResolution): SettlementMode {
+    switch (timeoutResolution) {
+      case DisputeResolution.RELEASE:
+        return SettlementMode.DISPUTE_TIMEOUT_RELEASE;
+      case DisputeResolution.REFUND:
+        return SettlementMode.DISPUTE_TIMEOUT_REFUND;
+      default:
+        return SettlementMode.NONE;
+    }
+  }
+
+  private encodeBridgeRecipientAddress(recipient: string): string {
+    return zeroPadValue(validateAddress(recipient, "recipient"), 32);
+  }
+
+  private validateBridgeRecipientBytes32(recipient: string): string {
+    const normalized = validateBytes32(recipient, "recipient");
+    if (normalized === `0x${"0".repeat(64)}`) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_BRIDGE_REQUEST,
+        "Bridge recipient cannot be zero"
+      );
+    }
+    return normalized;
+  }
+
+  private validateDstChain(dstChain: number): number {
+    if (!Number.isInteger(dstChain) || dstChain < 0 || dstChain > 0xffff_ffff) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_BRIDGE_REQUEST,
+        "Destination chain must be a uint32 integer",
+        { dstChain }
+      );
+    }
+    return dstChain;
+  }
+
+  private async previewBridgeTransfer(
+    dstChain: number,
+    recipient: string,
+    recipientBytes32: string,
+    shares: bigint
+  ): Promise<BridgeOutPreview> {
+    validatePositiveAmount(shares, "shares");
+    const validDstChain = this.validateDstChain(dstChain);
+    const [systemStatus, bridgePaused, trustedPeer, contractCanBridge, shareBalance, outstandingShares, maxOutstandingShares, remainingMintCapacityShares] = await Promise.all([
+      this.getSystemStatus(),
+      withRetry(() => this.bridge.bridgePaused()) as Promise<boolean>,
+      withRetry(() => this.bridge.trustedPeer(validDstChain)) as Promise<string>,
+      withRetry(() => this.bridge.canBridge(validDstChain, shares)) as Promise<boolean>,
+      this.getShareBalance(),
+      withRetry(() => this.bridge.outstandingShares()) as Promise<bigint>,
+      withRetry(() => this.bridge.maxOutstandingShares()) as Promise<bigint>,
+      withRetry(() => this.bridge.remainingMintCapacityShares()) as Promise<bigint>,
+    ]);
+    const bridgedAssetsEquivalent = systemStatus.navRay > 0n
+      ? (shares * systemStatus.navRay) / RAY
+      : 0n;
+
+    const routeTrusted = trustedPeer !== `0x${"0".repeat(64)}`;
+    const canBridgeNow =
+      systemStatus.bridgingAllowed
+      && contractCanBridge
+      && shareBalance >= shares;
+
+    return {
+      bridgePaused,
+      bridgingAllowed: systemStatus.bridgingAllowed,
+      bridgeMintAllowed: systemStatus.bridgeMintAllowed,
+      outstandingShares,
+      maxOutstandingShares,
+      remainingMintCapacityShares,
+      dstChain: validDstChain,
+      recipient,
+      recipientBytes32,
+      shares,
+      assetsEquivalent: bridgedAssetsEquivalent,
+      shareBalance,
+      trustedPeer,
+      routeTrusted,
+      contractCanBridge,
+      canBridgeNow,
+    };
+  }
+
   /**
    * Release escrow (buyer approves the merchant's work).
    * Yield accrued during the escrow period is split per the terms.
@@ -487,9 +726,10 @@ export class AgentClient {
     reasonHash: string
   ): Promise<TxResult> {
     const config = getConfig();
+    const normalizedReasonHash = this.validateNonZeroBytes32(reasonHash, "reasonHash");
     const tx = targetMilestone > 0
-      ? await this.escrow.disputeMilestone(escrowId, reason, targetMilestone, reasonHash)
-      : await this.escrow.dispute(escrowId, reason, reasonHash);
+      ? await this.escrow.disputeMilestone(escrowId, reason, targetMilestone, normalizedReasonHash)
+      : await this.escrow.dispute(escrowId, reason, normalizedReasonHash);
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Escrow ${escrowId} disputed`);
     return { txHash: receipt.hash };
@@ -510,6 +750,38 @@ export class AgentClient {
     return await withRetry(() => this.escrow.previewReleaseSplit(escrowId));
   }
 
+  /** Preview live settlement readiness for an escrow */
+  async previewEscrowSettlement(escrowId: bigint): Promise<SettlementPreview> {
+    const preview = await withRetry(() => this.escrow.previewSettlement(escrowId));
+    return {
+      status: Number(preview.status) as EscrowStatus,
+      releaseAfterPassed: preview.releaseAfterPassed,
+      fulfillmentSubmitted: preview.fulfillmentSubmitted,
+      fulfillmentComplete: preview.fulfillmentComplete,
+      disputeActive: preview.disputeActive,
+      disputeResolved: preview.disputeResolved,
+      disputeTimedOut: preview.disputeTimedOut,
+      requiresArbiterResolution: preview.requiresArbiterResolution,
+      canBuyerRelease: preview.canBuyerRelease,
+      canMerchantRelease: preview.canMerchantRelease,
+      canArbiterRelease: preview.canArbiterRelease,
+      canBuyerRefund: preview.canBuyerRefund,
+      canArbiterRefund: preview.canArbiterRefund,
+      canArbiterResolve: preview.canArbiterResolve,
+      buyerReleaseMode: Number(preview.buyerReleaseMode) as SettlementMode,
+      merchantReleaseMode: Number(preview.merchantReleaseMode) as SettlementMode,
+      arbiterReleaseMode: Number(preview.arbiterReleaseMode) as SettlementMode,
+      buyerRefundMode: Number(preview.buyerRefundMode) as SettlementMode,
+      arbiterRefundMode: Number(preview.arbiterRefundMode) as SettlementMode,
+      requiredMilestones: Number(preview.requiredMilestones),
+      completedMilestones: Number(preview.completedMilestones),
+      nextMilestoneNumber: Number(preview.nextMilestoneNumber),
+      disputedMilestone: Number(preview.disputedMilestone),
+      challengeWindowEndsAt: Number(preview.challengeWindowEndsAt),
+      disputeWindowEndsAt: Number(preview.disputeWindowEndsAt),
+    };
+  }
+
   /** Get escrow info by ID */
   async getEscrow(escrowId: bigint): Promise<EscrowInfo> {
     const e = await withRetry(() => this.escrow.escrows(escrowId));
@@ -527,12 +799,58 @@ export class AgentClient {
       requiresFulfillment: e.requiresFulfillment,
       fulfillmentType: Number(e.fulfillmentType) as FulfillmentType,
       disputed: e.disputed,
-      disputeReason: Number(e.disputeReason),
+      disputeReason: Number(e.disputeReason) as DisputeReason,
       fulfilledAt: Number(e.fulfilledAt),
       fulfillmentEvidence: e.fulfillmentEvidence,
-      settlementMode: Number(e.settlementMode),
+      resolution: Number(e.resolution) as DisputeResolution,
+      resolvedAt: Number(e.resolvedAt),
+      resolutionEvidence: e.resolutionEvidence,
+      challengeWindow: Number(e.challengeWindow),
+      arbiterDeadline: Number(e.arbiterDeadline),
+      timeoutResolution: Number(e.timeoutResolution) as DisputeResolution,
+      disputedAt: Number(e.disputedAt),
+      settlementMode: Number(e.settlementMode) as SettlementMode,
       settledAt: Number(e.settledAt),
     };
+  }
+
+  /** List the currently available settlement actions for an escrow */
+  async getSettlementActions(escrowId: bigint): Promise<SettlementAction[]> {
+    const [preview, escrow] = await Promise.all([
+      this.previewEscrowSettlement(escrowId),
+      this.getEscrow(escrowId),
+    ]);
+    const actions: SettlementAction[] = [];
+
+    if (preview.canBuyerRelease) {
+      actions.push({ type: "release", actor: "buyer", settlementMode: preview.buyerReleaseMode });
+    }
+    if (preview.canMerchantRelease) {
+      actions.push({ type: "release", actor: "merchant", settlementMode: preview.merchantReleaseMode });
+    }
+    if (preview.canArbiterRelease) {
+      actions.push({ type: "release", actor: "arbiter", settlementMode: preview.arbiterReleaseMode });
+    }
+    if (preview.canBuyerRefund) {
+      actions.push({ type: "refund", actor: "buyer", settlementMode: preview.buyerRefundMode });
+    }
+    if (preview.canArbiterRefund) {
+      actions.push({ type: "refund", actor: "arbiter", settlementMode: preview.arbiterRefundMode });
+    }
+    if (preview.canArbiterResolve) {
+      actions.push({ type: "resolve_dispute", actor: "arbiter", resolution: DisputeResolution.RELEASE });
+      actions.push({ type: "resolve_dispute", actor: "arbiter", resolution: DisputeResolution.REFUND });
+    }
+    if (preview.disputeTimedOut && escrow.timeoutResolution !== DisputeResolution.NONE) {
+      actions.push({
+        type: "execute_timeout",
+        actor: "anyone",
+        resolution: escrow.timeoutResolution,
+        settlementMode: this.timeoutSettlementMode(escrow.timeoutResolution),
+      });
+    }
+
+    return actions;
   }
 
   // =========================================================================
@@ -546,10 +864,11 @@ export class AgentClient {
   async submitFulfillment(proof: FulfillmentProof): Promise<TxResult> {
     const config = getConfig();
     const fulfillmentType = proof.fulfillmentType ?? (await this.getEscrow(proof.escrowId)).fulfillmentType;
+    const evidenceHash = this.validateNonZeroBytes32(proof.evidenceHash, "evidenceHash");
     const tx = await this.escrow.submitFulfillment(
       proof.escrowId,
       fulfillmentType,
-      proof.evidenceHash
+      evidenceHash
     );
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Fulfillment submitted for escrow ${proof.escrowId}, milestone ${proof.milestoneNumber}`);
@@ -565,6 +884,189 @@ export class AgentClient {
     const receipt = await tx.wait(config.blockConfirmations);
     debugLog("Agent", `Escrow ${escrowId} released by merchant`);
     return { txHash: receipt.hash };
+  }
+
+  /** Resolve an active dispute as the arbiter */
+  async resolveEscrowDispute(
+    escrowId: bigint,
+    resolution: DisputeResolution,
+    evidenceHash: string
+  ): Promise<EscrowDisputeResolutionResult> {
+    if (resolution === DisputeResolution.NONE) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_SETTLEMENT_REQUEST,
+        "Dispute resolution must be RELEASE or REFUND"
+      );
+    }
+
+    const preview = await this.previewEscrowSettlement(escrowId);
+    if (!preview.canArbiterResolve) {
+      throw new AgentError(
+        AgentErrorCode.SETTLEMENT_ACTION_UNAVAILABLE,
+        `Escrow ${escrowId} is not currently resolvable by the arbiter`
+      );
+    }
+
+    const config = getConfig();
+    const normalizedEvidenceHash = this.validateNonZeroBytes32(evidenceHash, "evidenceHash");
+    const tx = await this.escrow.resolveDispute(escrowId, resolution, normalizedEvidenceHash);
+    const receipt = await tx.wait(config.blockConfirmations);
+    debugLog("Agent", `Escrow ${escrowId} dispute resolved as ${DisputeResolution[resolution]}`);
+    return { txHash: receipt.hash, resolution };
+  }
+
+  /** Execute a timed-out dispute using the escrow's configured timeout resolution */
+  async executeEscrowTimeout(escrowId: bigint): Promise<EscrowTimeoutExecutionResult> {
+    const [preview, escrow] = await Promise.all([
+      this.previewEscrowSettlement(escrowId),
+      this.getEscrow(escrowId),
+    ]);
+
+    if (!preview.disputeTimedOut || escrow.timeoutResolution === DisputeResolution.NONE) {
+      throw new AgentError(
+        AgentErrorCode.SETTLEMENT_ACTION_UNAVAILABLE,
+        `Escrow ${escrowId} does not have an executable timeout settlement`
+      );
+    }
+
+    const resolution = escrow.timeoutResolution;
+    const settlementMode = this.timeoutSettlementMode(resolution);
+    const config = getConfig();
+    const tx = await this.escrow.executeTimeout(escrowId);
+    const receipt = await tx.wait(config.blockConfirmations);
+    debugLog("Agent", `Escrow ${escrowId} timeout executed as ${DisputeResolution[resolution]}`);
+    return { txHash: receipt.hash, resolution, settlementMode };
+  }
+
+  // =========================================================================
+  // Bridging
+  // =========================================================================
+
+  /** Get current bridge status and capacity */
+  async getBridgeStatus(): Promise<BridgeStatus> {
+    const [systemStatus, bridgePaused, outstandingShares, maxOutstandingShares, remainingMintCapacityShares] = await Promise.all([
+      this.getSystemStatus(),
+      withRetry(() => this.bridge.bridgePaused()) as Promise<boolean>,
+      withRetry(() => this.bridge.outstandingShares()) as Promise<bigint>,
+      withRetry(() => this.bridge.maxOutstandingShares()) as Promise<bigint>,
+      withRetry(() => this.bridge.remainingMintCapacityShares()) as Promise<bigint>,
+    ]);
+
+    return {
+      bridgePaused,
+      bridgingAllowed: systemStatus.bridgingAllowed,
+      bridgeMintAllowed: systemStatus.bridgeMintAllowed,
+      outstandingShares,
+      maxOutstandingShares,
+      remainingMintCapacityShares,
+    };
+  }
+
+  /** Preview a bridge-out to a raw bytes32 recipient */
+  async previewBridgeOut(
+    dstChain: number,
+    recipientBytes32: string,
+    shares: bigint
+  ): Promise<BridgeOutPreview> {
+    const normalizedRecipient = this.validateBridgeRecipientBytes32(recipientBytes32);
+    return await this.previewBridgeTransfer(dstChain, normalizedRecipient, normalizedRecipient, shares);
+  }
+
+  /** Preview a bridge-out to a standard EVM address recipient */
+  async previewBridgeToAddress(
+    dstChain: number,
+    recipient: string,
+    shares: bigint
+  ): Promise<BridgeOutPreview> {
+    const normalizedRecipient = validateAddress(recipient, "recipient");
+    const recipientBytes32 = this.encodeBridgeRecipientAddress(normalizedRecipient);
+    return await this.previewBridgeTransfer(dstChain, normalizedRecipient, recipientBytes32, shares);
+  }
+
+  /** Bridge shares to a raw bytes32 recipient */
+  async bridgeOut(
+    dstChain: number,
+    recipientBytes32: string,
+    shares: bigint
+  ): Promise<BridgeOutResult> {
+    const preview = await this.previewBridgeOut(dstChain, recipientBytes32, shares);
+
+    await this.assertSystemReady("bridge");
+    if (!preview.routeTrusted || !preview.contractCanBridge) {
+      throw new AgentError(
+        AgentErrorCode.BRIDGE_ROUTE_UNAVAILABLE,
+        `Bridge route to chain ${dstChain} is not available`
+      );
+    }
+    if (preview.shareBalance < shares) {
+      throw new AgentError(
+        AgentErrorCode.INSUFFICIENT_SHARES,
+        `Bridge requires ${shares} shares but wallet holds ${preview.shareBalance}`,
+        { required: shares.toString(), available: preview.shareBalance.toString() }
+      );
+    }
+
+    const config = getConfig();
+    const tx = await this.bridge.bridgeOut(dstChain, preview.recipientBytes32, shares);
+    const receipt = await tx.wait(config.blockConfirmations);
+    const msgId = extractEventArgOrThrow<string>(
+      receipt,
+      this.bridge,
+      "BridgeOut",
+      "msgId"
+    );
+    debugLog("Agent", `Bridged ${shares} shares to chain ${dstChain}`);
+    return {
+      txHash: receipt.hash,
+      msgId,
+      dstChain,
+      recipient: preview.recipient,
+      recipientBytes32: preview.recipientBytes32,
+      sharesBurned: shares,
+    };
+  }
+
+  /** Bridge shares to a standard EVM address recipient */
+  async bridgeToAddress(
+    dstChain: number,
+    recipient: string,
+    shares: bigint
+  ): Promise<BridgeOutResult> {
+    const preview = await this.previewBridgeToAddress(dstChain, recipient, shares);
+
+    await this.assertSystemReady("bridge");
+    if (!preview.routeTrusted || !preview.contractCanBridge) {
+      throw new AgentError(
+        AgentErrorCode.BRIDGE_ROUTE_UNAVAILABLE,
+        `Bridge route to chain ${dstChain} is not available`
+      );
+    }
+    if (preview.shareBalance < shares) {
+      throw new AgentError(
+        AgentErrorCode.INSUFFICIENT_SHARES,
+        `Bridge requires ${shares} shares but wallet holds ${preview.shareBalance}`,
+        { required: shares.toString(), available: preview.shareBalance.toString() }
+      );
+    }
+
+    const config = getConfig();
+    const tx = await this.bridge.bridgeOut(dstChain, preview.recipientBytes32, shares);
+    const receipt = await tx.wait(config.blockConfirmations);
+    const msgId = extractEventArgOrThrow<string>(
+      receipt,
+      this.bridge,
+      "BridgeOut",
+      "msgId"
+    );
+    debugLog("Agent", `Bridged ${shares} shares to ${preview.recipient} on chain ${dstChain}`);
+    return {
+      txHash: receipt.hash,
+      msgId,
+      dstChain,
+      recipient: preview.recipient,
+      recipientBytes32: preview.recipientBytes32,
+      sharesBurned: shares,
+    };
   }
 
   // =========================================================================
@@ -640,6 +1142,12 @@ export class AgentClient {
     const agentAddr = await this.signer.getAddress();
     const now = Math.floor(Date.now() / 1000);
     const expiresAt = now + (params.expiresInSeconds ?? 3600); // 1 hour default
+    const requiresFulfillment = (params.milestones ?? 0) > 0;
+    const challengeWindow = params.challengeWindowSeconds ?? 21600;
+    const arbiterDeadline = params.arbiterDeadlineSeconds ?? 604800;
+    const disputeTimeoutResolution = challengeWindow === 0 && arbiterDeadline === 0
+      ? DisputeResolution.NONE
+      : DisputeResolution.REFUND;
 
     const terms: InvoiceTerms = {
       assetsDue: params.amount,
@@ -647,18 +1155,19 @@ export class AgentClient {
       releaseAfter: now + (params.holdPeriodSeconds ?? 300), // 5 min default
       maxNavAge: 172800, // 48 hours
       maxSharesIn: MaxUint256,
-      requiresFulfillment: (params.milestones ?? 0) > 0,
-      fulfillmentType: params.fulfillmentType ?? FulfillmentType.DIGITAL,
+      requiresFulfillment,
+      fulfillmentType: requiresFulfillment
+        ? (params.fulfillmentType ?? FulfillmentType.DIGITAL)
+        : FulfillmentType.NONE,
       requiredMilestones: params.milestones ?? 0,
-      challengeWindow: params.challengeWindowSeconds ?? 21600, // 6 hours default
-      arbiterDeadline: params.arbiterDeadlineSeconds ?? 604800, // 7 days default
-      disputeTimeoutResolution: DisputeResolution.REFUND,
+      challengeWindow,
+      arbiterDeadline,
+      disputeTimeoutResolution,
     };
 
     // Generate a unique request ID
     const requestId = `pr_${agentAddr.slice(2, 10)}_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-
-    return {
+    const request: PaymentRequest = {
       requestId,
       payee: agentAddr,
       amount: params.amount,
@@ -669,6 +1178,87 @@ export class AgentClient {
       callbackUrl: params.callbackUrl,
       metadata: params.metadata,
     };
+
+    this.assertValidPaymentRequest(request, now);
+    return request;
+  }
+
+  /**
+   * Preview whether a payment request can be accepted right now and quote the
+   * exact gateway-aligned share lock / asset spend path.
+   */
+  async previewPaymentRequestAcceptance(request: PaymentRequest): Promise<PaymentAcceptancePreview> {
+    const now = Math.floor(Date.now() / 1000);
+    const payee = this.assertValidPaymentRequest(request, now);
+
+    await this.assertSystemReady("escrow");
+    await this.assertSpendAllowed(payee, request.amount);
+
+    const sharesLocked = await withRetry(
+      () => this.vault.convertToSharesInvoiceOrWithdraw(request.amount)
+    ) as bigint;
+    if (sharesLocked > request.terms.maxSharesIn) {
+      throw new AgentError(
+        AgentErrorCode.INVALID_PAYMENT_REQUEST,
+        "Payment request share slippage cap is below the current escrow lock requirement",
+        {
+          sharesLocked: sharesLocked.toString(),
+          maxSharesIn: request.terms.maxSharesIn.toString(),
+        }
+      );
+    }
+    const [
+      principalAssetsSnapshot,
+      estimatedAssetsIn,
+      nav0Ray,
+      t0,
+      ratePerSecond,
+      maxStaleness,
+    ] = await Promise.all([
+      withRetry(() => this.vault.convertToAssets(sharesLocked)) as Promise<bigint>,
+      withRetry(() => this.vault.previewMint(sharesLocked)) as Promise<bigint>,
+      withRetry(() => this.navController.nav0Ray()) as Promise<bigint>,
+      withRetry(() => this.navController.t0()) as Promise<bigint>,
+      withRetry(() => this.navController.ratePerSecondRay()) as Promise<bigint>,
+      withRetry(() => this.navController.maxStaleness()) as Promise<bigint>,
+    ]);
+
+    const navAgeSeconds = BigInt(now) > t0 ? BigInt(now) - t0 : 0n;
+    if (navAgeSeconds > BigInt(request.terms.maxNavAge)) {
+      throw new AgentError(
+        AgentErrorCode.NAV_STALE,
+        "Payment request requires fresher NAV than the controller currently provides",
+        {
+          navAgeSeconds: navAgeSeconds.toString(),
+          maxNavAgeSeconds: request.terms.maxNavAge,
+        }
+      );
+    }
+
+    const projectedNavRay = projectNAVRayFromBase(
+      nav0Ray,
+      t0,
+      BigInt(request.terms.releaseAfter),
+      ratePerSecond,
+      maxStaleness
+    );
+    const projectedAssetsAtRelease = (sharesLocked * projectedNavRay) / RAY;
+    const estimatedYield = projectedAssetsAtRelease > principalAssetsSnapshot
+      ? projectedAssetsAtRelease - principalAssetsSnapshot
+      : 0n;
+
+    return {
+      requestId: request.requestId,
+      payee,
+      assetsDue: request.amount,
+      principalAssetsSnapshot,
+      estimatedAssetsIn,
+      sharesLocked,
+      projectedNavRay,
+      estimatedYield,
+      releaseAfter: request.terms.releaseAfter,
+      expiresAt: request.expiresAt,
+    };
   }
 
   /**
@@ -676,29 +1266,14 @@ export class AgentClient {
    * Validates the request, funds an escrow, and returns the acceptance.
    */
   async acceptPaymentRequest(request: PaymentRequest): Promise<PaymentAcceptance> {
-    const now = Math.floor(Date.now() / 1000);
-
-    if (now > request.expiresAt) {
-      throw new AgentError(
-        AgentErrorCode.PAYMENT_EXPIRED,
-        `Payment request ${request.requestId} expired at ${new Date(request.expiresAt * 1000).toISOString()}`
-      );
-    }
+    const preview = await this.previewPaymentRequestAcceptance(request);
 
     const result = await this.fundEscrow(
       request.payee,
       request.terms,
-      request.buyerBps
+      request.buyerBps,
+      preview.estimatedAssetsIn
     );
-
-    // Estimate yield (based on current NAV rate and hold period)
-    const { navRay } = await this.getCurrentNAV();
-    const holdDuration = BigInt(request.terms.releaseAfter - now);
-    const ratePerSecond = (await withRetry(() => this.navController.ratePerSecondRay())) as bigint;
-    const projectedNAV = navRay + (ratePerSecond * holdDuration);
-    const boundedProjectedNAV = projectedNAV > 0n ? projectedNAV : 0n;
-    const estimatedYield =
-      (result.sharesLocked * boundedProjectedNAV) / RAY - request.amount;
 
     debugLog("Agent", `Accepted payment ${request.requestId}: escrow ${result.escrowId}`);
 
@@ -707,7 +1282,7 @@ export class AgentClient {
       escrowId: result.escrowId,
       txHash: result.txHash,
       sharesLocked: result.sharesLocked,
-      estimatedYield: estimatedYield > 0n ? estimatedYield : 0n,
+      estimatedYield: preview.estimatedYield,
     };
   }
 

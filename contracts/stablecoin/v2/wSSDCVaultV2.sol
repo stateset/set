@@ -74,7 +74,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     }
 
     function previewLiquidityCoverageBpsAfterMint(uint256 additionalShares) public view returns (uint256) {
-        uint256 navRay = _accountingNAVRay();
+        uint256 navRay = _riskCheckNAVRay();
         uint256 postLiabilityAssets = RayMath.convertToAssetsDown(totalSupply() + additionalShares, navRay);
         if (postLiabilityAssets == 0) {
             return 10_000;
@@ -169,7 +169,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         }
 
         // A single deployment call cannot exceed maxDeployBps of total liability
-        uint256 totalLiability = totalLiabilityAssets();
+        uint256 totalLiability = RayMath.convertToAssetsDown(totalSupply(), _riskCheckNAVRay());
         uint256 maxDeployable = (totalLiability * maxDeployBps) / 10_000;
         if (amount > maxDeployable) {
             revert RESERVE_DEPLOY_LIMIT();
@@ -363,6 +363,10 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
         if (!usable) {
             return navController.nav0Ray();
         }
+    }
+
+    function _riskCheckNAVRay() internal view returns (uint256) {
+        return navController.currentNAVRay();
     }
 
     function _bridgedSharesPortion(address account, uint256 shares) internal view returns (uint256 bridgedShares) {

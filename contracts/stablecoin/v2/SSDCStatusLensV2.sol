@@ -99,12 +99,14 @@ contract SSDCStatusLensV2 {
         status.queueReservedAssets = queue.reservedAssets();
         status.queueDepth = queue.queueDepth();
         status.liquidityCoverageBps = vault.liquidityCoverageBps();
+        bool bridgeCoverageSatisfied = status.minBridgeLiquidityCoverageBps == 0
+            || (navUsable && status.liquidityCoverageBps >= status.minBridgeLiquidityCoverageBps);
         status.bridgeMintAllowed = !bridgePaused
             && (
                 status.bridgeOutstandingLimitShares == 0
                     || status.bridgeOutstandingShares < status.bridgeOutstandingLimitShares
             )
-            && status.liquidityCoverageBps >= status.minBridgeLiquidityCoverageBps;
+            && bridgeCoverageSatisfied;
         status.navRay = navUsable ? navRay : 0;
         status.navEpoch = navController.navEpoch();
         status.navLastUpdate = navController.lastUpdateTs();

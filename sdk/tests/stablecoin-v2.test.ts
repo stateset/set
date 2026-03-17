@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 import { Interface } from "ethers";
-import { navControllerV2Abi, ssdcStatusLensV2Abi, yieldEscrowV2Abi } from "../src/stablecoin/v2/abis";
+import {
+  navControllerV2Abi,
+  ssdcStatusLensV2Abi,
+  wssdcCrossChainBridgeV2Abi,
+  yieldEscrowV2Abi,
+} from "../src/stablecoin/v2/abis";
 import type { SystemStatus } from "../src/stablecoin/v2/types";
 
 describe("SSDC V2 ABI fragments", () => {
@@ -107,6 +112,20 @@ describe("SSDC V2 ABI fragments", () => {
     );
     expect(iface.getFunction("escrowRequiredMilestones")?.format()).toBe(
       "escrowRequiredMilestones(uint256)"
+    );
+  });
+
+  it("matches the current bridge method names and signatures", () => {
+    const iface = new Interface(wssdcCrossChainBridgeV2Abi);
+
+    expect(iface.getFunction("bridgePaused")?.format()).toBe("bridgePaused()");
+    expect(iface.getFunction("trustedPeer")?.format()).toBe("trustedPeer(uint32)");
+    expect(iface.getFunction("bridgeOut")?.format()).toBe(
+      "bridgeOut(uint32,bytes32,uint256)"
+    );
+    expect(iface.getFunction("outstandingShares")?.format()).toBe("outstandingShares()");
+    expect(iface.getFunction("maxOutstandingShares")?.format()).toBe(
+      "maxOutstandingShares()"
     );
   });
 });

@@ -24,16 +24,24 @@ export type {
   InvoiceTerms,
   EscrowInfo,
   ReleaseSplit,
+  SettlementPreview,
+  SettlementAction,
   // System
   SystemStatus,
+  BridgeStatus,
+  BridgeOutPreview,
   // Results
   TxResult,
+  BridgeOutResult,
   DepositResult,
   EscrowFundResult,
+  EscrowDisputeResolutionResult,
+  EscrowTimeoutExecutionResult,
   RedeemRequestResult,
   GasTankTopUpResult,
   // Agent Protocol
   PaymentRequest,
   PaymentAcceptance,
+  PaymentAcceptancePreview,
   FulfillmentProof,
 } from "./types.js";

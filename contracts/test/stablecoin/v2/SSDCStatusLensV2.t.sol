@@ -90,6 +90,9 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
     }
 
     function test_StatusWhenNAVStale() public {
+        vm.prank(admin);
+        vault.setMinBridgeLiquidityCoverageBps(1);
+
         vm.warp(block.timestamp + nav.maxStaleness() + 1);
 
         SSDCStatusLensV2.Status memory status = lens.getStatus();
@@ -102,6 +105,7 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertFalse(status.requestRedeemAllowed);
         assertFalse(status.processQueueAllowed);
         assertTrue(status.bridgingAllowed);
+        assertFalse(status.bridgeMintAllowed);
         assertEq(status.navRay, 0);
     }
 
@@ -109,8 +113,10 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         uint64 nextEpoch = nav.navEpoch() + 1;
         uint256 minNavRay = nav.minNavRay();
         int256 maxNegativeRate = -nav.maxRateAbsRay();
-        vm.prank(admin);
+        vm.startPrank(admin);
+        vault.setMinBridgeLiquidityCoverageBps(1);
         nav.relayNAV(minNavRay, uint40(block.timestamp), maxNegativeRate, nextEpoch);
+        vm.stopPrank();
 
         vm.warp(block.timestamp + 1);
 
@@ -122,6 +128,7 @@ contract SSDCStatusLensV2Test is SSDCV2TestBase {
         assertFalse(status.redeemWithdrawAllowed);
         assertFalse(status.requestRedeemAllowed);
         assertFalse(status.processQueueAllowed);
+        assertFalse(status.bridgeMintAllowed);
         assertEq(status.navRay, 0);
     }
 
