@@ -12,19 +12,24 @@ contract NAVControllerV2 is AccessControl {
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    uint256 public maxStaleness;
+    /// @dev Storage layout (packed from 11 slots to 7):
+    ///   Slot 1: minNavRay (32)
+    ///   Slot 2: maxRateAbsRay (32)
+    ///   Slot 3: nav0Ray (32)
+    ///   Slot 4: ratePerSecondRay (32)
+    ///   Slot 5: lastKnownGoodNAV (32)
+    ///   Slot 6: t0(5) + lastUpdateTs(5) + navEpoch(8) + maxStaleness(5) + maxNavJumpBps(2) + staleRecoveryJumpMultiplier(1) + navUpdatesPaused(1) = 27
     uint256 public minNavRay;
     int256 public maxRateAbsRay;
-    uint256 public maxNavJumpBps;
-    uint256 public staleRecoveryJumpMultiplier; // e.g. 3 = allow 3x normal jump bps during stale recovery
-
     uint256 public nav0Ray;
-    uint40 public t0;
     int256 public ratePerSecondRay;
-    uint64 public navEpoch;
-    uint40 public lastUpdateTs;
     uint256 public lastKnownGoodNAV; // last attested NAV before staleness, for stale recovery jump check
-
+    uint40 public t0;
+    uint40 public lastUpdateTs;
+    uint64 public navEpoch;
+    uint40 public maxStaleness;
+    uint16 public maxNavJumpBps;
+    uint8 public staleRecoveryJumpMultiplier; // e.g. 3 = allow 3x normal jump bps during stale recovery
     bool public navUpdatesPaused;
 
     error NAV_STALE();
@@ -92,9 +97,9 @@ contract NAVControllerV2 is AccessControl {
 
         minNavRay = minNavRay_;
         maxRateAbsRay = maxRateAbsRay_;
-        maxStaleness = maxStaleness_;
-        maxNavJumpBps = maxNavJumpBps_;
-        staleRecoveryJumpMultiplier = staleRecoveryJumpMultiplier_ > 0 ? staleRecoveryJumpMultiplier_ : 3;
+        maxStaleness = uint40(maxStaleness_);
+        maxNavJumpBps = uint16(maxNavJumpBps_);
+        staleRecoveryJumpMultiplier = staleRecoveryJumpMultiplier_ > 0 ? uint8(staleRecoveryJumpMultiplier_) : 3;
     }
 
     function currentNAVRay() public view returns (uint256) {
@@ -248,7 +253,7 @@ contract NAVControllerV2 is AccessControl {
 
         minNavRay = minNavRay_;
         maxRateAbsRay = maxRateAbsRay_;
-        maxNavJumpBps = maxNavJumpBps_;
+        maxNavJumpBps = uint16(maxNavJumpBps_);
 
         emit NavBoundsUpdated(minNavRay_, maxRateAbsRay_, maxNavJumpBps_);
     }
@@ -258,7 +263,7 @@ contract NAVControllerV2 is AccessControl {
             revert INVALID_CONFIG();
         }
 
-        maxStaleness = maxStaleness_;
+        maxStaleness = uint40(maxStaleness_);
 
         emit TimingConfigUpdated(maxStaleness_);
     }
@@ -267,7 +272,7 @@ contract NAVControllerV2 is AccessControl {
         if (multiplier == 0) {
             revert INVALID_CONFIG();
         }
-        staleRecoveryJumpMultiplier = multiplier;
+        staleRecoveryJumpMultiplier = uint8(multiplier);
         emit StaleRecoveryJumpMultiplierUpdated(multiplier);
     }
 
