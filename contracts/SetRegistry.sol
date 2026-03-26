@@ -774,7 +774,11 @@ contract SetRegistry is
         if (_sequenceEnd < _sequenceStart) {
             revert InvalidSequenceRange();
         }
-        uint64 expectedEventCount = _sequenceEnd - _sequenceStart + 1;
+        // Safe: _sequenceEnd >= _sequenceStart validated above
+        uint64 expectedEventCount;
+        unchecked {
+            expectedEventCount = _sequenceEnd - _sequenceStart + 1;
+        }
         if (expectedEventCount > type(uint32).max || _eventCount != expectedEventCount) {
             revert InvalidEventCount(expectedEventCount, _eventCount);
         }
@@ -797,8 +801,10 @@ contract SetRegistry is
                     revert StateRootMismatch(lastBatch.newStateRoot, _prevStateRoot);
                 }
 
-                if (lastBatch.sequenceEnd + 1 != _sequenceStart) {
-                    revert SequenceGap(lastBatch.sequenceEnd + 1, _sequenceStart);
+                unchecked {
+                    if (lastBatch.sequenceEnd + 1 != _sequenceStart) {
+                        revert SequenceGap(lastBatch.sequenceEnd + 1, _sequenceStart);
+                    }
                 }
             }
         }
