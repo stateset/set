@@ -22,10 +22,13 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
         CANCELLED
     }
 
+    /// @dev Packed from 4 slots to 2:
+    ///   Slot 1: sharesLocked(16) + assetsSnapshot(16) = 32
+    ///   Slot 2: assetsOwed(16) + requestedAt(5) + status(1) = 22
     struct Claim {
-        uint256 sharesLocked;
-        uint256 assetsSnapshot;
-        uint256 assetsOwed;
+        uint128 sharesLocked;
+        uint128 assetsSnapshot;
+        uint128 assetsOwed;
         uint40 requestedAt;
         Status status;
     }
@@ -110,8 +113,8 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
         }
 
         claims[claimId] = Claim({
-            sharesLocked: shares,
-            assetsSnapshot: assetsSnapshot,
+            sharesLocked: uint128(shares),
+            assetsSnapshot: uint128(assetsSnapshot),
             assetsOwed: 0,
             requestedAt: uint40(block.timestamp),
             status: Status.PENDING
@@ -327,7 +330,7 @@ contract SSDCClaimQueueV2 is ERC721, AccessControl, ReentrancyGuard {
 
         _reserve(assetsNow);
 
-        claimRef.assetsOwed = assetsNow;
+        claimRef.assetsOwed = uint128(assetsNow);
         claimRef.sharesLocked = 0;
         claimRef.status = Status.CLAIMABLE;
 
