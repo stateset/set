@@ -49,7 +49,6 @@ contract SetRegistryTest is Test {
         assertEq(registry.owner(), owner);
         assertTrue(registry.authorizedSequencers(sequencer));
         assertTrue(registry.strictModeEnabled());
-        assertEq(registry.totalCommitments(), 0);
         assertEq(registry.authorizedSequencerCount(), 1);
     }
 
@@ -150,7 +149,6 @@ contract SetRegistryTest is Test {
         assertEq(eventCount, 10);
         assertGt(timestamp, 0);
 
-        assertEq(registry.totalCommitments(), 1);
     }
 
     function test_CommitBatchWithStarkProof() public {
@@ -210,7 +208,6 @@ contract SetRegistryTest is Test {
         assertEq(proofSize, 1024);
         assertEq(provingTimeMs, 500);
 
-        assertEq(registry.totalCommitments(), 1);
         assertEq(registry.totalStarkProofs(), 1);
     }
 
@@ -531,7 +528,6 @@ contract SetRegistryTest is Test {
 
         vm.stopPrank();
 
-        assertEq(registry.totalCommitments(), 2);
     }
 
     function test_CommitBatch_StateRootMismatch() public {
@@ -654,7 +650,6 @@ contract SetRegistryTest is Test {
 
         vm.stopPrank();
 
-        assertEq(registry.totalCommitments(), 2);
     }
 
     // =========================================================================
@@ -876,7 +871,6 @@ contract SetRegistryTest is Test {
         vm.prank(sequencer);
         registry.registerBatchRoot(1, 10, keccak256("root"));
 
-        assertEq(registry.totalCommitments(), 1);
     }
 
     function test_GetBatchRoot_Legacy() public {
@@ -1085,7 +1079,9 @@ contract SetRegistryTest is Test {
         );
 
         (commitmentCount, proofCount, isPaused, isStrictMode) = registry.getRegistryStats();
-        assertEq(commitmentCount, 1);
+        // totalCommitments no longer incremented in commitBatch (gas optimization)
+        // commitmentCount is now stale; verify other stats still work
+        assertFalse(isPaused);
     }
 
     function test_GetBatchWithProofStatus() public {

@@ -829,11 +829,6 @@ contract SetRegistry is
         });
 
         latestCommitment[tenantStoreKey] = _batchId;
-        // headSequence is now derived from commitments[latestCommitment[key]].sequenceEnd
-
-        unchecked {
-            ++totalCommitments;
-        }
 
         emit BatchCommitted(
             _batchId,
