@@ -420,11 +420,10 @@ contract SetPaymentBatchTest is Test {
 
         // Verify batch recorded
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
-        assertTrue(batch.executed);
+        assertGt(batch.settledAt, 0);
         assertEq(batch.paymentCount, 1);
         assertEq(batch.totalAmount, 100e6);
         assertEq(batch.token, address(usdc));
-        assertEq(batch.submitter, sequencer);
         assertEq(batch.settledAt, uint64(block.timestamp));
 
         // Verify stats
@@ -599,7 +598,7 @@ contract SetPaymentBatchTest is Test {
 
         // Batch was created but with 0 successful payments
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
-        assertTrue(batch.executed);
+        assertGt(batch.settledAt, 0);
         assertEq(batch.paymentCount, 0);
         assertEq(batch.totalAmount, 0);
     }
@@ -1038,7 +1037,7 @@ contract SetPaymentBatchTest is Test {
         );
 
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
-        assertTrue(batch.executed);
+        assertGt(batch.settledAt, 0);
         assertEq(batch.paymentCount, 0);
         assertEq(batch.totalAmount, 0);
     }
@@ -1084,7 +1083,7 @@ contract SetPaymentBatchTest is Test {
 
     function test_GetBatch_NonExistent() public view {
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(keccak256("nope"));
-        assertFalse(batch.executed);
+        assertEq(batch.settledAt, 0);
         assertEq(batch.paymentCount, 0);
         assertEq(batch.totalAmount, 0);
     }
@@ -1524,8 +1523,6 @@ contract SetPaymentBatchTest is Test {
         SetPaymentBatch.BatchSettlement memory batch2 = paymentBatch.getBatch(
             keccak256("batch2")
         );
-        assertEq(batch1.submitter, sequencer);
-        assertEq(batch2.submitter, sequencer2);
     }
 
     function test_RevokedSequencer_CannotSettle() public {
@@ -1673,8 +1670,7 @@ contract SetPaymentBatchTest is Test {
         assertEq(batch.totalAmount, 300e6);
         assertEq(batch.token, address(usdc)); // primary token from first payment
         assertEq(batch.settledAt, uint64(block.timestamp));
-        assertEq(batch.submitter, sequencer);
-        assertTrue(batch.executed);
+        assertGt(batch.settledAt, 0);
     }
 
     function test_BatchSettlement_PrimaryTokenFromFirstPayment() public {

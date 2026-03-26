@@ -62,13 +62,14 @@ contract SetPaymentBatch is
     }
 
     /// @notice Batch commitment for settlement
-    /// @dev batchId is the mapping key, not stored in the struct
-    /// Packed layout (5 slots, was 6):
+    /// @dev Packed into 4 slots:
     ///   Slot 1: merkleRoot (32)
     ///   Slot 2: tenantStoreKey (32)
     ///   Slot 3: totalAmount(16) + sequenceStart(8) + sequenceEnd(8) = 32
     ///   Slot 4: token(20) + settledAt(8) + paymentCount(4) = 32
-    ///   Slot 5: submitter(20) + executed(1) = 21
+    /// batchId removed (is the mapping key)
+    /// submitter removed (available from event/tx receipt)
+    /// executed removed (use settledAt != 0 as existence check)
     struct BatchSettlement {
         bytes32 merkleRoot;         // Merkle root of payment intents
         bytes32 tenantStoreKey;     // Tenant/store identifier
@@ -76,10 +77,8 @@ contract SetPaymentBatch is
         uint64 sequenceStart;       // First sequence number
         uint64 sequenceEnd;         // Last sequence number
         address token;              // Primary token for this batch
-        uint64 settledAt;           // Settlement timestamp
+        uint64 settledAt;           // Settlement timestamp (0 = not settled)
         uint32 paymentCount;        // Number of payments
-        address submitter;          // Sequencer that submitted
-        bool executed;              // Whether batch is executed
     }
 
     /// @notice Asset configuration (packed: 3 slots instead of 6)
@@ -377,7 +376,7 @@ contract SetPaymentBatch is
         PaymentIntent[] calldata _payments
     ) external onlySequencer nonReentrant whenNotPaused {
         if (_payments.length == 0) revert EmptyBatch();
-        if (batches[_batchId].executed) revert BatchAlreadySettled();
+        if (batches[_batchId].settledAt != 0) revert BatchAlreadySettled();
         if (_merkleRoot == bytes32(0)) revert InvalidMerkleRoot();
 
         // Determine primary token from first payment
@@ -419,9 +418,7 @@ contract SetPaymentBatch is
             sequenceEnd: _sequenceEnd,
             token: primaryToken,
             settledAt: uint64(block.timestamp),
-            paymentCount: successCount,
-            submitter: msg.sender,
-            executed: true
+            paymentCount: successCount
         });
 
         // Update statistics (unchecked: counters won't overflow in practice)
@@ -589,7 +586,7 @@ contract SetPaymentBatch is
         uint256 _index
     ) external view returns (bool) {
         BatchSettlement storage batch = batches[_batchId];
-        if (!batch.executed) return false;
+        if (batch.settledAt == 0) return false;
 
         bytes32 computedHash = _intentId;
 
