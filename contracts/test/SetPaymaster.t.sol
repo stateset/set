@@ -324,7 +324,6 @@ contract SetPaymasterTest is Test {
         );
 
         assertEq(merchant.balance, merchantBalanceBefore + sponsorAmount);
-        assertEq(paymaster.totalGasSponsored(), sponsorAmount);
 
         (, , uint256 spentToday, uint256 spentThisMonth, uint256 totalSponsored) = paymaster
             .getMerchantDetails(merchant);
@@ -464,7 +463,6 @@ contract SetPaymasterTest is Test {
         vm.prank(owner);
         paymaster.executeSponsorship(merchant, 0.001 ether, SetPaymaster.OperationType.ORDER_CREATE);
 
-        assertEq(paymaster.totalGasSponsored(), 0.001 ether);
     }
 
     // =========================================================================
@@ -549,7 +547,6 @@ contract SetPaymasterTest is Test {
         assertEq(spentToday, 0.003 ether);
         assertEq(spentMonth, 0.003 ether);
         assertEq(total, 0.003 ether);
-        assertEq(paymaster.totalGasSponsored(), 0.003 ether);
         assertEq(paymaster.balance(), paymasterBalanceBefore - 0.003 ether);
     }
 
@@ -635,7 +632,6 @@ contract SetPaymasterTest is Test {
         assertEq(spentTodayTwo, 0.001 ether);
         assertEq(spentMonthTwo, 0.001 ether);
         assertEq(totalTwo, 0.001 ether);
-        assertEq(paymaster.totalGasSponsored(), 0.002 ether);
     }
 
     // =========================================================================
@@ -777,7 +773,6 @@ contract SetPaymasterTest is Test {
         );
 
         assertEq(merchant.balance, merchantBalanceBefore + amount);
-        assertEq(paymaster.totalGasSponsored(), amount);
     }
 
     function testFuzz_CreateTier(
@@ -825,6 +820,5 @@ contract SetPaymasterTest is Test {
         }
         vm.stopPrank();
 
-        assertEq(paymaster.totalGasSponsored(), 0.007 ether);
     }
 }

@@ -409,7 +409,6 @@ contract SetPaymaster is
             sponsorship.spentToday += amount128;
             sponsorship.spentThisMonth += amount128;
             sponsorship.totalSponsored += amount128;
-            totalGasSponsored += _amount;
         }
 
         // Transfer gas to merchant
@@ -656,9 +655,6 @@ contract SetPaymaster is
         if (_refundAmount > sponsorship.totalSponsored) {
             revert RefundExceedsSponsored(_refundAmount, sponsorship.totalSponsored);
         }
-        if (_refundAmount > totalGasSponsored) {
-            revert RefundExceedsSponsored(_refundAmount, totalGasSponsored);
-        }
 
         uint128 refund128 = uint128(_refundAmount);
         uint128 dailyRefund = refund128 > sponsorship.spentToday
@@ -671,7 +667,6 @@ contract SetPaymaster is
         sponsorship.spentToday -= dailyRefund;
         sponsorship.spentThisMonth -= monthlyRefund;
         sponsorship.totalSponsored -= refund128;
-        totalGasSponsored -= _refundAmount;
 
         emit GasRefunded(_merchant, _refundAmount);
     }
@@ -811,7 +806,6 @@ contract SetPaymaster is
             sponsorship.spentToday += amt;
             sponsorship.spentThisMonth += amt;
             sponsorship.totalSponsored += amt;
-            totalGasSponsored += _amounts[i];
 
             // Transfer gas to merchant
             (bool success, ) = _merchants[i].call{value: _amounts[i]}("");
@@ -823,7 +817,6 @@ contract SetPaymaster is
                 sponsorship.spentToday -= amt;
                 sponsorship.spentThisMonth -= amt;
                 sponsorship.totalSponsored -= amt;
-                totalGasSponsored -= _amounts[i];
                 emit BatchSponsorshipFailed(_merchants[i], "Transfer failed");
                 failed++;
             }
@@ -1001,7 +994,7 @@ contract SetPaymaster is
     ) {
         return (
             address(this).balance,
-            totalGasSponsored,
+            0, // totalGasSponsored removed (derivable from events)
             nextTierId,
             treasury
         );
