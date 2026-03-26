@@ -1607,6 +1607,7 @@ contract SetPaymentBatchTest is Test {
         uint256 dailyLimit
     ) public {
         vm.assume(minAmount > 0);
+        vm.assume(dailyLimit <= type(uint128).max);
         vm.assume(maxAmount >= minAmount);
         vm.assume(dailyLimit >= maxAmount);
 

@@ -76,14 +76,18 @@ contract SetPaymentBatch is
         bool executed;              // Whether batch is executed
     }
 
-    /// @notice Asset configuration
+    /// @notice Asset configuration (packed: 3 slots instead of 6)
+    /// @dev Amounts in uint128 (max ~3.4e38, enough for any token).
+    ///   Slot 1: enabled(1) + minAmount(16) = 17 bytes
+    ///   Slot 2: maxAmount(16) + dailyLimit(16) = 32 bytes
+    ///   Slot 3: dailyVolume(16) + lastDayReset(8) = 24 bytes
     struct AssetConfig {
         bool enabled;               // Whether asset is accepted
-        uint256 minAmount;          // Minimum payment amount
-        uint256 maxAmount;          // Maximum payment amount
-        uint256 dailyLimit;         // Daily volume limit
-        uint256 dailyVolume;        // Current daily volume
-        uint256 lastDayReset;       // Last daily reset timestamp
+        uint128 minAmount;          // Minimum payment amount
+        uint128 maxAmount;          // Maximum payment amount
+        uint128 dailyLimit;         // Daily volume limit
+        uint128 dailyVolume;        // Current daily volume
+        uint64 lastDayReset;        // Last daily reset timestamp
     }
 
     // =========================================================================
@@ -251,7 +255,7 @@ contract SetPaymentBatch is
                 maxAmount: 1e12,          // 1M USDC
                 dailyLimit: 1e14,         // 100M USDC/day
                 dailyVolume: 0,
-                lastDayReset: block.timestamp
+                lastDayReset: uint64(block.timestamp)
             });
             emit AssetConfigured(_usdcToken, true, 1e4, 1e12, 1e14);
         }
@@ -263,7 +267,7 @@ contract SetPaymentBatch is
                 maxAmount: 1e12,          // 1M ssUSD
                 dailyLimit: 1e14,         // 100M ssUSD/day
                 dailyVolume: 0,
-                lastDayReset: block.timestamp
+                lastDayReset: uint64(block.timestamp)
             });
             emit AssetConfigured(_ssUsdToken, true, 1e4, 1e12, 1e14);
         }
@@ -313,9 +317,9 @@ contract SetPaymentBatch is
     ) external onlyOwner {
         assetConfigs[_token] = AssetConfig({
             enabled: _enabled,
-            minAmount: _minAmount,
-            maxAmount: _maxAmount,
-            dailyLimit: _dailyLimit,
+            minAmount: uint128(_minAmount),
+            maxAmount: uint128(_maxAmount),
+            dailyLimit: uint128(_dailyLimit),
             dailyVolume: assetConfigs[_token].dailyVolume,
             lastDayReset: assetConfigs[_token].lastDayReset
         });
@@ -471,7 +475,7 @@ contract SetPaymentBatch is
         // Check daily limit (reset if new day)
         if (block.timestamp >= config.lastDayReset + 1 days) {
             config.dailyVolume = 0;
-            config.lastDayReset = block.timestamp;
+            config.lastDayReset = uint64(block.timestamp);
         }
 
         if (config.dailyVolume + _payment.amount > config.dailyLimit) {
@@ -510,7 +514,7 @@ contract SetPaymentBatch is
 
         // Update daily volume (unchecked: bounded by dailyLimit check above)
         unchecked {
-            config.dailyVolume += _payment.amount;
+            config.dailyVolume += uint128(_payment.amount);
         }
 
         return (true, "");
