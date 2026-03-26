@@ -1064,7 +1064,7 @@ contract SetRegistry is
         // Update latest commitment and head sequence
         latestCommitment[tenantStoreKey] = batchId;
         headSequence[tenantStoreKey] = uint64(_endSequence);
-        totalCommitments++;
+        unchecked { ++totalCommitments; }
 
         emit BatchCommitted(
             batchId,
