@@ -31,8 +31,12 @@ contract SetRegistry is
     // =========================================================================
 
     /// @notice Batch commitment containing state and event roots
-    /// @dev prevStateRoot removed — it equals the previous batch's newStateRoot
-    ///      (verified in strict mode). Saves 1 SSTORE (32 bytes) per commit.
+    /// @dev Packed into 3 storage slots:
+    ///   Slot 1: eventsRoot (32)
+    ///   Slot 2: newStateRoot (32)
+    ///   Slot 3: sequenceStart(8) + sequenceEnd(8) + eventCount(4) + timestamp(8) = 28
+    /// submitter removed — available from tx receipt / BatchCommitted event
+    /// prevStateRoot removed — equals previous batch's newStateRoot
     struct BatchCommitment {
         bytes32 eventsRoot;      // Merkle root of events in this batch
         bytes32 newStateRoot;    // State root after applying this batch
@@ -40,10 +44,10 @@ contract SetRegistry is
         uint64 sequenceEnd;      // Last sequence number in batch
         uint32 eventCount;       // Number of events in batch
         uint64 timestamp;        // Block timestamp when committed
-        address submitter;       // Address that submitted this commitment
     }
 
     /// @notice STARK proof commitment for a batch
+    /// @dev Packed into 3 slots. submitter removed — available from event/tx receipt.
     struct StarkProofCommitment {
         bytes32 proofHash;       // Hash of the STARK proof
         bytes32 policyHash;      // Policy hash used in proof
@@ -52,7 +56,6 @@ contract SetRegistry is
         uint64 proofSize;        // Size of proof in bytes
         uint64 provingTimeMs;    // Time to generate proof
         uint64 timestamp;        // When proof was submitted
-        address submitter;       // Who submitted the proof
     }
 
     // =========================================================================
@@ -822,8 +825,7 @@ contract SetRegistry is
             sequenceStart: _sequenceStart,
             sequenceEnd: _sequenceEnd,
             eventCount: _eventCount,
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
+            timestamp: uint64(block.timestamp)
         });
 
         latestCommitment[tenantStoreKey] = _batchId;
@@ -913,8 +915,7 @@ contract SetRegistry is
             allCompliant: _allCompliant,
             proofSize: _proofSize,
             provingTimeMs: _provingTimeMs,
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
+            timestamp: uint64(block.timestamp)
         });
 
         unchecked {
@@ -1063,8 +1064,7 @@ contract SetRegistry is
             sequenceStart: uint64(_startSequence),
             sequenceEnd: uint64(_endSequence),
             eventCount: uint32(_endSequence - _startSequence + 1),
-            timestamp: uint64(block.timestamp),
-            submitter: msg.sender
+            timestamp: uint64(block.timestamp)
         });
 
         // Update latest commitment (headSequence derived from commitments)

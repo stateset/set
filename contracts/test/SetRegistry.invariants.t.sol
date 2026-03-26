@@ -203,7 +203,7 @@ contract SetRegistryInvariants is StdInvariant, Test {
             assertEq(registry.latestCommitment(tenantStoreKey), lastBatchId);
             // headSequence is now derived from commitments, verify via stored batch
             if (lastBatchId != bytes32(0)) {
-                (, , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
+                (, , , uint64 storedSeq, ,) = registry.commitments(lastBatchId);
                 assertEq(storedSeq, lastSequence);
             }
 
@@ -214,8 +214,6 @@ contract SetRegistryInvariants is StdInvariant, Test {
                     ,
                     uint64 sequenceEnd,
                     ,
-                    ,
-                    address _storedSubmitter
                 ) = registry.commitments(lastBatchId);
                 assertEq(newStateRoot, lastStateRoot);
                 assertEq(sequenceEnd, lastSequence);
@@ -243,8 +241,6 @@ contract SetRegistryInvariants is StdInvariant, Test {
                 uint64 storedSequenceStart,
                 uint64 storedSequenceEnd,
                 uint32 storedEventCount,
-                ,
-                address storedSubmitter
             ) = registry.commitments(batchId);
 
             assertEq(storedEventsRoot, expectedEventsRoot);
@@ -252,7 +248,6 @@ contract SetRegistryInvariants is StdInvariant, Test {
             assertEq(storedSequenceStart, expectedSequenceStart);
             assertEq(storedSequenceEnd, expectedSequenceEnd);
             assertEq(storedEventCount, expectedEventCount);
-            assertEq(storedSubmitter, expectedSubmitter);
         }
     }
 
@@ -267,13 +262,13 @@ contract SetRegistryInvariants is StdInvariant, Test {
             // Head sequence on-chain must match handler's tracked value
             // headSequence is now derived from commitments, verify via stored batch
             if (lastBatchId != bytes32(0)) {
-                (, , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
+                (, , , uint64 storedSeq, ,) = registry.commitments(lastBatchId);
                 assertEq(storedSeq, lastSequence);
             }
 
             // If there's a latest batch, its sequenceEnd must equal the head
             if (lastBatchId != bytes32(0)) {
-                (, , , uint64 storedEnd, , ,) = registry.commitments(lastBatchId);
+                (, , , uint64 storedEnd, ,) = registry.commitments(lastBatchId);
                 assertEq(storedEnd, lastSequence, "sequenceEnd != headSequence");
             }
         }
@@ -287,7 +282,7 @@ contract SetRegistryInvariants is StdInvariant, Test {
         uint256 count = handler.batchIdCount();
         for (uint256 i = 0; i < count; i++) {
             bytes32 batchId = handler.batchIdAt(i);
-            (, , uint64 start, uint64 end, uint32 eventCount, ,) =
+            (, , uint64 start, uint64 end, uint32 eventCount,) =
                 registry.commitments(batchId);
             assertGe(end, start, "sequenceEnd < sequenceStart");
             assertEq(uint256(end - start + 1), uint256(eventCount), "eventCount mismatch");

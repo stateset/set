@@ -133,15 +133,14 @@ contract SetRegistryTest is Test {
             10  // eventCount
         );
 
-        // Verify commitment stored (prevStateRoot removed from struct)
+        // Verify commitment stored
         (
             bytes32 storedEventsRoot,
             bytes32 storedNewStateRoot,
             uint64 seqStart,
             uint64 seqEnd,
             uint32 eventCount,
-            uint64 timestamp,
-            address submitter
+            uint64 timestamp
         ) = registry.commitments(batchId);
 
         assertEq(storedEventsRoot, eventsRoot);
@@ -149,7 +148,6 @@ contract SetRegistryTest is Test {
         assertEq(seqStart, 1);
         assertEq(seqEnd, 10);
         assertEq(eventCount, 10);
-        assertEq(submitter, sequencer);
         assertGt(timestamp, 0);
 
         assertEq(registry.totalCommitments(), 1);
@@ -188,8 +186,6 @@ contract SetRegistryTest is Test {
             uint64 seqStart,
             uint64 seqEnd,
             uint32 eventCount,
-            ,
-            address submitter
         ) = registry.commitments(batchId);
 
         assertEq(storedEventsRoot, eventsRoot);
@@ -197,7 +193,6 @@ contract SetRegistryTest is Test {
         assertEq(seqStart, 1);
         assertEq(seqEnd, 10);
         assertEq(eventCount, 10);
-        assertEq(submitter, sequencer);
 
         (
             bytes32 storedProofHash,
@@ -206,8 +201,6 @@ contract SetRegistryTest is Test {
             bool allCompliant,
             uint64 proofSize,
             uint64 provingTimeMs,
-            ,
-            address proofSubmitter
         ) = registry.starkProofs(batchId);
 
         assertEq(storedProofHash, proofHash);
@@ -216,7 +209,6 @@ contract SetRegistryTest is Test {
         assertTrue(allCompliant);
         assertEq(proofSize, 1024);
         assertEq(provingTimeMs, 500);
-        assertEq(proofSubmitter, sequencer);
 
         assertEq(registry.totalCommitments(), 1);
         assertEq(registry.totalStarkProofs(), 1);
@@ -1022,7 +1014,6 @@ contract SetRegistryTest is Test {
         assertEq(commitment.sequenceStart, 1);
         assertEq(commitment.sequenceEnd, 10);
         assertEq(commitment.eventCount, 10);
-        assertEq(commitment.submitter, sequencer);
     }
 
     function test_BatchExists() public {
@@ -1161,8 +1152,6 @@ contract SetRegistryTest is Test {
             uint64 storedStart,
             uint64 storedEnd,
             uint32 storedCount,
-            ,
-            address storedSubmitter
         ) = registry.commitments(batchId);
 
         assertEq(storedRoot, eventsRoot);
@@ -1170,6 +1159,5 @@ contract SetRegistryTest is Test {
         assertEq(storedStart, seqStart);
         assertEq(storedEnd, seqEnd);
         assertEq(storedCount, eventCount);
-        assertEq(storedSubmitter, sequencer);
     }
 }
