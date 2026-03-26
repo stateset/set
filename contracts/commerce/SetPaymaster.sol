@@ -522,16 +522,22 @@ contract SetPaymaster is
     }
 
     function _resetDailyIfNeeded(MerchantSponsorship storage s) internal {
-        if (block.timestamp - s.lastDayReset >= 1 days) {
-            s.spentToday = 0;
-            s.lastDayReset = block.timestamp;
+        // unchecked: block.timestamp is always >= lastDayReset
+        unchecked {
+            if (block.timestamp - s.lastDayReset >= 1 days) {
+                s.spentToday = 0;
+                s.lastDayReset = block.timestamp;
+            }
         }
     }
 
     function _resetMonthlyIfNeeded(MerchantSponsorship storage s) internal {
-        if (block.timestamp - s.lastMonthReset >= 30 days) {
-            s.spentThisMonth = 0;
-            s.lastMonthReset = block.timestamp;
+        // unchecked: block.timestamp is always >= lastMonthReset
+        unchecked {
+            if (block.timestamp - s.lastMonthReset >= 30 days) {
+                s.spentThisMonth = 0;
+                s.lastMonthReset = block.timestamp;
+            }
         }
     }
 
