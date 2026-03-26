@@ -203,13 +203,12 @@ contract SetRegistryInvariants is StdInvariant, Test {
             assertEq(registry.latestCommitment(tenantStoreKey), lastBatchId);
             // headSequence is now derived from commitments, verify via stored batch
             if (lastBatchId != bytes32(0)) {
-                (, , , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
+                (, , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
                 assertEq(storedSeq, lastSequence);
             }
 
             if (lastBatchId != bytes32(0)) {
                 (
-                    ,
                     ,
                     bytes32 newStateRoot,
                     ,
@@ -230,7 +229,7 @@ contract SetRegistryInvariants is StdInvariant, Test {
             bytes32 batchId = handler.batchIdAt(i);
             (
                 bytes32 expectedEventsRoot,
-                bytes32 expectedPrevStateRoot,
+                ,  // prevStateRoot no longer stored on-chain
                 bytes32 expectedNewStateRoot,
                 uint64 expectedSequenceStart,
                 uint64 expectedSequenceEnd,
@@ -240,7 +239,6 @@ contract SetRegistryInvariants is StdInvariant, Test {
 
             (
                 bytes32 storedEventsRoot,
-                bytes32 storedPrevStateRoot,
                 bytes32 storedNewStateRoot,
                 uint64 storedSequenceStart,
                 uint64 storedSequenceEnd,
@@ -250,7 +248,6 @@ contract SetRegistryInvariants is StdInvariant, Test {
             ) = registry.commitments(batchId);
 
             assertEq(storedEventsRoot, expectedEventsRoot);
-            assertEq(storedPrevStateRoot, expectedPrevStateRoot);
             assertEq(storedNewStateRoot, expectedNewStateRoot);
             assertEq(storedSequenceStart, expectedSequenceStart);
             assertEq(storedSequenceEnd, expectedSequenceEnd);
@@ -270,45 +267,27 @@ contract SetRegistryInvariants is StdInvariant, Test {
             // Head sequence on-chain must match handler's tracked value
             // headSequence is now derived from commitments, verify via stored batch
             if (lastBatchId != bytes32(0)) {
-                (, , , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
+                (, , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
                 assertEq(storedSeq, lastSequence);
             }
 
             // If there's a latest batch, its sequenceEnd must equal the head
             if (lastBatchId != bytes32(0)) {
-                (, , , , uint64 storedEnd, , ,) = registry.commitments(lastBatchId);
+                (, , , uint64 storedEnd, , ,) = registry.commitments(lastBatchId);
                 assertEq(storedEnd, lastSequence, "sequenceEnd != headSequence");
             }
         }
     }
 
-    /// @notice Verify state root chain: each batch's prevStateRoot matches the prior batch's newStateRoot
-    function invariant_stateRootChain() public view {
-        uint256 count = handler.batchIdCount();
-        for (uint256 i = 0; i < count; i++) {
-            bytes32 batchId = handler.batchIdAt(i);
-            (
-                ,
-                bytes32 storedPrevStateRoot,
-                ,
-                ,
-                ,
-                ,
-                ,
-            ) = registry.commitments(batchId);
-
-            // prevStateRoot must match what the handler expected
-            (, bytes32 expectedPrev, , , , ,) = handler.commitmentExpectation(batchId);
-            assertEq(storedPrevStateRoot, expectedPrev, "state root chain broken");
-        }
-    }
+    // invariant_stateRootChain removed: prevStateRoot no longer stored
+    // (validated at commit time via strict mode)
 
     /// @notice Verify no batch can have sequenceEnd < sequenceStart
     function invariant_validSequenceRanges() public view {
         uint256 count = handler.batchIdCount();
         for (uint256 i = 0; i < count; i++) {
             bytes32 batchId = handler.batchIdAt(i);
-            (, , , uint64 start, uint64 end, uint32 eventCount, ,) =
+            (, , uint64 start, uint64 end, uint32 eventCount, ,) =
                 registry.commitments(batchId);
             assertGe(end, start, "sequenceEnd < sequenceStart");
             assertEq(uint256(end - start + 1), uint256(eventCount), "eventCount mismatch");

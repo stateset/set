@@ -31,9 +31,10 @@ contract SetRegistry is
     // =========================================================================
 
     /// @notice Batch commitment containing state and event roots
+    /// @dev prevStateRoot removed — it equals the previous batch's newStateRoot
+    ///      (verified in strict mode). Saves 1 SSTORE (32 bytes) per commit.
     struct BatchCommitment {
         bytes32 eventsRoot;      // Merkle root of events in this batch
-        bytes32 prevStateRoot;   // State root before applying this batch
         bytes32 newStateRoot;    // State root after applying this batch
         uint64 sequenceStart;    // First sequence number in batch
         uint64 sequenceEnd;      // Last sequence number in batch
@@ -817,7 +818,6 @@ contract SetRegistry is
 
         commitments[_batchId] = BatchCommitment({
             eventsRoot: _eventsRoot,
-            prevStateRoot: _prevStateRoot,
             newStateRoot: _newStateRoot,
             sequenceStart: _sequenceStart,
             sequenceEnd: _sequenceEnd,
@@ -871,7 +871,8 @@ contract SetRegistry is
             revert StarkProofAlreadyCommitted();
         }
 
-        if (batch.prevStateRoot != _prevStateRoot || batch.newStateRoot != _newStateRoot) {
+        // prevStateRoot is no longer stored; verify newStateRoot matches
+        if (batch.newStateRoot != _newStateRoot) {
             revert StateRootMismatchInProof();
         }
 
@@ -1058,7 +1059,6 @@ contract SetRegistry is
         // Store commitment
         commitments[batchId] = BatchCommitment({
             eventsRoot: _root,
-            prevStateRoot: bytes32(0),  // Legacy: no state root tracking
             newStateRoot: bytes32(0),   // Legacy: no state root tracking
             sequenceStart: uint64(_startSequence),
             sequenceEnd: uint64(_endSequence),

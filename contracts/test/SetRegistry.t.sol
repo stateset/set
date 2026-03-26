@@ -133,10 +133,9 @@ contract SetRegistryTest is Test {
             10  // eventCount
         );
 
-        // Verify commitment stored
+        // Verify commitment stored (prevStateRoot removed from struct)
         (
             bytes32 storedEventsRoot,
-            bytes32 storedPrevStateRoot,
             bytes32 storedNewStateRoot,
             uint64 seqStart,
             uint64 seqEnd,
@@ -146,7 +145,6 @@ contract SetRegistryTest is Test {
         ) = registry.commitments(batchId);
 
         assertEq(storedEventsRoot, eventsRoot);
-        assertEq(storedPrevStateRoot, prevStateRoot);
         assertEq(storedNewStateRoot, newStateRoot);
         assertEq(seqStart, 1);
         assertEq(seqEnd, 10);
@@ -186,7 +184,6 @@ contract SetRegistryTest is Test {
 
         (
             bytes32 storedEventsRoot,
-            ,
             bytes32 storedNewStateRoot,
             uint64 seqStart,
             uint64 seqEnd,
@@ -1160,7 +1157,6 @@ contract SetRegistryTest is Test {
 
         (
             bytes32 storedRoot,
-            ,
             bytes32 storedNewState,
             uint64 storedStart,
             uint64 storedEnd,
