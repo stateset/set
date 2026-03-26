@@ -39,14 +39,18 @@ contract SetPaymaster is
     }
 
     /// @notice Merchant sponsorship record
+    /// @dev Packed into 3 storage slots (was 7):
+    ///   Slot 1: active(1) + tierId(1) + lastDayReset(8) + lastMonthReset(8) = 18 bytes
+    ///   Slot 2: spentToday(16) + spentThisMonth(16) = 32 bytes
+    ///   Slot 3: totalSponsored(16) = 16 bytes
     struct MerchantSponsorship {
         bool active;
-        uint256 tierId;
-        uint256 spentToday;
-        uint256 spentThisMonth;
-        uint256 lastDayReset;
-        uint256 lastMonthReset;
-        uint256 totalSponsored;
+        uint8 tierId;
+        uint64 lastDayReset;
+        uint64 lastMonthReset;
+        uint128 spentToday;
+        uint128 spentThisMonth;
+        uint128 totalSponsored;
     }
 
     /// @notice Commerce operation types that can be sponsored
@@ -307,11 +311,11 @@ contract SetPaymaster is
 
         merchantSponsorship[_merchant] = MerchantSponsorship({
             active: true,
-            tierId: _tierId,
+            tierId: uint8(_tierId),
             spentToday: 0,
             spentThisMonth: 0,
-            lastDayReset: block.timestamp,
-            lastMonthReset: block.timestamp,
+            lastDayReset: uint64(block.timestamp),
+            lastMonthReset: uint64(block.timestamp),
             totalSponsored: 0
         });
 
@@ -394,9 +398,10 @@ contract SetPaymaster is
 
         // Update spending (unchecked: limit checks above prevent overflow)
         unchecked {
-            sponsorship.spentToday += _amount;
-            sponsorship.spentThisMonth += _amount;
-            sponsorship.totalSponsored += _amount;
+            uint128 amount128 = uint128(_amount);
+            sponsorship.spentToday += amount128;
+            sponsorship.spentThisMonth += amount128;
+            sponsorship.totalSponsored += amount128;
             totalGasSponsored += _amount;
         }
 
@@ -526,7 +531,7 @@ contract SetPaymaster is
         unchecked {
             if (block.timestamp - s.lastDayReset >= 1 days) {
                 s.spentToday = 0;
-                s.lastDayReset = block.timestamp;
+                s.lastDayReset = uint64(block.timestamp);
             }
         }
     }
@@ -536,7 +541,7 @@ contract SetPaymaster is
         unchecked {
             if (block.timestamp - s.lastMonthReset >= 30 days) {
                 s.spentThisMonth = 0;
-                s.lastMonthReset = block.timestamp;
+                s.lastMonthReset = uint64(block.timestamp);
             }
         }
     }
@@ -648,16 +653,17 @@ contract SetPaymaster is
             revert RefundExceedsSponsored(_refundAmount, totalGasSponsored);
         }
 
-        uint256 dailyRefund = _refundAmount > sponsorship.spentToday
+        uint128 refund128 = uint128(_refundAmount);
+        uint128 dailyRefund = refund128 > sponsorship.spentToday
             ? sponsorship.spentToday
-            : _refundAmount;
-        uint256 monthlyRefund = _refundAmount > sponsorship.spentThisMonth
+            : refund128;
+        uint128 monthlyRefund = refund128 > sponsorship.spentThisMonth
             ? sponsorship.spentThisMonth
-            : _refundAmount;
+            : refund128;
 
         sponsorship.spentToday -= dailyRefund;
         sponsorship.spentThisMonth -= monthlyRefund;
-        sponsorship.totalSponsored -= _refundAmount;
+        sponsorship.totalSponsored -= refund128;
         totalGasSponsored -= _refundAmount;
 
         emit GasRefunded(_merchant, _refundAmount);
@@ -694,11 +700,11 @@ contract SetPaymaster is
 
             merchantSponsorship[_merchants[i]] = MerchantSponsorship({
                 active: true,
-                tierId: _tierIds[i],
+                tierId: uint8(_tierIds[i]),
                 spentToday: 0,
                 spentThisMonth: 0,
-                lastDayReset: block.timestamp,
-                lastMonthReset: block.timestamp,
+                lastDayReset: uint64(block.timestamp),
+                lastMonthReset: uint64(block.timestamp),
                 totalSponsored: 0
             });
 
@@ -794,9 +800,10 @@ contract SetPaymaster is
             }
 
             // Update spending
-            sponsorship.spentToday += _amounts[i];
-            sponsorship.spentThisMonth += _amounts[i];
-            sponsorship.totalSponsored += _amounts[i];
+            uint128 amt = uint128(_amounts[i]);
+            sponsorship.spentToday += amt;
+            sponsorship.spentThisMonth += amt;
+            sponsorship.totalSponsored += amt;
             totalGasSponsored += _amounts[i];
 
             // Transfer gas to merchant
@@ -806,9 +813,9 @@ contract SetPaymaster is
                 succeeded++;
             } else {
                 // Rollback spending updates on failed transfer
-                sponsorship.spentToday -= _amounts[i];
-                sponsorship.spentThisMonth -= _amounts[i];
-                sponsorship.totalSponsored -= _amounts[i];
+                sponsorship.spentToday -= amt;
+                sponsorship.spentThisMonth -= amt;
+                sponsorship.totalSponsored -= amt;
                 totalGasSponsored -= _amounts[i];
                 emit BatchSponsorshipFailed(_merchants[i], "Transfer failed");
                 failed++;
@@ -962,7 +969,7 @@ contract SetPaymaster is
             if (_merchants[i] == address(0)) revert InvalidAddress();
             MerchantSponsorship storage s = merchantSponsorship[_merchants[i]];
             if (s.active) {
-                s.tierId = _newTierId;
+                s.tierId = uint8(_newTierId);
                 emit MerchantSponsored(_merchants[i], _newTierId);
             }
         }
