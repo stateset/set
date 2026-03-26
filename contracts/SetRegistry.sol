@@ -489,7 +489,9 @@ contract SetRegistry is
         bytes32 _storeId
     ) external view returns (uint64 sequence) {
         bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
-        return headSequence[tenantStoreKey];
+        bytes32 batchId = latestCommitment[tenantStoreKey];
+        if (batchId == bytes32(0)) return 0;
+        return commitments[batchId].sequenceEnd;
     }
 
     /**
@@ -659,7 +661,10 @@ contract SetRegistry is
 
         for (uint256 i = 0; i < _tenantIds.length; i++) {
             bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantIds[i], _storeIds[i]));
-            sequences[i] = headSequence[tenantStoreKey];
+            bytes32 batchId = latestCommitment[tenantStoreKey];
+            if (batchId != bytes32(0)) {
+                sequences[i] = commitments[batchId].sequenceEnd;
+            }
         }
 
         return sequences;
@@ -723,10 +728,11 @@ contract SetRegistry is
         bytes32 tenantStoreKey = keccak256(abi.encodePacked(_tenantId, _storeId));
 
         latestBatchId = latestCommitment[tenantStoreKey];
-        currentHeadSequence = headSequence[tenantStoreKey];
 
         if (latestBatchId != bytes32(0)) {
-            currentStateRoot = commitments[latestBatchId].newStateRoot;
+            BatchCommitment storage batch = commitments[latestBatchId];
+            currentStateRoot = batch.newStateRoot;
+            currentHeadSequence = batch.sequenceEnd;
             hasLatestProof = starkProofs[latestBatchId].timestamp != 0;
         }
 
@@ -821,7 +827,7 @@ contract SetRegistry is
         });
 
         latestCommitment[tenantStoreKey] = _batchId;
-        headSequence[tenantStoreKey] = _sequenceEnd;
+        // headSequence is now derived from commitments[latestCommitment[key]].sequenceEnd
 
         unchecked {
             ++totalCommitments;
@@ -1061,9 +1067,8 @@ contract SetRegistry is
             submitter: msg.sender
         });
 
-        // Update latest commitment and head sequence
+        // Update latest commitment (headSequence derived from commitments)
         latestCommitment[tenantStoreKey] = batchId;
-        headSequence[tenantStoreKey] = uint64(_endSequence);
         unchecked { ++totalCommitments; }
 
         emit BatchCommitted(

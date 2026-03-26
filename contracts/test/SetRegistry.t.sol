@@ -398,7 +398,7 @@ contract SetRegistryTest is Test {
         );
 
         assertEq(registry.latestCommitment(tenantStoreKey), batchId);
-        assertEq(registry.headSequence(tenantStoreKey), 10);
+        assertEq(registry.getHeadSequence(tenantId, storeId), 10);
     }
 
     function test_CommitBatch_NotAuthorized() public {

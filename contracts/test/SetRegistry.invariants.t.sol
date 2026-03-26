@@ -201,7 +201,11 @@ contract SetRegistryInvariants is StdInvariant, Test {
                 handler.tenantStateSummary(tenantStoreKey);
 
             assertEq(registry.latestCommitment(tenantStoreKey), lastBatchId);
-            assertEq(registry.headSequence(tenantStoreKey), lastSequence);
+            // headSequence is now derived from commitments, verify via stored batch
+            if (lastBatchId != bytes32(0)) {
+                (, , , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
+                assertEq(storedSeq, lastSequence);
+            }
 
             if (lastBatchId != bytes32(0)) {
                 (
@@ -264,7 +268,11 @@ contract SetRegistryInvariants is StdInvariant, Test {
                 handler.tenantStateSummary(tenantStoreKey);
 
             // Head sequence on-chain must match handler's tracked value
-            assertEq(registry.headSequence(tenantStoreKey), lastSequence);
+            // headSequence is now derived from commitments, verify via stored batch
+            if (lastBatchId != bytes32(0)) {
+                (, , , , uint64 storedSeq, , ,) = registry.commitments(lastBatchId);
+                assertEq(storedSeq, lastSequence);
+            }
 
             // If there's a latest batch, its sequenceEnd must equal the head
             if (lastBatchId != bytes32(0)) {
