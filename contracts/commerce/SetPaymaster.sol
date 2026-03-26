@@ -30,11 +30,12 @@ contract SetPaymaster is
     // =========================================================================
 
     /// @notice Sponsorship tier with limits
+    /// @dev Packed: name(string=2 slots) + limits(16+16=1 slot) + month+active(16+1=1 slot)
     struct SponsorshipTier {
         string name;
-        uint256 maxPerTransaction;  // Max gas sponsorship per tx (wei)
-        uint256 maxPerDay;          // Max gas sponsorship per day (wei)
-        uint256 maxPerMonth;        // Max gas sponsorship per month (wei)
+        uint128 maxPerTransaction;  // Max gas sponsorship per tx (wei), max ~3.4e38
+        uint128 maxPerDay;          // Max gas sponsorship per day (wei)
+        uint128 maxPerMonth;        // Max gas sponsorship per month (wei)
         bool active;
     }
 
@@ -202,13 +203,16 @@ contract SetPaymaster is
         if (_maxPerTx > _maxPerDay || _maxPerDay > _maxPerMonth) {
             revert InvalidTierLimits();
         }
+        if (_maxPerMonth > type(uint128).max) {
+            revert InvalidTierLimits();
+        }
         tierId = nextTierId++;
 
         tiers[tierId] = SponsorshipTier({
             name: _name,
-            maxPerTransaction: _maxPerTx,
-            maxPerDay: _maxPerDay,
-            maxPerMonth: _maxPerMonth,
+            maxPerTransaction: uint128(_maxPerTx),
+            maxPerDay: uint128(_maxPerDay),
+            maxPerMonth: uint128(_maxPerMonth),
             active: true
         });
 
@@ -234,10 +238,13 @@ contract SetPaymaster is
         if (_maxPerTx > _maxPerDay || _maxPerDay > _maxPerMonth) {
             revert InvalidTierLimits();
         }
+        if (_maxPerMonth > type(uint128).max) {
+            revert InvalidTierLimits();
+        }
         SponsorshipTier storage tier = tiers[_tierId];
-        tier.maxPerTransaction = _maxPerTx;
-        tier.maxPerDay = _maxPerDay;
-        tier.maxPerMonth = _maxPerMonth;
+        tier.maxPerTransaction = uint128(_maxPerTx);
+        tier.maxPerDay = uint128(_maxPerDay);
+        tier.maxPerMonth = uint128(_maxPerMonth);
 
         emit TierUpdated(_tierId, _maxPerTx, _maxPerDay);
     }

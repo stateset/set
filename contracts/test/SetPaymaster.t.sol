@@ -786,6 +786,7 @@ contract SetPaymasterTest is Test {
         uint256 maxPerMonth
     ) public {
         vm.assume(maxPerTx > 0 && maxPerDay > 0 && maxPerMonth > 0);
+        vm.assume(maxPerMonth <= type(uint128).max);
         vm.assume(maxPerTx <= maxPerDay);
         vm.assume(maxPerDay <= maxPerMonth);
 
