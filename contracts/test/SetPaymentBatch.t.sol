@@ -1664,7 +1664,6 @@ contract SetPaymentBatchTest is Test {
         );
 
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
-        assertEq(batch.batchId, batchId);
         assertEq(batch.merkleRoot, merkleRoot);
         assertEq(batch.tenantStoreKey, tenantStoreKey);
         assertEq(batch.sequenceStart, 5);

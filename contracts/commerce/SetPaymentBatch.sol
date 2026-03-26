@@ -62,8 +62,8 @@ contract SetPaymentBatch is
     }
 
     /// @notice Batch commitment for settlement
+    /// @dev batchId is the mapping key, not stored in the struct
     struct BatchSettlement {
-        bytes32 batchId;            // Unique batch ID
         bytes32 merkleRoot;         // Merkle root of payment intents
         bytes32 tenantStoreKey;     // Tenant/store identifier
         uint64 sequenceStart;       // First sequence number
@@ -404,7 +404,6 @@ contract SetPaymentBatch is
 
         // Record batch settlement
         batches[_batchId] = BatchSettlement({
-            batchId: _batchId,
             merkleRoot: _merkleRoot,
             tenantStoreKey: _tenantStoreKey,
             sequenceStart: _sequenceStart,
