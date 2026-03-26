@@ -378,14 +378,14 @@ contract SetPaymentBatch is
         uint32 successCount = 0;
 
         // Process each payment
-        for (uint256 i = 0; i < _payments.length; i++) {
+        for (uint256 i = 0; i < _payments.length; ) {
             PaymentIntent calldata payment = _payments[i];
 
             // Validate and settle individual payment
             (bool success, string memory reason) = _settlePayment(_batchId, payment);
 
             if (success) {
-                totalAmount += payment.amount;
+                unchecked { totalAmount += payment.amount; }
                 unchecked { ++successCount; }
 
                 emit PaymentSettled(
@@ -399,6 +399,7 @@ contract SetPaymentBatch is
             } else {
                 emit PaymentFailed(_batchId, payment.intentId, payment.payer, reason);
             }
+            unchecked { ++i; }
         }
 
         // Record batch settlement
@@ -416,10 +417,12 @@ contract SetPaymentBatch is
             executed: true
         });
 
-        // Update statistics
-        totalPaymentsSettled += successCount;
-        totalVolumeSettled += totalAmount;
-        unchecked { ++totalBatchesSettled; }
+        // Update statistics (unchecked: counters won't overflow in practice)
+        unchecked {
+            totalPaymentsSettled += successCount;
+            totalVolumeSettled += totalAmount;
+            ++totalBatchesSettled;
+        }
 
         uint256 gasUsed = gasStart - gasleft();
 
