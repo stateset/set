@@ -6,13 +6,17 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 contract SSDCPolicyModuleV2 is AccessControl {
     bytes32 public constant POLICY_CONSUMER_ROLE = keccak256("POLICY_CONSUMER_ROLE");
 
+    /// @dev Packed from 7 slots to 4:
+    ///   Slot 1: perTxLimitAssets(16) + dailyLimitAssets(16) = 32
+    ///   Slot 2: spentTodayAssets(16) + minAssetsFloor(16) = 32
+    ///   Slot 3: committedAssets(16) + dayStart(5) + sessionExpiry(5) + flags(2) = 28
     struct AgentPolicy {
-        uint256 perTxLimitAssets;
-        uint256 dailyLimitAssets;
-        uint256 spentTodayAssets;
+        uint128 perTxLimitAssets;
+        uint128 dailyLimitAssets;
+        uint128 spentTodayAssets;
+        uint128 minAssetsFloor;
+        uint128 committedAssets;
         uint40 dayStart;
-        uint256 minAssetsFloor;
-        uint256 committedAssets;
         uint40 sessionExpiry;
         bool enforceMerchantAllowlist;
         bool exists;
@@ -60,9 +64,9 @@ contract SSDCPolicyModuleV2 is AccessControl {
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (agent == address(0)) revert ZeroAddress();
         AgentPolicy storage policy = policies[agent];
-        policy.perTxLimitAssets = perTxLimitAssets;
-        policy.dailyLimitAssets = dailyLimitAssets;
-        policy.minAssetsFloor = minAssetsFloor;
+        policy.perTxLimitAssets = uint128(perTxLimitAssets);
+        policy.dailyLimitAssets = uint128(dailyLimitAssets);
+        policy.minAssetsFloor = uint128(minAssetsFloor);
         policy.sessionExpiry = sessionExpiry;
         policy.enforceMerchantAllowlist = enforceMerchantAllowlist;
         policy.exists = true;
@@ -164,7 +168,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
             revert POLICY_LIMIT();
         }
 
-        policy.spentTodayAssets += assets;
+        policy.spentTodayAssets += uint128(assets);
 
         emit PolicySpendConsumed(agent, assets, policy.spentTodayAssets);
     }
@@ -192,7 +196,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
             revert POLICY_LIMIT();
         }
 
-        policy.spentTodayAssets += assets;
+        policy.spentTodayAssets += uint128(assets);
 
         emit PolicyGasSpendConsumed(agent, assets, policy.spentTodayAssets);
     }
@@ -203,7 +207,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
             revert POLICY_NOT_SET();
         }
 
-        policy.committedAssets += assets;
+        policy.committedAssets += uint128(assets);
 
         emit PolicyCommitmentReserved(agent, assets, policy.committedAssets);
     }
@@ -220,7 +224,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
         }
 
         unchecked {
-            policy.committedAssets = committedAssets - assets;
+            policy.committedAssets = uint128(committedAssets - assets);
         }
 
         emit PolicyCommitmentReleased(agent, assets, policy.committedAssets);
