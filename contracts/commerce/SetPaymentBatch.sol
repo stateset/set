@@ -380,8 +380,6 @@ contract SetPaymentBatch is
         if (batches[_batchId].executed) revert BatchAlreadySettled();
         if (_merkleRoot == bytes32(0)) revert InvalidMerkleRoot();
 
-        uint256 gasStart = gasleft();
-
         // Determine primary token from first payment
         address primaryToken = _payments[0].token;
         uint256 totalAmount = 0;
@@ -433,10 +431,8 @@ contract SetPaymentBatch is
             ++totalBatchesSettled;
         }
 
-        uint256 gasUsed = gasStart - gasleft();
-
         emit BatchSubmitted(_batchId, _merkleRoot, successCount, totalAmount, primaryToken);
-        emit BatchSettled(_batchId, successCount, totalAmount, gasUsed);
+        emit BatchSettled(_batchId, successCount, totalAmount, 0);
     }
 
     /**
