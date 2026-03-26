@@ -913,10 +913,6 @@ contract SetRegistry is
             timestamp: uint64(block.timestamp)
         });
 
-        unchecked {
-            ++totalStarkProofs;
-        }
-
         emit StarkProofCommitted(
             _batchId,
             _proofHash,

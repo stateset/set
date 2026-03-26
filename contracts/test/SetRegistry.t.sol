@@ -208,7 +208,6 @@ contract SetRegistryTest is Test {
         assertEq(proofSize, 1024);
         assertEq(provingTimeMs, 500);
 
-        assertEq(registry.totalStarkProofs(), 1);
     }
 
     function test_CommitStarkProof() public {
