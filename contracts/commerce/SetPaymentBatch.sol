@@ -63,15 +63,21 @@ contract SetPaymentBatch is
 
     /// @notice Batch commitment for settlement
     /// @dev batchId is the mapping key, not stored in the struct
+    /// Packed layout (5 slots, was 6):
+    ///   Slot 1: merkleRoot (32)
+    ///   Slot 2: tenantStoreKey (32)
+    ///   Slot 3: totalAmount(16) + sequenceStart(8) + sequenceEnd(8) = 32
+    ///   Slot 4: token(20) + settledAt(8) + paymentCount(4) = 32
+    ///   Slot 5: submitter(20) + executed(1) = 21
     struct BatchSettlement {
         bytes32 merkleRoot;         // Merkle root of payment intents
         bytes32 tenantStoreKey;     // Tenant/store identifier
+        uint128 totalAmount;        // Total amount (max ~3.4e38, sufficient for any token)
         uint64 sequenceStart;       // First sequence number
         uint64 sequenceEnd;         // Last sequence number
-        uint32 paymentCount;        // Number of payments
-        uint256 totalAmount;        // Total amount across all payments
         address token;              // Primary token for this batch
         uint64 settledAt;           // Settlement timestamp
+        uint32 paymentCount;        // Number of payments
         address submitter;          // Sequencer that submitted
         bool executed;              // Whether batch is executed
     }
@@ -410,12 +416,12 @@ contract SetPaymentBatch is
         batches[_batchId] = BatchSettlement({
             merkleRoot: _merkleRoot,
             tenantStoreKey: _tenantStoreKey,
+            totalAmount: uint128(totalAmount),
             sequenceStart: _sequenceStart,
             sequenceEnd: _sequenceEnd,
-            paymentCount: successCount,
-            totalAmount: totalAmount,
             token: primaryToken,
             settledAt: uint64(block.timestamp),
+            paymentCount: successCount,
             submitter: msg.sender,
             executed: true
         });
