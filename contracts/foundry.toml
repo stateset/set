@@ -1,7 +1,7 @@
 # Set Chain Foundry Configuration
 [profile.default]
 src = "."
-out = "out"
+out = "out_ar"
 libs = ["lib"]
 test = "test"
 script = "script"
