@@ -421,13 +421,6 @@ contract SetPaymentBatch is
             paymentCount: successCount
         });
 
-        // Update statistics (unchecked: counters won't overflow in practice)
-        unchecked {
-            totalPaymentsSettled += successCount;
-            totalVolumeSettled += totalAmount;
-            ++totalBatchesSettled;
-        }
-
         emit BatchSubmitted(_batchId, _merkleRoot, successCount, totalAmount, primaryToken);
         emit BatchSettled(_batchId, successCount, totalAmount, 0);
     }

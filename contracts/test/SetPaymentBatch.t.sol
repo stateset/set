@@ -215,9 +215,6 @@ contract SetPaymentBatchTest is Test {
         assertEq(paymentBatch.usdcToken(), address(usdc));
         assertEq(paymentBatch.ssUsdToken(), address(ssUsd));
         assertEq(paymentBatch.registry(), registryAddr);
-        assertEq(paymentBatch.totalPaymentsSettled(), 0);
-        assertEq(paymentBatch.totalVolumeSettled(), 0);
-        assertEq(paymentBatch.totalBatchesSettled(), 0);
     }
 
     function test_Initialize_DefaultAssetConfigs() public view {
@@ -427,9 +424,6 @@ contract SetPaymentBatchTest is Test {
         assertEq(batch.settledAt, uint64(block.timestamp));
 
         // Verify stats
-        assertEq(paymentBatch.totalPaymentsSettled(), 1);
-        assertEq(paymentBatch.totalVolumeSettled(), 100e6);
-        assertEq(paymentBatch.totalBatchesSettled(), 1);
     }
 
     function test_SettleBatch_NotSequencer() public {
@@ -973,9 +967,6 @@ contract SetPaymentBatchTest is Test {
         assertEq(batch.totalAmount, 350e6);
 
         // Verify global stats
-        assertEq(paymentBatch.totalPaymentsSettled(), 3);
-        assertEq(paymentBatch.totalVolumeSettled(), 350e6);
-        assertEq(paymentBatch.totalBatchesSettled(), 1);
     }
 
     function test_SettleBatch_PartialSuccess() public {
@@ -1007,7 +998,6 @@ contract SetPaymentBatchTest is Test {
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
         assertEq(batch.paymentCount, 1); // only 1 succeeded
         assertEq(batch.totalAmount, 100e6);
-        assertEq(paymentBatch.totalPaymentsSettled(), 1);
     }
 
     function test_SettleBatch_AllFail() public {
@@ -1072,9 +1062,6 @@ contract SetPaymentBatchTest is Test {
         );
         _settleSinglePayment(keccak256("batch2"), payment2);
 
-        assertEq(paymentBatch.totalPaymentsSettled(), 2);
-        assertEq(paymentBatch.totalVolumeSettled(), 300e6);
-        assertEq(paymentBatch.totalBatchesSettled(), 2);
     }
 
     // =========================================================================
@@ -1123,26 +1110,9 @@ contract SetPaymentBatchTest is Test {
     }
 
     function test_GetStats() public {
-        // Before any settlement
-        (
-            uint256 totalPayments,
-            uint256 totalVolume,
-            uint256 totalBatches,
-            uint256 sequencers
-        ) = paymentBatch.getStats();
-
-        assertEq(totalPayments, 0);
-        assertEq(totalVolume, 0);
-        assertEq(totalBatches, 0);
-        assertEq(sequencers, 1);
-
-        // After settlement
-        _settleSinglePayment(keccak256("batch1"), _makeDefaultPayment());
-
-        (totalPayments, totalVolume, totalBatches, sequencers) = paymentBatch.getStats();
-        assertEq(totalPayments, 1);
-        assertEq(totalVolume, 100e6);
-        assertEq(totalBatches, 1);
+        // Counters no longer updated in hot path (gas optimization)
+        // Only verify sequencer count works
+        (,,, uint256 sequencers) = paymentBatch.getStats();
         assertEq(sequencers, 1);
     }
 
@@ -1288,7 +1258,6 @@ contract SetPaymentBatchTest is Test {
         // Should work after unpause
         _settleSinglePayment(keccak256("batch1"), _makeDefaultPayment());
 
-        assertEq(paymentBatch.totalPaymentsSettled(), 1);
     }
 
     // =========================================================================
@@ -1461,7 +1430,6 @@ contract SetPaymentBatchTest is Test {
         SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
         assertEq(batch.paymentCount, uint32(batchSize));
         assertEq(batch.totalAmount, 1e4 * batchSize);
-        assertEq(paymentBatch.totalPaymentsSettled(), batchSize);
     }
 
     function test_EdgeCase_SelfPayment() public {
@@ -1515,7 +1483,6 @@ contract SetPaymentBatchTest is Test {
             payments
         );
 
-        assertEq(paymentBatch.totalBatchesSettled(), 2);
 
         SetPaymentBatch.BatchSettlement memory batch1 = paymentBatch.getBatch(
             keccak256("batch1")
