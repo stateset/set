@@ -392,11 +392,13 @@ contract SetPaymaster is
             revert InsufficientBalance();
         }
 
-        // Update spending
-        sponsorship.spentToday += _amount;
-        sponsorship.spentThisMonth += _amount;
-        sponsorship.totalSponsored += _amount;
-        totalGasSponsored += _amount;
+        // Update spending (unchecked: limit checks above prevent overflow)
+        unchecked {
+            sponsorship.spentToday += _amount;
+            sponsorship.spentThisMonth += _amount;
+            sponsorship.totalSponsored += _amount;
+            totalGasSponsored += _amount;
+        }
 
         // Transfer gas to merchant
         (bool success, ) = _merchant.call{value: _amount}("");
