@@ -509,8 +509,10 @@ contract SetPaymentBatch is
         settledIntents[_payment.intentId] = true;
         usedNonces[_payment.payer][_payment.nonce] = true;
 
-        // Update daily volume
-        config.dailyVolume += _payment.amount;
+        // Update daily volume (unchecked: bounded by dailyLimit check above)
+        unchecked {
+            config.dailyVolume += _payment.amount;
+        }
 
         return (true, "");
     }
