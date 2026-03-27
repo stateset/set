@@ -23,15 +23,15 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
 
     bool public mintRedeemPaused;
     bool public gatewayRequired;
-    uint256 public minBridgeLiquidityCoverageBps;
+    uint16 public minBridgeLiquidityCoverageBps;  // basis points, max 10000
     mapping(address => uint256) public bridgedSharesBalance;
     uint256 public bridgedSharesSupply;
 
     // Reserve management
     address public reserveManager; // address that receives deployed assets
-    uint256 public reserveFloor; // minimum settlement assets that must remain in vault
-    uint256 public maxDeployBps; // max percentage of total assets deployable per call (basis points)
-    uint256 public deployedReserveAssets; // total assets currently deployed to reserve manager
+    uint16 public maxDeployBps; // max percentage of total assets deployable per call (basis points)
+    uint128 public reserveFloor; // minimum settlement assets that must remain in vault
+    uint128 public deployedReserveAssets; // total assets currently deployed to reserve manager
 
     error ZeroAddress();
     error InvalidBps();
@@ -142,7 +142,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
 
     function setMinBridgeLiquidityCoverageBps(uint256 minCoverageBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (minCoverageBps_ > 10_000) revert InvalidBps();
-        minBridgeLiquidityCoverageBps = minCoverageBps_;
+        minBridgeLiquidityCoverageBps = uint16(minCoverageBps_);
         emit MinBridgeLiquidityCoverageSet(minCoverageBps_);
     }
 
@@ -153,8 +153,8 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
     function setReserveConfig(address reserveManager_, uint256 reserveFloor_, uint256 maxDeployBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (maxDeployBps_ > 10_000) revert InvalidBps();
         reserveManager = reserveManager_;
-        reserveFloor = reserveFloor_;
-        maxDeployBps = maxDeployBps_;
+        reserveFloor = uint128(reserveFloor_);
+        maxDeployBps = uint16(maxDeployBps_);
         emit ReserveConfigUpdated(reserveManager_, reserveFloor_, maxDeployBps_);
     }
 
@@ -179,7 +179,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
             revert RESERVE_DEPLOY_LIMIT();
         }
 
-        deployedReserveAssets += amount;
+        deployedReserveAssets += uint128(amount);
         IERC20(asset()).safeTransfer(reserveManager, amount);
 
         emit ReserveDeployed(reserveManager, amount, deployedReserveAssets);
@@ -195,7 +195,7 @@ contract wSSDCVaultV2 is ERC20, ERC4626, AccessControl {
             revert RESERVE_RECALL_EXCEEDS_DEPLOYED();
         }
 
-        deployedReserveAssets -= amount;
+        deployedReserveAssets -= uint128(amount);
         IERC20(asset()).safeTransferFrom(reserveManager, address(this), amount);
 
         emit ReserveRecalled(reserveManager, amount, deployedReserveAssets);
