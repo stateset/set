@@ -86,10 +86,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         bool disputed;
         DisputeReason disputeReason;
         uint40 fulfilledAt;
-        bytes32 fulfillmentEvidence;
         DisputeResolution resolution;
         uint40 resolvedAt;
-        bytes32 resolutionEvidence;
         uint40 challengeWindow;
         uint40 arbiterDeadline;
         DisputeResolution timeoutResolution;
@@ -506,10 +504,8 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             disputed: false,
             disputeReason: DisputeReason.NONE,
             fulfilledAt: 0,
-            fulfillmentEvidence: bytes32(0),
             resolution: DisputeResolution.NONE,
             resolvedAt: 0,
-            resolutionEvidence: bytes32(0),
             challengeWindow: terms.challengeWindow,
             arbiterDeadline: terms.arbiterDeadline,
             timeoutResolution: terms.disputeTimeoutResolution,
@@ -710,7 +706,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             fulfilledAt = uint40(block.timestamp);
             escrow.fulfilledAt = fulfilledAt;
         }
-        escrow.fulfillmentEvidence = evidenceHash;
+        // fulfillmentEvidence emitted in event (not stored)
 
         emit EscrowFulfillmentSubmitted(
             escrowId,
@@ -801,7 +797,7 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
 
         escrow.resolution = resolution;
         escrow.resolvedAt = uint40(block.timestamp);
-        escrow.resolutionEvidence = evidenceHash;
+        // resolutionEvidence emitted in event (not stored)
 
         emit EscrowResolved(escrowId, msg.sender, evidenceHash, resolution, escrow.resolvedAt);
     }

@@ -28,10 +28,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         bool disputed;
         YieldEscrowV2.DisputeReason disputeReason;
         uint40 fulfilledAt;
-        bytes32 fulfillmentEvidence;
         YieldEscrowV2.DisputeResolution resolution;
         uint40 resolvedAt;
-        bytes32 resolutionEvidence;
         uint40 challengeWindow;
         uint40 arbiterDeadline;
         YieldEscrowV2.DisputeResolution timeoutResolution;
@@ -67,107 +65,30 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         new YieldEscrowV2(vault, NAVControllerV2(address(0)), policy, grounding, admin, user3);
     }
 
-    function _readEscrow(uint256 escrowId) internal view returns (EscrowView memory escrowView) {
-        (
-            address buyer,
-            address merchant,
-            address refundRecipient,
-            uint256 sharesHeld,
-            uint256 principalAssetsSnapshot,
-            uint256 committedAssets,
-            uint40 releaseAfter,
-            uint16 buyerBps,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-        ) = escrow.escrows(escrowId);
-        escrowView.buyer = buyer;
-        escrowView.merchant = merchant;
-        escrowView.refundRecipient = refundRecipient;
-        escrowView.sharesHeld = sharesHeld;
-        escrowView.principalAssetsSnapshot = principalAssetsSnapshot;
-        escrowView.committedAssets = committedAssets;
-        escrowView.releaseAfter = releaseAfter;
-        escrowView.buyerBps = buyerBps;
-        (
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            YieldEscrowV2.EscrowStatus status,
-            bool requiresFulfillment,
-            YieldEscrowV2.FulfillmentType fulfillmentType,
-            bool disputed,
-            YieldEscrowV2.DisputeReason disputeReason,
-            uint40 fulfilledAt,
-            bytes32 fulfillmentEvidence,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-        ) = escrow.escrows(escrowId);
-        escrowView.status = status;
-        escrowView.requiresFulfillment = requiresFulfillment;
-        escrowView.fulfillmentType = fulfillmentType;
-        escrowView.disputed = disputed;
-        escrowView.disputeReason = disputeReason;
-        escrowView.fulfilledAt = fulfilledAt;
-        escrowView.fulfillmentEvidence = fulfillmentEvidence;
-        (
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            ,
-            YieldEscrowV2.DisputeResolution resolution,
-            uint40 resolvedAt,
-            bytes32 resolutionEvidence,
-            uint40 challengeWindow,
-            uint40 arbiterDeadline,
-            YieldEscrowV2.DisputeResolution timeoutResolution,
-            uint40 disputedAt,
-            YieldEscrowV2.SettlementMode settlementMode,
-            uint40 settledAt
-        ) = escrow.escrows(escrowId);
-        escrowView.resolution = resolution;
-        escrowView.resolvedAt = resolvedAt;
-        escrowView.resolutionEvidence = resolutionEvidence;
-        escrowView.challengeWindow = challengeWindow;
-        escrowView.arbiterDeadline = arbiterDeadline;
-        escrowView.timeoutResolution = timeoutResolution;
-        escrowView.disputedAt = disputedAt;
-        escrowView.settlementMode = settlementMode;
-        escrowView.settledAt = settledAt;
+    function _readEscrow(uint256 escrowId) internal view returns (EscrowView memory v) {
+        (YieldEscrowV2.Escrow memory e,,,) = escrow.getEscrow(escrowId);
+        v.buyer = e.buyer;
+        v.merchant = e.merchant;
+        v.refundRecipient = e.refundRecipient;
+        v.sharesHeld = e.sharesHeld;
+        v.principalAssetsSnapshot = e.principalAssetsSnapshot;
+        v.committedAssets = e.committedAssets;
+        v.releaseAfter = e.releaseAfter;
+        v.buyerBps = e.buyerBps;
+        v.status = e.status;
+        v.requiresFulfillment = e.requiresFulfillment;
+        v.fulfillmentType = e.fulfillmentType;
+        v.disputed = e.disputed;
+        v.disputeReason = e.disputeReason;
+        v.fulfilledAt = e.fulfilledAt;
+        v.resolution = e.resolution;
+        v.resolvedAt = e.resolvedAt;
+        v.challengeWindow = e.challengeWindow;
+        v.arbiterDeadline = e.arbiterDeadline;
+        v.timeoutResolution = e.timeoutResolution;
+        v.disputedAt = e.disputedAt;
+        v.settlementMode = e.settlementMode;
+        v.settledAt = e.settledAt;
     }
 
     function test_FundEscrowForUsesBuyerPolicyAndStoresBuyer() public {
@@ -210,10 +131,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
         assertEq(stored.fulfilledAt, 0);
-        assertEq(stored.fulfillmentEvidence, bytes32(0));
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
-        assertEq(stored.resolutionEvidence, bytes32(0));
         assertEq(stored.challengeWindow, 0);
         assertEq(stored.arbiterDeadline, 0);
         assertEq(uint8(stored.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
@@ -362,10 +281,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
         assertEq(stored.fulfilledAt, 0);
-        assertEq(stored.fulfillmentEvidence, bytes32(0));
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
-        assertEq(stored.resolutionEvidence, bytes32(0));
         assertEq(stored.challengeWindow, 0);
         assertEq(stored.arbiterDeadline, 0);
         assertEq(stored.disputedAt, 0);
@@ -988,10 +905,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
         assertEq(stored.fulfilledAt, 0);
-        assertEq(stored.fulfillmentEvidence, bytes32(0));
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
-        assertEq(stored.resolutionEvidence, bytes32(0));
         assertEq(stored.challengeWindow, 0);
         assertEq(stored.arbiterDeadline, 0);
         assertEq(stored.disputedAt, 0);
@@ -1040,10 +955,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
         assertEq(stored.fulfilledAt, 0);
-        assertEq(stored.fulfillmentEvidence, bytes32(0));
         assertEq(uint8(stored.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
         assertEq(stored.resolvedAt, 0);
-        assertEq(stored.resolutionEvidence, bytes32(0));
         assertEq(stored.challengeWindow, 0);
         assertEq(stored.arbiterDeadline, 0);
         assertEq(stored.disputedAt, 0);
@@ -1110,7 +1023,6 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         assertFalse(stored.disputed);
         assertEq(uint8(stored.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
         assertEq(stored.fulfilledAt, block.timestamp);
-        assertEq(stored.fulfillmentEvidence, proof);
         assertEq(uint8(stored.settlementMode), uint8(YieldEscrowV2.SettlementMode.NONE));
         assertEq(stored.settledAt, 0);
 

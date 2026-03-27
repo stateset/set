@@ -186,58 +186,31 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
             gateway.depositToEscrow(escrow, merchant, terms, 2_000, 50 ether);
         vm.stopPrank();
 
-        (
-            address buyer,
-            address escrowMerchant,
-            address refundRecipient,
-            uint256 sharesHeld,
-            ,
-            uint256 committedAssets,
-            uint40 releaseAfter,
-            uint16 buyerBps,
-            YieldEscrowV2.EscrowStatus status,
-            bool requiresFulfillment,
-            YieldEscrowV2.FulfillmentType fulfillmentType,
-            bool disputed,
-            YieldEscrowV2.DisputeReason disputeReason,
-            uint40 fulfilledAt,
-            bytes32 fulfillmentEvidence,
-            YieldEscrowV2.DisputeResolution resolution,
-            uint40 resolvedAt,
-            bytes32 resolutionEvidence,
-            uint40 challengeWindow,
-            uint40 arbiterDeadline,
-            YieldEscrowV2.DisputeResolution timeoutResolution,
-            uint40 disputedAt,
-            YieldEscrowV2.SettlementMode settlementMode,
-            uint40 settledAt
-        ) = escrow.escrows(escrowId);
+        (YieldEscrowV2.Escrow memory e,,,) = escrow.getEscrow(escrowId);
 
         assertEq(assetsIn, 50 ether);
         assertEq(sharesOut, 50 ether);
-        assertEq(buyer, user1);
-        assertEq(escrowMerchant, merchant);
-        assertEq(refundRecipient, user1);
-        assertEq(sharesHeld, 50 ether);
-        assertEq(committedAssets, 50 ether);
-        assertEq(releaseAfter, block.timestamp);
-        assertEq(buyerBps, 2_000);
-        assertEq(uint8(status), uint8(YieldEscrowV2.EscrowStatus.FUNDED));
-        assertFalse(requiresFulfillment);
-        assertEq(uint8(fulfillmentType), uint8(YieldEscrowV2.FulfillmentType.NONE));
-        assertFalse(disputed);
-        assertEq(uint8(disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
-        assertEq(fulfilledAt, 0);
-        assertEq(fulfillmentEvidence, bytes32(0));
-        assertEq(uint8(resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
-        assertEq(resolvedAt, 0);
-        assertEq(resolutionEvidence, bytes32(0));
-        assertEq(challengeWindow, 0);
-        assertEq(arbiterDeadline, 0);
-        assertEq(uint8(timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
-        assertEq(disputedAt, 0);
-        assertEq(uint8(settlementMode), uint8(YieldEscrowV2.SettlementMode.NONE));
-        assertEq(settledAt, 0);
+        assertEq(e.buyer, user1);
+        assertEq(e.merchant, merchant);
+        assertEq(e.refundRecipient, user1);
+        assertEq(e.sharesHeld, 50 ether);
+        assertEq(e.committedAssets, 50 ether);
+        assertEq(e.releaseAfter, block.timestamp);
+        assertEq(e.buyerBps, 2_000);
+        assertEq(uint8(e.status), uint8(YieldEscrowV2.EscrowStatus.FUNDED));
+        assertFalse(e.requiresFulfillment);
+        assertEq(uint8(e.fulfillmentType), uint8(YieldEscrowV2.FulfillmentType.NONE));
+        assertFalse(e.disputed);
+        assertEq(uint8(e.disputeReason), uint8(YieldEscrowV2.DisputeReason.NONE));
+        assertEq(e.fulfilledAt, 0);
+        assertEq(uint8(e.resolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
+        assertEq(e.resolvedAt, 0);
+        assertEq(e.challengeWindow, 0);
+        assertEq(e.arbiterDeadline, 0);
+        assertEq(uint8(e.timeoutResolution), uint8(YieldEscrowV2.DisputeResolution.NONE));
+        assertEq(e.disputedAt, 0);
+        assertEq(uint8(e.settlementMode), uint8(YieldEscrowV2.SettlementMode.NONE));
+        assertEq(e.settledAt, 0);
         assertEq(policy.getCommittedAssets(user1), 50 ether);
     }
 
