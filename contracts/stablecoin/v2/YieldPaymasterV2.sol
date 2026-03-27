@@ -18,11 +18,14 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     bytes32 public constant PAYMASTER_ADMIN_ROLE = keccak256("PAYMASTER_ADMIN_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
+    /// @dev Packed from 4 slots to 2:
+    ///   Slot 1: agent(20) + preparedAtBlock(8) = 28
+    ///   Slot 2: maxGasCostWei(16) + maxShares(16) = 32
     struct PendingCharge {
         address agent;
-        uint256 maxGasCostWei;
-        uint256 maxShares;
         uint64 preparedAtBlock;
+        uint128 maxGasCostWei;
+        uint128 maxShares;
     }
 
     wSSDCVaultV2 public immutable vault;
@@ -34,7 +37,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
     address public entryPoint;
 
     bool public paymasterPaused;
-    uint256 public maxPriceStaleness;
+    uint40 public maxPriceStaleness;  // seconds, max ~35 years
     address public feeCollector;
 
     mapping(address => uint256) public gasTankShares;
@@ -122,7 +125,7 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
     function setMaxPriceStaleness(uint256 staleness) external onlyRole(PAYMASTER_ADMIN_ROLE) {
         if (staleness == 0) revert InvalidAmount();
-        maxPriceStaleness = staleness;
+        maxPriceStaleness = uint40(staleness);
         emit MaxPriceStalenessUpdated(staleness);
     }
 
@@ -192,9 +195,9 @@ contract YieldPaymasterV2 is AccessControl, ReentrancyGuard, ICollateralProvider
 
         pendingCharges[opKey] = PendingCharge({
             agent: agent,
-            maxGasCostWei: maxGasCostWei,
-            maxShares: chargeShares,
-            preparedAtBlock: uint64(block.number)
+            preparedAtBlock: uint64(block.number),
+            maxGasCostWei: uint128(maxGasCostWei),
+            maxShares: uint128(chargeShares)
         });
     }
 
