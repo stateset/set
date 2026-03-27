@@ -69,13 +69,15 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
         DisputeResolution disputeTimeoutResolution;
     }
 
+    /// @dev sharesHeld/principalAssetsSnapshot/committedAssets use uint128
+    ///      (max ~3.4e38 — sufficient for any practical share/asset amount)
     struct Escrow {
         address buyer;
         address merchant;
         address refundRecipient;
-        uint256 sharesHeld;
-        uint256 principalAssetsSnapshot;
-        uint256 committedAssets;
+        uint128 sharesHeld;
+        uint128 principalAssetsSnapshot;
+        uint128 committedAssets;
         uint40 releaseAfter;
         uint16 buyerBps;
         EscrowStatus status;
@@ -493,9 +495,9 @@ contract YieldEscrowV2 is AccessControl, ReentrancyGuard {
             buyer: buyer,
             merchant: merchant,
             refundRecipient: refundRecipient,
-            sharesHeld: sharesIn,
-            principalAssetsSnapshot: principalAssetsSnapshot,
-            committedAssets: committedAssets,
+            sharesHeld: uint128(sharesIn),
+            principalAssetsSnapshot: uint128(principalAssetsSnapshot),
+            committedAssets: uint128(committedAssets),
             releaseAfter: terms.releaseAfter,
             buyerBps: buyerBps,
             status: EscrowStatus.FUNDED,
