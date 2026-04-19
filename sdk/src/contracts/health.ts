@@ -123,12 +123,13 @@ export async function performSystemHealthCheck(
     checks.push((async () => {
       try {
         const health = await fetchNAVOracleHealth(config.navOracle!);
+        const isHealthy = health.isFresh && health.healthScore >= BigInt(80);
         result.components.navOracle = {
-          healthy: health.isFresh && health.healthScore >= BigInt(80),
+          healthy: isHealthy,
           isFresh: health.isFresh,
           healthScore: health.healthScore
         };
-        if (!health.isFresh) result.overallHealthy = false;
+        if (!isHealthy) result.overallHealthy = false;
       } catch (e) {
         result.components.navOracle = { healthy: false };
         result.errors.push(`NAVOracle: ${e instanceof Error ? e.message : 'Unknown error'}`);

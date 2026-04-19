@@ -35,7 +35,11 @@
  * ```
  */
 
-export { StablecoinClient, createStablecoinClient } from "./StablecoinClient.js";
+export {
+  StablecoinClient,
+  createStablecoinClient,
+  calculateAnnualizedApy
+} from "./StablecoinClient.js";
 
 export {
   TokenCategory,

@@ -15,6 +15,7 @@
  */
 
 import { Contract, JsonRpcProvider, Wallet, keccak256, AbiCoder, toUtf8Bytes, concat, hexlify, randomBytes } from "ethers";
+import { SDKError, SDKErrorCode, TransactionFailedError } from "./errors.js";
 
 // ============================================================================
 // Types
@@ -82,6 +83,53 @@ export interface MempoolStats {
   executed: bigint;
   failed: bigint;
   expired: bigint;
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
+}
+
+function toEncryptedTxStatus(value: bigint | number, fieldName: string): EncryptedTxStatus {
+  const normalized = toSafeInteger(value, fieldName);
+  if (EncryptedTxStatus[normalized] === undefined) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} is not a valid encrypted transaction status`, {
+      details: { fieldName, value: normalized }
+    });
+  }
+  return normalized as EncryptedTxStatus;
+}
+
+async function waitForSuccessfulTransaction<
+  TTx extends {
+    hash?: string;
+    wait: () => Promise<{ hash: string; status?: number | null; logs?: any[] } | null>;
+  }
+>(
+  tx: TTx,
+  failureMessage: string
+): Promise<NonNullable<Awaited<ReturnType<TTx["wait"]>>>> {
+  const receipt = await tx.wait();
+
+  if (!receipt || receipt.status !== 1) {
+    throw new TransactionFailedError(failureMessage, tx.hash);
+  }
+
+  return receipt as NonNullable<Awaited<ReturnType<TTx["wait"]>>>;
 }
 
 // ============================================================================
@@ -425,7 +473,10 @@ export class EncryptedMempoolClient {
       { value: requiredFee }
     );
 
-    const receipt = await tx.wait();
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      "Encrypted transaction submission failed"
+    );
 
     // Extract txId from event
     const event = receipt.logs.find(
@@ -444,7 +495,7 @@ export class EncryptedMempoolClient {
    */
   async cancelTransaction(txId: string): Promise<void> {
     const tx = await this.contract.cancelEncryptedTx(txId);
-    await tx.wait();
+    await waitForSuccessfulTransaction(tx, "Encrypted transaction cancellation failed");
   }
 
   /**
@@ -463,7 +514,7 @@ export class EncryptedMempoolClient {
       valueDeposit: etx.valueDeposit,
       submittedAt: etx.submittedAt,
       orderPosition: etx.orderPosition,
-      status: etx.status as EncryptedTxStatus
+      status: toEncryptedTxStatus(etx.status, "status")
     };
   }
 
@@ -642,9 +693,15 @@ export class MEVProtectionClient {
     success: boolean;
   }> {
     const etx = await this.mempool.getTransaction(txId);
-    const dtx = etx.status >= EncryptedTxStatus.Decrypted
-      ? await this.mempool.getDecryptedTransaction(txId)
-      : null;
+    let dtx: DecryptedTransaction | null = null;
+
+    if (etx.status >= EncryptedTxStatus.Decrypted) {
+      try {
+        dtx = await this.mempool.getDecryptedTransaction(txId);
+      } catch {
+        dtx = null;
+      }
+    }
 
     return {
       status: EncryptedTxStatus[etx.status],

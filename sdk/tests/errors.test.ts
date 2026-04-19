@@ -166,6 +166,12 @@ describe('NAVStaleError', () => {
     expect(error.code).toBe(SDKErrorCode.NAV_STALE);
     expect(error.details?.lastUpdate).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
+
+  it('should preserve oversized bigint timestamps as raw values', () => {
+    const timestamp = 8_640_000_000_000_001n;
+    const error = new NAVStaleError(timestamp);
+    expect(error.details?.lastUpdate).toBe(timestamp.toString());
+  });
 });
 
 describe('DepositsPausedError', () => {

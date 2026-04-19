@@ -53,9 +53,9 @@ function findEvent(
       if (parsed && parsed.name === eventName) {
         // Convert args to a plain object
         const args: Record<string, any> = {};
-        for (const key of Object.keys(parsed.args)) {
-          if (isNaN(Number(key))) {
-            args[key] = parsed.args[key];
+        for (const input of parsed.fragment.inputs) {
+          if (input.name) {
+            args[input.name] = parsed.args[input.name];
           }
         }
         return { name: parsed.name, args, log };
@@ -299,6 +299,7 @@ export async function executeRedemptionRequestFlow(
   treasuryVault: Contract,
   ssUSD: Contract,
   amount: bigint,
+  preferredCollateral: string,
   options: TxBuilderOptions = {}
 ): Promise<FlowResult & { requestId?: bigint }> {
   const builder = new TransactionBuilder(wallet, options);
@@ -342,7 +343,7 @@ export async function executeRedemptionRequestFlow(
     const requestResult = await builder.execute(
       treasuryVault,
       'requestRedemption',
-      [amount]
+      [amount, preferredCollateral]
     );
 
     if (requestResult.status !== TxStatus.CONFIRMED) {
@@ -444,10 +445,14 @@ export async function executeBatchSponsorFlow(
 export async function executeCommitBatchFlow(
   wallet: Wallet,
   registry: Contract,
+  batchId: string,
   tenantId: string,
   storeId: string,
-  batchId: string,
-  starkRoot: string,
+  eventsRoot: string,
+  prevStateRoot: string,
+  newStateRoot: string,
+  sequenceStart: bigint,
+  sequenceEnd: bigint,
   txCount: number,
   options: TxBuilderOptions = {}
 ): Promise<FlowResult> {
@@ -460,7 +465,17 @@ export async function executeCommitBatchFlow(
     const commitResult = await builder.execute(
       registry,
       'commitBatch',
-      [tenantId, storeId, batchId, starkRoot, txCount]
+      [
+        batchId,
+        tenantId,
+        storeId,
+        eventsRoot,
+        prevStateRoot,
+        newStateRoot,
+        sequenceStart,
+        sequenceEnd,
+        txCount
+      ]
     );
 
     if (commitResult.status !== TxStatus.CONFIRMED) {

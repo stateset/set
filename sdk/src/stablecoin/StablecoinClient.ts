@@ -20,7 +20,9 @@ import {
   NAVReport,
   RedemptionRequest,
   RedemptionStatus,
+  TokenCategory,
   TokenInfo,
+  TrustLevel,
   DepositResult,
   RedemptionResult,
   WrapResult,
@@ -56,6 +58,118 @@ export interface FormattedUserBalance extends UserBalance {
     wssUSD: string;
     wssUSDValue: string;
   };
+}
+
+const APY_SCALE = 10n ** 18n;
+const SECONDS_PER_YEAR = 365n * 24n * 60n * 60n;
+
+type AllowanceManagedContract = {
+  allowance: (owner: string, spender: string) => Promise<bigint>;
+  approve: (
+    spender: string,
+    amount: bigint
+  ) => Promise<{
+    hash: string;
+    wait: (confirmations?: number) => Promise<{ hash: string; status?: number | null } | null>;
+  }>;
+};
+
+export function calculateAnnualizedApy(
+  history: ReadonlyArray<Pick<NAVReport, "navPerShare" | "timestamp">>
+): number {
+  if (history.length < 2) {
+    return 0;
+  }
+
+  let oldest = history[0];
+  let newest = history[0];
+
+  for (const report of history) {
+    if (report.timestamp < oldest.timestamp) {
+      oldest = report;
+    }
+    if (report.timestamp > newest.timestamp) {
+      newest = report;
+    }
+  }
+
+  if (oldest.navPerShare <= 0n || newest.timestamp <= oldest.timestamp) {
+    return 0;
+  }
+
+  const elapsedSeconds = newest.timestamp - oldest.timestamp;
+  const navDelta = newest.navPerShare - oldest.navPerShare;
+  const navChangeRatioScaled = (navDelta * APY_SCALE) / oldest.navPerShare;
+  const annualizedPercentScaled =
+    (navChangeRatioScaled * SECONDS_PER_YEAR * 100n) / elapsedSeconds;
+
+  return Number.parseFloat(formatUnits(annualizedPercentScaled, 18));
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
+}
+
+export async function waitForSuccessfulTransaction<
+  TTx extends {
+    hash: string;
+    wait: (confirmations?: number) => Promise<{ hash: string; status?: number | null } | null>;
+  }
+>(
+  tx: TTx,
+  confirmations: number,
+  failureMessage: string
+): Promise<NonNullable<Awaited<ReturnType<TTx["wait"]>>>> {
+  const receipt = await tx.wait(confirmations);
+
+  if (!receipt || receipt.status !== 1) {
+    throw new TransactionFailedError(failureMessage, tx.hash);
+  }
+
+  return receipt as NonNullable<Awaited<ReturnType<TTx["wait"]>>>;
+}
+
+export async function ensureSufficientAllowance<
+  TContract extends AllowanceManagedContract
+>(
+  contract: TContract,
+  owner: string,
+  spender: string,
+  requiredAmount: bigint,
+  confirmations: number,
+  insufficientApprovalMessage: string
+): Promise<void> {
+  const currentAllowance = await withRetry(() => contract.allowance(owner, spender));
+  if (currentAllowance >= requiredAmount) {
+    return;
+  }
+
+  if (currentAllowance > 0n) {
+    const resetApprovalTx = await contract.approve(spender, 0n);
+    await waitForSuccessfulTransaction(
+      resetApprovalTx,
+      confirmations,
+      `${insufficientApprovalMessage} (reset)`
+    );
+  }
+
+  const approvalTx = await contract.approve(spender, requiredAmount);
+  await waitForSuccessfulTransaction(approvalTx, confirmations, insufficientApprovalMessage);
 }
 
 export class StablecoinClient {
@@ -136,12 +250,15 @@ export class StablecoinClient {
       assertSufficientBalance(balance, amount, "collateral", config.collateralDecimals);
 
       // Check and update allowance
-      const currentAllowance = await withRetry(() => collateral.allowance(userAddress, this.addresses.treasury));
-      if (currentAllowance < amount) {
-        debugLog("Stablecoin", `Approving ${amount} tokens for treasury`);
-        const approveTx = await collateral.approve(this.addresses.treasury, amount);
-        await approveTx.wait(config.blockConfirmations);
-      }
+      debugLog("Stablecoin", `Ensuring allowance for ${amount} collateral tokens`);
+      await ensureSufficientAllowance(
+        collateral as unknown as AllowanceManagedContract,
+        userAddress,
+        this.addresses.treasury,
+        amount,
+        config.blockConfirmations,
+        "Collateral approval failed"
+      );
 
       // Estimate gas
       const gasEstimate = await estimateGas(
@@ -155,11 +272,11 @@ export class StablecoinClient {
       const tx = await this.treasury.deposit(validatedToken, amount, to, {
         gasLimit: gasEstimate.gasLimitWithBuffer
       });
-      const receipt = await tx.wait(config.blockConfirmations);
-
-      if (!receipt || receipt.status !== 1) {
-        throw new TransactionFailedError("Deposit transaction failed", tx.hash);
-      }
+      const receipt = await waitForSuccessfulTransaction(
+        tx,
+        config.blockConfirmations,
+        "Deposit transaction failed"
+      );
 
       // Parse events for minted amount
       const ssUSDMinted = extractEventArgOrThrow<bigint>(
@@ -222,12 +339,15 @@ export class StablecoinClient {
       }
 
       // Check and update allowance
-      const currentAllowance = await withRetry(() => this.ssUSD.allowance(userAddress, this.addresses.treasury));
-      if (currentAllowance < ssUSDAmount) {
-        debugLog("Stablecoin", `Approving ${ssUSDAmount} ssUSD for treasury`);
-        const approveTx = await this.ssUSD.approve(this.addresses.treasury, ssUSDAmount);
-        await approveTx.wait(config.blockConfirmations);
-      }
+      debugLog("Stablecoin", `Ensuring allowance for ${ssUSDAmount} ssUSD`);
+      await ensureSufficientAllowance(
+        this.ssUSD as unknown as AllowanceManagedContract,
+        userAddress,
+        this.addresses.treasury,
+        ssUSDAmount,
+        config.blockConfirmations,
+        "ssUSD approval failed"
+      );
 
       // Estimate gas
       const gasEstimate = await estimateGas(
@@ -241,11 +361,11 @@ export class StablecoinClient {
       const tx = await this.treasury.requestRedemption(ssUSDAmount, validatedCollateral, {
         gasLimit: gasEstimate.gasLimitWithBuffer
       });
-      const receipt = await tx.wait(config.blockConfirmations);
-
-      if (!receipt || receipt.status !== 1) {
-        throw new TransactionFailedError("Redemption request failed", tx.hash);
-      }
+      const receipt = await waitForSuccessfulTransaction(
+        tx,
+        config.blockConfirmations,
+        "Redemption request failed"
+      );
 
       // Parse events for request ID
       const requestId = extractEventArgOrThrow<bigint>(
@@ -274,11 +394,11 @@ export class StablecoinClient {
 
     try {
       const tx = await this.treasury.cancelRedemption(requestId);
-      const receipt = await tx.wait(config.blockConfirmations);
-
-      if (!receipt || receipt.status !== 1) {
-        throw new TransactionFailedError("Cancel redemption failed", tx.hash);
-      }
+      const receipt = await waitForSuccessfulTransaction(
+        tx,
+        config.blockConfirmations,
+        "Cancel redemption failed"
+      );
 
       return receipt.hash;
     } catch (error) {
@@ -299,7 +419,7 @@ export class StablecoinClient {
         collateralToken: request.collateralToken,
         requestedAt: request.requestedAt,
         processedAt: request.processedAt,
-        status: request.status as RedemptionStatus
+        status: toSafeInteger(request.status, "status") as RedemptionStatus
       };
     } catch (error) {
       throw wrapError(error, "Failed to get redemption request");
@@ -338,19 +458,31 @@ export class StablecoinClient {
       assertSufficientBalance(balance, ssUSDAmount, "ssUSD", config.ssUSDDecimals);
 
       // Check and update allowance
-      const currentAllowance = await withRetry(() => this.ssUSD.allowance(userAddress, this.addresses.wssUSD));
-      if (currentAllowance < ssUSDAmount) {
-        const approveTx = await this.ssUSD.approve(this.addresses.wssUSD, ssUSDAmount);
-        await approveTx.wait(config.blockConfirmations);
-      }
+      await ensureSufficientAllowance(
+        this.ssUSD as unknown as AllowanceManagedContract,
+        userAddress,
+        this.addresses.wssUSD,
+        ssUSDAmount,
+        config.blockConfirmations,
+        "ssUSD approval failed"
+      );
+
+      const gasEstimate = await estimateGas(
+        this.wssUSD,
+        "wrap",
+        [ssUSDAmount],
+        { gasBuffer: config.gasBuffer }
+      );
 
       // Wrap
-      const tx = await this.wssUSD.wrap(ssUSDAmount);
-      const receipt = await tx.wait(config.blockConfirmations);
-
-      if (!receipt || receipt.status !== 1) {
-        throw new TransactionFailedError("Wrap failed", tx.hash);
-      }
+      const tx = await this.wssUSD.wrap(ssUSDAmount, {
+        gasLimit: gasEstimate.gasLimitWithBuffer
+      });
+      const receipt = await waitForSuccessfulTransaction(
+        tx,
+        config.blockConfirmations,
+        "Wrap failed"
+      );
 
       // Parse events
       const wssUSDReceived = extractEventArg<bigint>(
@@ -389,13 +521,22 @@ export class StablecoinClient {
       const balance = await withRetry(() => this.wssUSD.balanceOf(userAddress));
       assertSufficientBalance(balance, wssUSDAmount, "wssUSD", config.ssUSDDecimals);
 
-      // Unwrap
-      const tx = await this.wssUSD.unwrap(wssUSDAmount);
-      const receipt = await tx.wait(config.blockConfirmations);
+      const gasEstimate = await estimateGas(
+        this.wssUSD,
+        "unwrap",
+        [wssUSDAmount],
+        { gasBuffer: config.gasBuffer }
+      );
 
-      if (!receipt || receipt.status !== 1) {
-        throw new TransactionFailedError("Unwrap failed", tx.hash);
-      }
+      // Unwrap
+      const tx = await this.wssUSD.unwrap(wssUSDAmount, {
+        gasLimit: gasEstimate.gasLimitWithBuffer
+      });
+      const receipt = await waitForSuccessfulTransaction(
+        tx,
+        config.blockConfirmations,
+        "Unwrap failed"
+      );
 
       // Parse events
       const ssUSDReceived = extractEventArg<bigint>(
@@ -487,19 +628,9 @@ export class StablecoinClient {
         withRetry(() => this.treasury.getCollateralRatio())
       ]);
 
-      // Calculate APY from NAV history
       let apy = 0;
       try {
-        const history = await this.navOracle.getNAVHistory(30);
-        if (history.length >= 2) {
-          const oldest = history[0];
-          const newest = history[history.length - 1];
-          const daysDiff = Number(newest.timestamp - oldest.timestamp) / 86400;
-          if (daysDiff > 0) {
-            const navChange = Number(newest.navPerShare - oldest.navPerShare) / Number(oldest.navPerShare);
-            apy = (navChange / daysDiff) * 365 * 100;
-          }
-        }
+        apy = calculateAnnualizedApy(await this.navOracle.getNAVHistory(30));
       } catch {
         // No history available
       }
@@ -597,10 +728,10 @@ export class StablecoinClient {
         tokenAddress: info.tokenAddress,
         name: info.name,
         symbol: info.symbol,
-        decimals: info.decimals,
+        decimals: toSafeInteger(info.decimals, "decimals"),
         logoURI: info.logoURI,
-        category: info.category,
-        trustLevel: info.trustLevel,
+        category: toSafeInteger(info.category, "category") as TokenCategory,
+        trustLevel: toSafeInteger(info.trustLevel, "trustLevel") as TrustLevel,
         isCollateral: info.isCollateral,
         addedAt: info.addedAt,
         updatedAt: info.updatedAt

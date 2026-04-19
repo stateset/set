@@ -1,5 +1,19 @@
 import { Contract } from "ethers";
 
+function assertParallelArrayLengths(
+  context: string,
+  expectedLength: number,
+  arrays: Record<string, { length: number }>
+): void {
+  for (const [name, array] of Object.entries(arrays)) {
+    if (array.length !== expectedLength) {
+      throw new Error(
+        `${context} returned ${name} length ${array.length}, expected ${expectedLength}`
+      );
+    }
+  }
+}
+
 /**
  * Forced inclusion system status
  */
@@ -143,6 +157,10 @@ export async function batchGetForcedTxStatuses(
   txIds: string[]
 ): Promise<{ resolved: boolean[]; expired: boolean[] }> {
   const [resolved, expired] = await forcedInclusion.getBatchTxStatuses(txIds);
+  assertParallelArrayLengths("getBatchTxStatuses", txIds.length, {
+    resolved,
+    expired
+  });
   return { resolved, expired };
 }
 

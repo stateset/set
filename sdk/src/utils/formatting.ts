@@ -7,6 +7,9 @@
 import { formatUnits, parseUnits } from "ethers";
 import { SDKError, SDKErrorCode } from "../errors.js";
 
+const MAX_DATE_MS = 8_640_000_000_000_000;
+const MAX_DATE_MS_BIGINT = 8_640_000_000_000_000n;
+
 /**
  * Options for formatting balances
  */
@@ -23,6 +26,12 @@ export interface FormatBalanceOptions {
 
 function addThousandsSeparators(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function trimDecimalString(value: string, maxDecimals: number): string {
+  const [intPart, decPart = ""] = value.split(".");
+  const trimmed = decPart.slice(0, maxDecimals).replace(/0+$/, "");
+  return trimmed ? `${intPart}.${trimmed}` : intPart;
 }
 
 /**
@@ -160,10 +169,10 @@ export function parsessUSD(ssUsd: string | number): bigint {
  */
 export function formatGas(gas: bigint): string {
   if (gas >= 1_000_000n) {
-    return `${(Number(gas) / 1_000_000).toFixed(2)}M gas`;
+    return `${trimDecimalString(formatUnits(gas, 6), 2)}M gas`;
   }
   if (gas >= 1_000n) {
-    return `${(Number(gas) / 1_000).toFixed(1)}K gas`;
+    return `${trimDecimalString(formatUnits(gas, 3), 1)}K gas`;
   }
   return `${gas} gas`;
 }
@@ -174,11 +183,11 @@ export function formatGas(gas: bigint): string {
  * @returns Formatted string
  */
 export function formatGasPrice(wei: bigint): string {
-  const gwei = Number(wei) / 1e9;
-  if (gwei < 1) {
-    return `${(gwei * 1000).toFixed(2)} mwei`;
+  const gwei = trimDecimalString(formatUnits(wei, 9), 2);
+  if (wei < 1_000_000_000n) {
+    return `${trimDecimalString(formatUnits(wei, 6), 2)} mwei`;
   }
-  return `${gwei.toFixed(2)} gwei`;
+  return `${gwei} gwei`;
 }
 
 /**
@@ -219,8 +228,26 @@ export function shortenAddress(address: string, chars = 4): string {
  * @returns ISO date string
  */
 export function formatTimestamp(timestamp: bigint | number): string {
-  const ts = typeof timestamp === "bigint" ? Number(timestamp) : timestamp;
-  return new Date(ts * 1000).toISOString();
+  let timestampMs: number;
+
+  if (typeof timestamp === "bigint") {
+    const ms = timestamp * 1000n;
+    if (ms < -MAX_DATE_MS_BIGINT || ms > MAX_DATE_MS_BIGINT) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, "Timestamp out of range", {
+        details: { timestamp: timestamp.toString() }
+      });
+    }
+    timestampMs = Number(ms);
+  } else {
+    timestampMs = timestamp * 1000;
+    if (!Number.isFinite(timestampMs) || Math.abs(timestampMs) > MAX_DATE_MS) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, "Timestamp out of range", {
+        details: { timestamp }
+      });
+    }
+  }
+
+  return new Date(timestampMs).toISOString();
 }
 
 /**

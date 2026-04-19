@@ -1,4 +1,5 @@
 import { Contract } from "ethers";
+import { SDKError, SDKErrorCode } from "../errors.js";
 
 /**
  * Encrypted mempool status
@@ -53,6 +54,37 @@ export interface DecryptedTxInfo {
   success: boolean;
 }
 
+const VALID_ENCRYPTED_TX_STATUSES = new Set([0, 1, 2, 3, 4, 5, 6]);
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
+}
+
+function toEncryptedTxStatus(value: bigint | number, fieldName: string): number {
+  const normalized = toSafeInteger(value, fieldName);
+  if (!VALID_ENCRYPTED_TX_STATUSES.has(normalized)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} is not a valid encrypted transaction status`, {
+      details: { fieldName, value: normalized }
+    });
+  }
+  return normalized;
+}
+
 /**
  * Fetch encrypted mempool status
  * @param mempool EncryptedMempool contract instance
@@ -90,7 +122,12 @@ export async function getEncryptedTxStatus(
   txId: string
 ): Promise<EncryptedTxStatus> {
   const [status, statusName, blocksUntilExpiry, canExecute] = await mempool.getTxStatus(txId);
-  return { status, statusName, blocksUntilExpiry, canExecute };
+  return {
+    status: toEncryptedTxStatus(status, "status"),
+    statusName,
+    blocksUntilExpiry,
+    canExecute
+  };
 }
 
 /**
@@ -103,7 +140,8 @@ export async function batchGetEncryptedTxStatuses(
   mempool: Contract,
   txIds: string[]
 ): Promise<number[]> {
-  return await mempool.getBatchTxStatuses(txIds);
+  const statuses = await mempool.getBatchTxStatuses(txIds);
+  return statuses.map((status: bigint | number) => toEncryptedTxStatus(status, "status"));
 }
 
 /**

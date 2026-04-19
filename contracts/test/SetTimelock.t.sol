@@ -373,9 +373,10 @@ contract SetTimelockTest is Test {
     event AdminRenounced(address indexed admin, uint256 timestamp);
 
     function test_AdminRenounceEmitsEvent() public {
-        vm.prank(deployer);
+        vm.startPrank(deployer);
         vm.expectEmit(true, false, false, true);
         emit AdminRenounced(deployer, block.timestamp);
         timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), deployer);
+        vm.stopPrank();
     }
 }

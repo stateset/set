@@ -44,6 +44,20 @@ export interface BatchSponsorshipResult {
   failed: bigint;
 }
 
+function assertParallelArrayLengths(
+  context: string,
+  expectedLength: number,
+  arrays: Record<string, { length: number }>
+): void {
+  for (const [name, array] of Object.entries(arrays)) {
+    if (array.length !== expectedLength) {
+      throw new Error(
+        `${context} returned ${name} length ${array.length}, expected ${expectedLength}`
+      );
+    }
+  }
+}
+
 /**
  * Fetch paymaster status
  * @param paymaster SetPaymaster contract instance
@@ -61,6 +75,12 @@ export async function fetchPaymasterStatus(paymaster: Contract): Promise<Paymast
  */
 export async function fetchAllTiers(paymaster: Contract): Promise<SponsorshipTier[]> {
   const [tierIds, names, maxPerTx, maxPerDay, maxPerMonth] = await paymaster.getAllTiers();
+  assertParallelArrayLengths("getAllTiers", tierIds.length, {
+    names,
+    maxPerTx,
+    maxPerDay,
+    maxPerMonth
+  });
   const tiers: SponsorshipTier[] = [];
   for (let i = 0; i < tierIds.length; i++) {
     tiers.push({
@@ -196,6 +216,13 @@ export async function fetchBatchMerchantDetails(
 ): Promise<MerchantDetails[]> {
   const [actives, tierIds, spentTodays, spentThisMonths, totalSponsoreds] =
     await paymaster.batchGetMerchantDetails(merchants);
+  assertParallelArrayLengths("batchGetMerchantDetails", merchants.length, {
+    actives,
+    tierIds,
+    spentTodays,
+    spentThisMonths,
+    totalSponsoreds
+  });
   const details: MerchantDetails[] = [];
   for (let i = 0; i < merchants.length; i++) {
     details.push({
@@ -271,6 +298,11 @@ export async function findSponsorableMerchants(
   nonSponsorable: Array<{ merchant: string; amount: bigint; reason: string }>;
 }> {
   const { canSponsor, reasons } = await batchCheckCanSponsor(paymaster, merchants, amounts);
+  assertParallelArrayLengths("batchCanSponsor", merchants.length, {
+    amounts,
+    canSponsor,
+    reasons
+  });
   const sponsorable: Array<{ merchant: string; amount: bigint }> = [];
   const nonSponsorable: Array<{ merchant: string; amount: bigint; reason: string }> = [];
 

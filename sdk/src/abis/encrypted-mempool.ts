@@ -157,5 +157,17 @@ export const encryptedMempoolAbi = [
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
+  },
+  {
+    type: "event",
+    name: "EncryptedTxSubmitted",
+    inputs: [
+      { name: "txId", type: "bytes32", indexed: true },
+      { name: "sender", type: "address", indexed: true },
+      { name: "payloadHash", type: "bytes32", indexed: false },
+      { name: "epoch", type: "uint256", indexed: false },
+      { name: "gasLimit", type: "uint256", indexed: false }
+    ],
+    anonymous: false
   }
 ] as const;

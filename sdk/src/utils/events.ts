@@ -23,6 +23,15 @@ export interface ParsedEvent<T = Record<string, unknown>> {
   log: Log;
 }
 
+function getContractAddress(contract: Contract): string | null {
+  return typeof contract.target === "string" ? contract.target.toLowerCase() : null;
+}
+
+function logMatchesContract(log: Log, contract: Contract): boolean {
+  const contractAddress = getContractAddress(contract);
+  return contractAddress === null || log.address.toLowerCase() === contractAddress;
+}
+
 /**
  * Find a specific event in transaction receipt
  * @param receipt Transaction receipt
@@ -44,7 +53,7 @@ export function findEvent<T = Record<string, unknown>>(
 
   for (let i = 0; i < receipt.logs.length; i++) {
     const log = receipt.logs[i];
-    if (log.topics[0] === topicHash) {
+    if (log.topics[0] === topicHash && logMatchesContract(log, contract)) {
       try {
         const parsed = contract.interface.parseLog({
           topics: log.topics as string[],
@@ -116,7 +125,7 @@ export function findAllEvents<T = Record<string, unknown>>(
 
   for (let i = 0; i < receipt.logs.length; i++) {
     const log = receipt.logs[i];
-    if (log.topics[0] === topicHash) {
+    if (log.topics[0] === topicHash && logMatchesContract(log, contract)) {
       try {
         const parsed = contract.interface.parseLog({
           topics: log.topics as string[],
@@ -207,6 +216,10 @@ export function parseAllEvents(
     const log = receipt.logs[i];
 
     for (const contract of contracts) {
+      if (!logMatchesContract(log, contract)) {
+        continue;
+      }
+
       try {
         const parsed = contract.interface.parseLog({
           topics: log.topics as string[],

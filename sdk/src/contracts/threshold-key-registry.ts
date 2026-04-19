@@ -8,6 +8,20 @@ import type {
   EpochHistoryEntry
 } from "../types.js";
 
+function assertParallelArrayLengths(
+  context: string,
+  expectedLength: number,
+  arrays: Record<string, { length: number }>
+): void {
+  for (const [name, array] of Object.entries(arrays)) {
+    if (array.length !== expectedLength) {
+      throw new Error(
+        `${context} returned ${name} length ${array.length}, expected ${expectedLength}`
+      );
+    }
+  }
+}
+
 /**
  * Fetch threshold key registry status
  * @param registry ThresholdKeyRegistry contract instance
@@ -178,6 +192,12 @@ export async function batchGetKeyperSummaries(
 ): Promise<KeyperSummary[]> {
   const [active, stakes, slashCounts, registeredForDKG] =
     await registry.batchGetKeyperSummary(keypers);
+  assertParallelArrayLengths("batchGetKeyperSummary", keypers.length, {
+    active,
+    stakes,
+    slashCounts,
+    registeredForDKG
+  });
 
   const summaries: KeyperSummary[] = [];
   for (let i = 0; i < keypers.length; i++) {
@@ -205,6 +225,11 @@ export async function getEpochHistory(
 ): Promise<EpochHistoryEntry[]> {
   const [epochs, valid, revoked, thresholds] =
     await registry.getEpochHistory(epochStart, epochEnd);
+  assertParallelArrayLengths("getEpochHistory", epochs.length, {
+    valid,
+    revoked,
+    thresholds
+  });
 
   const entries: EpochHistoryEntry[] = [];
   for (let i = 0; i < epochs.length; i++) {

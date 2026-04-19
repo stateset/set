@@ -181,12 +181,20 @@ export async function withTimeout<T>(
   timeoutMs: number,
   operation = "Operation"
 ): Promise<T> {
-  return Promise.race([
-    fn(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new TimeoutError(operation, timeoutMs)), timeoutMs)
-    )
-  ]);
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new TimeoutError(operation, timeoutMs)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 /**
@@ -248,7 +256,14 @@ export async function pollUntil(
     if (result) {
       return;
     }
-    await sleep(intervalMs);
+
+    const elapsedMs = Date.now() - startTime;
+    const remainingMs = timeoutMs - elapsedMs;
+    if (remainingMs <= 0) {
+      break;
+    }
+
+    await sleep(Math.min(intervalMs, remainingMs));
   }
 
   throw new TimeoutError(`${operation} not met`, timeoutMs);

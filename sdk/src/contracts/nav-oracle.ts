@@ -23,6 +23,14 @@ export interface NAVComprehensiveSummary {
   statistics: NAVStatistics;
 }
 
+function validateProjectionDays(daysAhead: number): bigint {
+  if (!Number.isFinite(daysAhead) || !Number.isInteger(daysAhead) || daysAhead < 0) {
+    throw new RangeError("daysAhead must be a non-negative integer");
+  }
+
+  return BigInt(daysAhead);
+}
+
 /**
  * Fetch NAVOracle status
  * @param oracle NAVOracle contract instance
@@ -177,21 +185,22 @@ export async function getNAVHistoryCount(oracle: Contract): Promise<bigint> {
 export async function getNAVComprehensiveSummary(
   oracle: Contract
 ): Promise<NAVComprehensiveSummary> {
-  const [status, health, trend, annualizedYield, secondsSinceUpdate, statistics] =
+  const [status, health, trend, annualizedYield, secondsSinceUpdate, statistics, isOverdue] =
     await Promise.all([
       fetchNAVOracleStatus(oracle),
       fetchNAVOracleHealth(oracle),
       getNAVTrend(oracle),
       getNAVAnnualizedYield(oracle),
       getSecondsSinceLastAttestation(oracle),
-      getNAVStatistics(oracle)
+      getNAVStatistics(oracle),
+      isAttestationOverdue(oracle)
     ]);
 
   return {
     currentNav: status.navPerShare,
     lastUpdate: status.lastUpdate,
     isFresh: status.isFresh,
-    isOverdue: !status.isFresh,
+    isOverdue,
     secondsSinceUpdate,
     trend,
     annualizedYield,
@@ -210,6 +219,7 @@ export async function getProjectedNAV(
   oracle: Contract,
   daysAhead: number
 ): Promise<bigint> {
+  const projectionDays = validateProjectionDays(daysAhead);
   const [status, annualized] = await Promise.all([
     fetchNAVOracleStatus(oracle),
     getNAVAnnualizedYield(oracle)
@@ -222,7 +232,7 @@ export async function getProjectedNAV(
   // dailyRate = annualizedBps / 365 / 10000 (bps to decimal)
   // projectedNav = currentNav * (1 + dailyRate * daysAhead)
   const dailyBps = annualizedBps / BigInt(365);
-  const projectedNav = currentNav + (currentNav * dailyBps * BigInt(daysAhead)) / BigInt(10000);
+  const projectedNav = currentNav + (currentNav * dailyBps * projectionDays) / BigInt(10000);
 
   return projectedNav;
 }

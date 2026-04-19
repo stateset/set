@@ -1,4 +1,5 @@
 import { Contract } from "ethers";
+import { SDKError, SDKErrorCode } from "../errors.js";
 import type { OperationStatus } from "../types.js";
 
 /**
@@ -19,6 +20,25 @@ export interface PendingOperationsSummary {
   pending: Array<{ id: string; secondsRemaining: bigint }>;
   ready: string[];
   executed: string[];
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
 }
 
 /**
@@ -89,7 +109,14 @@ export async function getTimelockExtendedConfig(timelock: Contract): Promise<{
 }> {
   const [minDelay, maxDelay, mainnetDelay, testnetDelay, devnetDelay, currentEnvironment] =
     await timelock.getExtendedConfig();
-  return { minDelay, maxDelay, mainnetDelay, testnetDelay, devnetDelay, currentEnvironment };
+  return {
+    minDelay,
+    maxDelay,
+    mainnetDelay,
+    testnetDelay,
+    devnetDelay,
+    currentEnvironment: toSafeInteger(currentEnvironment, "currentEnvironment")
+  };
 }
 
 /**

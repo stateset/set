@@ -1,4 +1,5 @@
 import { Contract } from "ethers";
+import { SDKError, SDKErrorCode } from "../errors.js";
 import type {
   TreasuryVaultHealth,
   CollateralBreakdown,
@@ -6,6 +7,53 @@ import type {
   RedemptionRequestStatus,
   RedemptionRequest
 } from "../types.js";
+
+function assertParallelArrayLengths(
+  context: string,
+  expectedLength: number,
+  arrays: Record<string, { length: number }>
+): void {
+  for (const [name, array] of Object.entries(arrays)) {
+    if (array.length !== expectedLength) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${context} returned ${name} length ${array.length}, expected ${expectedLength}`, {
+        details: { context, name, actualLength: array.length, expectedLength }
+      });
+    }
+  }
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
+}
+
+function normalizeRedemptionRequest(
+  request: RedemptionRequest | Record<string, unknown>
+): RedemptionRequest {
+  return {
+    id: request.id as bigint,
+    requester: request.requester as string,
+    ssUSDAmount: request.ssUSDAmount as bigint,
+    collateralToken: request.collateralToken as string,
+    requestedAt: request.requestedAt as bigint,
+    processedAt: request.processedAt as bigint,
+    status: toSafeInteger(request.status as bigint | number, "status")
+  };
+}
 
 /**
  * Fetch TreasuryVault health status
@@ -74,6 +122,10 @@ export async function checkUndercollateralization(
  */
 export async function getCollateralBreakdown(vault: Contract): Promise<CollateralBreakdown> {
   const [tokens, balances, values] = await vault.getCollateralBreakdown();
+  assertParallelArrayLengths("getCollateralBreakdown", tokens.length, {
+    balances,
+    values
+  });
   return { tokens, balances, values };
 }
 
@@ -100,7 +152,12 @@ export async function getRedemptionStatus(
   requestId: number
 ): Promise<RedemptionRequestStatus> {
   const [status, timeRemaining, isReady, ssUSDValue] = await vault.getRedemptionStatus(requestId);
-  return { status, timeRemaining, isReady, ssUSDValue };
+  return {
+    status: toSafeInteger(status, "status"),
+    timeRemaining,
+    isReady,
+    ssUSDValue
+  };
 }
 
 /**
@@ -110,7 +167,8 @@ export async function getRedemptionStatus(
  * @returns Redemption request details
  */
 export async function getRedemptionRequest(vault: Contract, requestId: number): Promise<RedemptionRequest> {
-  return await vault.getRedemptionRequest(requestId);
+  const request = await vault.getRedemptionRequest(requestId);
+  return normalizeRedemptionRequest(request);
 }
 
 /**
@@ -190,7 +248,11 @@ export async function isTreasuryVaultOperator(vault: Contract, operator: string)
  * @returns Array of balances
  */
 export async function batchGetCollateralBalances(vault: Contract, tokens: string[]): Promise<bigint[]> {
-  return await vault.batchGetCollateralBalances(tokens);
+  const balances = await vault.batchGetCollateralBalances(tokens);
+  assertParallelArrayLengths("batchGetCollateralBalances", tokens.length, {
+    balances
+  });
+  return balances;
 }
 
 /**
@@ -203,7 +265,13 @@ export async function batchGetRedemptionRequests(
   vault: Contract,
   requestIds: number[]
 ): Promise<RedemptionRequest[]> {
-  return await vault.batchGetRedemptionRequests(requestIds);
+  const requests = await vault.batchGetRedemptionRequests(requestIds);
+  assertParallelArrayLengths("batchGetRedemptionRequests", requestIds.length, {
+    requests
+  });
+  return requests.map((request: RedemptionRequest | Record<string, unknown>) =>
+    normalizeRedemptionRequest(request)
+  );
 }
 
 /**
@@ -216,5 +284,9 @@ export async function batchCheckTreasuryVaultOperators(
   vault: Contract,
   addresses: string[]
 ): Promise<boolean[]> {
-  return await vault.batchIsOperator(addresses);
+  const statuses = await vault.batchIsOperator(addresses);
+  assertParallelArrayLengths("batchIsOperator", addresses.length, {
+    statuses
+  });
+  return statuses;
 }

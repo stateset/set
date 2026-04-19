@@ -141,5 +141,18 @@ export const forcedInclusionAbi = [
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
+  },
+  {
+    type: "event",
+    name: "TransactionForced",
+    inputs: [
+      { name: "txId", type: "bytes32", indexed: true },
+      { name: "sender", type: "address", indexed: true },
+      { name: "target", type: "address", indexed: false },
+      { name: "value", type: "uint256", indexed: false },
+      { name: "gasLimit", type: "uint256", indexed: false },
+      { name: "deadline", type: "uint256", indexed: false }
+    ],
+    anonymous: false
   }
 ] as const;

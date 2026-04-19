@@ -1,4 +1,5 @@
 import { Contract, keccak256, solidityPacked } from "ethers";
+import { SDKError, SDKErrorCode } from "../errors.js";
 import type { BatchCommitment, RegistryStats } from "../types.js";
 
 const UUID_PATTERN =
@@ -24,6 +25,39 @@ export interface TenantStoreSummary {
   currentStateRoot: string;
   currentHeadSequence: bigint;
   hasLatestProof: boolean;
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
+}
+
+function assertParallelArrayLengths(
+  context: string,
+  expectedLength: number,
+  arrays: Record<string, { length: number }>
+): void {
+  for (const [name, array] of Object.entries(arrays)) {
+    if (array.length !== expectedLength) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${context} returned ${name} length ${array.length}, expected ${expectedLength}`, {
+        details: { context, name, actualLength: array.length, expectedLength }
+      });
+    }
+  }
 }
 
 /**
@@ -142,7 +176,7 @@ export async function fetchBatchCommitment(
     newStateRoot: commitment.newStateRoot,
     sequenceStart: commitment.sequenceStart,
     sequenceEnd: commitment.sequenceEnd,
-    eventCount: Number(commitment.eventCount),
+    eventCount: toSafeInteger(commitment.eventCount, "eventCount"),
     timestamp: commitment.timestamp,
     submitter: commitment.submitter
   };
@@ -225,13 +259,16 @@ export async function fetchBatchCommitments(
   batchIds: string[]
 ): Promise<BatchCommitment[]> {
   const commitments = await registry.getBatchCommitments(batchIds);
+  assertParallelArrayLengths("getBatchCommitments", batchIds.length, {
+    commitments
+  });
   return commitments.map((c: any) => ({
     eventsRoot: c.eventsRoot,
     prevStateRoot: c.prevStateRoot,
     newStateRoot: c.newStateRoot,
     sequenceStart: c.sequenceStart,
     sequenceEnd: c.sequenceEnd,
-    eventCount: Number(c.eventCount),
+    eventCount: toSafeInteger(c.eventCount, "eventCount"),
     timestamp: c.timestamp,
     submitter: c.submitter
   }));
@@ -248,6 +285,10 @@ export async function fetchBatchProofStatuses(
   batchIds: string[]
 ): Promise<{ hasProofs: boolean[]; allCompliant: boolean[] }> {
   const [hasProofs, allCompliant] = await registry.getBatchProofStatuses(batchIds);
+  assertParallelArrayLengths("getBatchProofStatuses", batchIds.length, {
+    hasProofs,
+    allCompliant
+  });
   return { hasProofs, allCompliant };
 }
 
@@ -263,7 +304,14 @@ export async function fetchBatchLatestStateRoots(
   tenantIds: string[],
   storeIds: string[]
 ): Promise<string[]> {
-  return await registry.getBatchLatestStateRoots(tenantIds, storeIds);
+  assertParallelArrayLengths("getBatchLatestStateRoots input", tenantIds.length, {
+    storeIds
+  });
+  const stateRoots = await registry.getBatchLatestStateRoots(tenantIds, storeIds);
+  assertParallelArrayLengths("getBatchLatestStateRoots", tenantIds.length, {
+    stateRoots
+  });
+  return stateRoots;
 }
 
 /**
@@ -276,7 +324,11 @@ export async function checkSequencerAuthorization(
   registry: Contract,
   addresses: string[]
 ): Promise<boolean[]> {
-  return await registry.areSequencersAuthorized(addresses);
+  const authorizations = await registry.areSequencersAuthorized(addresses);
+  assertParallelArrayLengths("areSequencersAuthorized", addresses.length, {
+    authorizations
+  });
+  return authorizations;
 }
 
 /**
@@ -295,7 +347,7 @@ export async function getAuthorizedSequencerCount(registry: Contract): Promise<b
  */
 export async function getProofCoveragePercent(registry: Contract): Promise<number> {
   const status = await fetchExtendedRegistryStatus(registry);
-  return Number(status.proofCoverage) / 100;
+  return toSafeInteger(status.proofCoverage, "proofCoverage") / 100;
 }
 
 /**
@@ -320,7 +372,14 @@ export async function fetchBatchHeadSequences(
   tenantIds: string[],
   storeIds: string[]
 ): Promise<bigint[]> {
-  return await registry.getBatchHeadSequences(tenantIds, storeIds);
+  assertParallelArrayLengths("getBatchHeadSequences input", tenantIds.length, {
+    storeIds
+  });
+  const headSequences = await registry.getBatchHeadSequences(tenantIds, storeIds);
+  assertParallelArrayLengths("getBatchHeadSequences", tenantIds.length, {
+    headSequences
+  });
+  return headSequences;
 }
 
 /**

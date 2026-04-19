@@ -1,4 +1,4 @@
-import { Contract, JsonRpcProvider } from "ethers";
+import { Contract, JsonRpcProvider, formatUnits } from "ethers";
 
 /**
  * Gas estimation result
@@ -12,25 +12,15 @@ export interface GasEstimate {
   totalCostEth: string;
 }
 
-/**
- * Format a bigint balance with decimals
- */
-function formatBalance(value: bigint, decimals: number = 18): string {
-  const divisor = BigInt(10 ** decimals);
-  const integerPart = value / divisor;
-  const fractionalPart = value % divisor;
+const MULTIPLIER_SCALE = 10000n;
 
-  // Pad fractional part with leading zeros
-  const fractionalStr = fractionalPart.toString().padStart(decimals, '0');
-
-  // Trim trailing zeros and return
-  const trimmed = fractionalStr.replace(/0+$/, '') || '0';
-
-  if (trimmed === '0') {
-    return integerPart.toString();
+function applyMultiplier(value: bigint, multiplier: number): bigint {
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    throw new Error(`Invalid multiplier: ${multiplier}`);
   }
 
-  return `${integerPart}.${trimmed}`;
+  const scaled = BigInt(Math.ceil(multiplier * Number(MULTIPLIER_SCALE)));
+  return (value * scaled + MULTIPLIER_SCALE - 1n) / MULTIPLIER_SCALE;
 }
 
 /**
@@ -51,17 +41,20 @@ export async function estimateContractGas(
     value: value || BigInt(0)
   });
 
-  const gasLimit = BigInt(Math.ceil(Number(gasEstimate) * multiplier));
-  const gasPrice = feeData.gasPrice || BigInt(0);
-  const totalCost = gasLimit * gasPrice + (value || BigInt(0));
+  const gasLimit = applyMultiplier(gasEstimate, multiplier);
+  const gasPrice = feeData.gasPrice ?? feeData.maxFeePerGas ?? BigInt(0);
+  const maxFeePerGas = feeData.maxFeePerGas ?? undefined;
+  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? undefined;
+  const billableGasPrice = maxFeePerGas ?? gasPrice;
+  const totalCost = gasLimit * billableGasPrice + (value || BigInt(0));
 
   return {
     gasLimit,
     gasPrice,
-    maxFeePerGas: feeData.maxFeePerGas || undefined,
-    maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || undefined,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
     totalCost,
-    totalCostEth: formatBalance(totalCost, 18)
+    totalCostEth: formatUnits(totalCost, 18)
   };
 }
 

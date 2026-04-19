@@ -1,4 +1,5 @@
 import { Contract } from "ethers";
+import { SDKError, SDKErrorCode } from "../errors.js";
 
 /**
  * Sequencer attestation statistics
@@ -20,6 +21,25 @@ export interface OrderingCommitmentInfo {
   timestamp: bigint;
   txCount: number;
   sequencer: string;
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
 }
 
 /**
@@ -51,7 +71,14 @@ export async function getOrderingCommitment(
 ): Promise<OrderingCommitmentInfo> {
   const [hash, txOrderingRoot, blockNumber, timestamp, txCount, sequencer] =
     await attestation.commitments(blockHash);
-  return { blockHash: hash, txOrderingRoot, blockNumber, timestamp, txCount, sequencer };
+  return {
+    blockHash: hash,
+    txOrderingRoot,
+    blockNumber,
+    timestamp,
+    txCount: toSafeInteger(txCount, "txCount"),
+    sequencer
+  };
 }
 
 /**
@@ -70,7 +97,7 @@ export async function getCommitmentByBlockNumber(
     txOrderingRoot: commitment.txOrderingRoot,
     blockNumber: commitment.blockNumber,
     timestamp: commitment.timestamp,
-    txCount: commitment.txCount,
+    txCount: toSafeInteger(commitment.txCount, "txCount"),
     sequencer: commitment.sequencer
   };
 }

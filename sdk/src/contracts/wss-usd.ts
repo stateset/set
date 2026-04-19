@@ -1,4 +1,5 @@
 import { Contract } from "ethers";
+import { SDKError, SDKErrorCode } from "../errors.js";
 import type {
   WssUSDVaultStatus,
   WssUSDAccountDetails,
@@ -7,6 +8,39 @@ import type {
   SharePriceSnapshot,
   YieldOverPeriod
 } from "../types.js";
+
+function assertParallelArrayLengths(
+  context: string,
+  expectedLength: number,
+  arrays: Record<string, { length: number }>
+): void {
+  for (const [name, array] of Object.entries(arrays)) {
+    if (array.length !== expectedLength) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${context} returned ${name} length ${array.length}, expected ${expectedLength}`, {
+        details: { context, name, actualLength: array.length, expectedLength }
+      });
+    }
+  }
+}
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() }
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value }
+    });
+  }
+
+  return value;
+}
 
 /**
  * Fetch wssUSD vault status
@@ -105,7 +139,7 @@ export async function canAccountWrapWssUSD(
   amount: bigint
 ): Promise<{ canWrap: boolean; reason: number }> {
   const [canWrap, reason] = await vault.canAccountWrap(account, amount);
-  return { canWrap, reason };
+  return { canWrap, reason: toSafeInteger(reason, "reason") };
 }
 
 /**
@@ -132,6 +166,9 @@ export async function getWssUSDPriceHistory(
   count: number
 ): Promise<SharePriceSnapshot[]> {
   const [prices, timestamps] = await vault.getSharePriceHistoryRange(startIndex, count);
+  assertParallelArrayLengths("getSharePriceHistoryRange", prices.length, {
+    timestamps
+  });
   const snapshots: SharePriceSnapshot[] = [];
   for (let i = 0; i < prices.length; i++) {
     snapshots.push({ price: prices[i], timestamp: timestamps[i] });
@@ -150,6 +187,9 @@ export async function getLatestWssUSDSnapshots(
   count: number
 ): Promise<SharePriceSnapshot[]> {
   const [prices, timestamps] = await vault.getLatestSnapshots(count);
+  assertParallelArrayLengths("getLatestSnapshots", prices.length, {
+    timestamps
+  });
   const snapshots: SharePriceSnapshot[] = [];
   for (let i = 0; i < prices.length; i++) {
     snapshots.push({ price: prices[i], timestamp: timestamps[i] });

@@ -56,7 +56,7 @@ import {
   SettlementMode,
   TxResult,
 } from "./types.js";
-import { SDKError, SDKErrorCode, wrapError } from "../../errors.js";
+import { SDKError, SDKErrorCode, TransactionFailedError, wrapError } from "../../errors.js";
 import { getConfig, debugLog } from "../../config.js";
 import { withRetry } from "../../utils/retry.js";
 import { validateAddress, validateBytes32, validatePositiveAmount } from "../../utils/validation.js";
@@ -101,6 +101,44 @@ export class AgentError extends Error {
 // ---------------------------------------------------------------------------
 
 const RAY = 10n ** 27n;
+
+function toSafeInteger(value: bigint | number, fieldName: string): number {
+  if (typeof value === "bigint") {
+    if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} exceeds safe integer range`, {
+        details: { fieldName, value: value.toString() },
+      });
+    }
+    return Number(value);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new SDKError(SDKErrorCode.VALIDATION_ERROR, `${fieldName} must be an integer`, {
+      details: { fieldName, value },
+    });
+  }
+
+  return value;
+}
+
+async function waitForSuccessfulTransaction<
+  TTx extends {
+    hash?: string;
+    wait: (confirmations?: number) => Promise<{ hash: string; status?: number | null } | null>;
+  }
+>(
+  tx: TTx,
+  confirmations: number,
+  failureMessage: string
+): Promise<NonNullable<Awaited<ReturnType<TTx["wait"]>>>> {
+  const receipt = await tx.wait(confirmations);
+
+  if (!receipt || receipt.status !== 1) {
+    throw new TransactionFailedError(failureMessage, tx.hash);
+  }
+
+  return receipt as NonNullable<Awaited<ReturnType<TTx["wait"]>>>;
+}
 
 // ---------------------------------------------------------------------------
 // AgentClient
@@ -229,10 +267,10 @@ export class AgentClient {
       perTxLimitAssets: policyRaw.perTxLimitAssets,
       dailyLimitAssets: policyRaw.dailyLimitAssets,
       spentTodayAssets: policyRaw.spentTodayAssets,
-      dayStart: Number(policyRaw.dayStart),
+      dayStart: toSafeInteger(policyRaw.dayStart, "dayStart"),
       minAssetsFloor: policyRaw.minAssetsFloor,
       committedAssets: policyRaw.committedAssets,
-      sessionExpiry: Number(policyRaw.sessionExpiry),
+      sessionExpiry: toSafeInteger(policyRaw.sessionExpiry, "sessionExpiry"),
       enforceMerchantAllowlist: policyRaw.enforceMerchantAllowlist,
       exists: policyRaw.exists,
     };
@@ -296,7 +334,11 @@ export class AgentClient {
     if (allowance < assets) {
       debugLog("Agent", "Approving settlement asset for gateway");
       const approveTx = await this.settlementAsset.approve(this.addresses.gateway, MaxUint256);
-      await approveTx.wait(config.blockConfirmations);
+      await waitForSuccessfulTransaction(
+        approveTx,
+        config.blockConfirmations,
+        "Settlement asset approval failed"
+      );
     }
 
     const gasEst = await estimateGas(
@@ -309,7 +351,11 @@ export class AgentClient {
     const tx = await this.gateway.deposit(assets, agentAddr, minSharesOut, {
       gasLimit: gasEst.gasLimitWithBuffer,
     });
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Deposit failed"
+    );
 
     const sharesReceived = extractEventArgOrThrow<bigint>(
       receipt,
@@ -338,7 +384,11 @@ export class AgentClient {
     );
     if (allowance < assets) {
       const approveTx = await this.settlementAsset.approve(this.addresses.gateway, MaxUint256);
-      await approveTx.wait(config.blockConfirmations);
+      await waitForSuccessfulTransaction(
+        approveTx,
+        config.blockConfirmations,
+        "Settlement asset approval failed"
+      );
     }
 
     const tx = await this.gateway.depositToGasTank(
@@ -347,7 +397,11 @@ export class AgentClient {
       agentAddr,
       minSharesOut
     );
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Gas tank top-up failed"
+    );
 
     const sharesDeposited = extractEventArgOrThrow<bigint>(
       receipt,
@@ -374,7 +428,11 @@ export class AgentClient {
     const config = getConfig();
 
     const tx = await this.vault.transfer(validTo, shares);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Transfer failed"
+    );
 
     debugLog("Agent", `Transferred ${shares} shares to ${validTo}`);
     return { txHash: receipt.hash };
@@ -431,7 +489,11 @@ export class AgentClient {
     const cap = maxAssetsIn ?? terms.assetsDue + (terms.assetsDue / 100n); // 1% slippage default
     if (allowance < cap) {
       const approveTx = await this.settlementAsset.approve(this.addresses.gateway, MaxUint256);
-      await approveTx.wait(config.blockConfirmations);
+      await waitForSuccessfulTransaction(
+        approveTx,
+        config.blockConfirmations,
+        "Settlement asset approval failed"
+      );
     }
 
     const contractTerms = {
@@ -455,7 +517,11 @@ export class AgentClient {
       buyerBps,
       cap
     );
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Escrow funding failed"
+    );
 
     const escrowId = extractEventArgOrThrow<bigint>(
       receipt,
@@ -713,7 +779,11 @@ export class AgentClient {
   async releaseEscrow(escrowId: bigint): Promise<TxResult> {
     const config = getConfig();
     const tx = await this.escrow.release(escrowId);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Escrow release failed"
+    );
     debugLog("Agent", `Escrow ${escrowId} released`);
     return { txHash: receipt.hash };
   }
@@ -730,7 +800,11 @@ export class AgentClient {
     const tx = targetMilestone > 0
       ? await this.escrow.disputeMilestone(escrowId, reason, targetMilestone, normalizedReasonHash)
       : await this.escrow.dispute(escrowId, reason, normalizedReasonHash);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Escrow dispute failed"
+    );
     debugLog("Agent", `Escrow ${escrowId} disputed`);
     return { txHash: receipt.hash };
   }
@@ -740,7 +814,11 @@ export class AgentClient {
     const config = getConfig();
     void recipient;
     const tx = await this.escrow.refund(escrowId);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Refund request failed"
+    );
     debugLog("Agent", `Escrow ${escrowId} refund requested`);
     return { txHash: receipt.hash };
   }
@@ -754,7 +832,7 @@ export class AgentClient {
   async previewEscrowSettlement(escrowId: bigint): Promise<SettlementPreview> {
     const preview = await withRetry(() => this.escrow.previewSettlement(escrowId));
     return {
-      status: Number(preview.status) as EscrowStatus,
+      status: toSafeInteger(preview.status, "status") as EscrowStatus,
       releaseAfterPassed: preview.releaseAfterPassed,
       fulfillmentSubmitted: preview.fulfillmentSubmitted,
       fulfillmentComplete: preview.fulfillmentComplete,
@@ -768,17 +846,17 @@ export class AgentClient {
       canBuyerRefund: preview.canBuyerRefund,
       canArbiterRefund: preview.canArbiterRefund,
       canArbiterResolve: preview.canArbiterResolve,
-      buyerReleaseMode: Number(preview.buyerReleaseMode) as SettlementMode,
-      merchantReleaseMode: Number(preview.merchantReleaseMode) as SettlementMode,
-      arbiterReleaseMode: Number(preview.arbiterReleaseMode) as SettlementMode,
-      buyerRefundMode: Number(preview.buyerRefundMode) as SettlementMode,
-      arbiterRefundMode: Number(preview.arbiterRefundMode) as SettlementMode,
-      requiredMilestones: Number(preview.requiredMilestones),
-      completedMilestones: Number(preview.completedMilestones),
-      nextMilestoneNumber: Number(preview.nextMilestoneNumber),
-      disputedMilestone: Number(preview.disputedMilestone),
-      challengeWindowEndsAt: Number(preview.challengeWindowEndsAt),
-      disputeWindowEndsAt: Number(preview.disputeWindowEndsAt),
+      buyerReleaseMode: toSafeInteger(preview.buyerReleaseMode, "buyerReleaseMode") as SettlementMode,
+      merchantReleaseMode: toSafeInteger(preview.merchantReleaseMode, "merchantReleaseMode") as SettlementMode,
+      arbiterReleaseMode: toSafeInteger(preview.arbiterReleaseMode, "arbiterReleaseMode") as SettlementMode,
+      buyerRefundMode: toSafeInteger(preview.buyerRefundMode, "buyerRefundMode") as SettlementMode,
+      arbiterRefundMode: toSafeInteger(preview.arbiterRefundMode, "arbiterRefundMode") as SettlementMode,
+      requiredMilestones: toSafeInteger(preview.requiredMilestones, "requiredMilestones"),
+      completedMilestones: toSafeInteger(preview.completedMilestones, "completedMilestones"),
+      nextMilestoneNumber: toSafeInteger(preview.nextMilestoneNumber, "nextMilestoneNumber"),
+      disputedMilestone: toSafeInteger(preview.disputedMilestone, "disputedMilestone"),
+      challengeWindowEndsAt: toSafeInteger(preview.challengeWindowEndsAt, "challengeWindowEndsAt"),
+      disputeWindowEndsAt: toSafeInteger(preview.disputeWindowEndsAt, "disputeWindowEndsAt"),
     };
   }
 
@@ -793,24 +871,24 @@ export class AgentClient {
       sharesHeld: e.sharesHeld,
       principalAssetsSnapshot: e.principalAssetsSnapshot,
       committedAssets: e.committedAssets,
-      releaseAfter: Number(e.releaseAfter),
-      buyerBps: Number(e.buyerBps),
-      status: Number(e.status) as EscrowStatus,
+      releaseAfter: toSafeInteger(e.releaseAfter, "releaseAfter"),
+      buyerBps: toSafeInteger(e.buyerBps, "buyerBps"),
+      status: toSafeInteger(e.status, "status") as EscrowStatus,
       requiresFulfillment: e.requiresFulfillment,
-      fulfillmentType: Number(e.fulfillmentType) as FulfillmentType,
+      fulfillmentType: toSafeInteger(e.fulfillmentType, "fulfillmentType") as FulfillmentType,
       disputed: e.disputed,
-      disputeReason: Number(e.disputeReason) as DisputeReason,
-      fulfilledAt: Number(e.fulfilledAt),
+      disputeReason: toSafeInteger(e.disputeReason, "disputeReason") as DisputeReason,
+      fulfilledAt: toSafeInteger(e.fulfilledAt, "fulfilledAt"),
       fulfillmentEvidence: e.fulfillmentEvidence,
-      resolution: Number(e.resolution) as DisputeResolution,
-      resolvedAt: Number(e.resolvedAt),
+      resolution: toSafeInteger(e.resolution, "resolution") as DisputeResolution,
+      resolvedAt: toSafeInteger(e.resolvedAt, "resolvedAt"),
       resolutionEvidence: e.resolutionEvidence,
-      challengeWindow: Number(e.challengeWindow),
-      arbiterDeadline: Number(e.arbiterDeadline),
-      timeoutResolution: Number(e.timeoutResolution) as DisputeResolution,
-      disputedAt: Number(e.disputedAt),
-      settlementMode: Number(e.settlementMode) as SettlementMode,
-      settledAt: Number(e.settledAt),
+      challengeWindow: toSafeInteger(e.challengeWindow, "challengeWindow"),
+      arbiterDeadline: toSafeInteger(e.arbiterDeadline, "arbiterDeadline"),
+      timeoutResolution: toSafeInteger(e.timeoutResolution, "timeoutResolution") as DisputeResolution,
+      disputedAt: toSafeInteger(e.disputedAt, "disputedAt"),
+      settlementMode: toSafeInteger(e.settlementMode, "settlementMode") as SettlementMode,
+      settledAt: toSafeInteger(e.settledAt, "settledAt"),
     };
   }
 
@@ -870,7 +948,11 @@ export class AgentClient {
       fulfillmentType,
       evidenceHash
     );
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Fulfillment submission failed"
+    );
     debugLog("Agent", `Fulfillment submitted for escrow ${proof.escrowId}, milestone ${proof.milestoneNumber}`);
     return { txHash: receipt.hash };
   }
@@ -881,7 +963,11 @@ export class AgentClient {
   async releaseAsMerchant(escrowId: bigint): Promise<TxResult> {
     const config = getConfig();
     const tx = await this.escrow.release(escrowId);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Escrow release failed"
+    );
     debugLog("Agent", `Escrow ${escrowId} released by merchant`);
     return { txHash: receipt.hash };
   }
@@ -910,7 +996,11 @@ export class AgentClient {
     const config = getConfig();
     const normalizedEvidenceHash = this.validateNonZeroBytes32(evidenceHash, "evidenceHash");
     const tx = await this.escrow.resolveDispute(escrowId, resolution, normalizedEvidenceHash);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Dispute resolution failed"
+    );
     debugLog("Agent", `Escrow ${escrowId} dispute resolved as ${DisputeResolution[resolution]}`);
     return { txHash: receipt.hash, resolution };
   }
@@ -933,7 +1023,11 @@ export class AgentClient {
     const settlementMode = this.timeoutSettlementMode(resolution);
     const config = getConfig();
     const tx = await this.escrow.executeTimeout(escrowId);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Timeout execution failed"
+    );
     debugLog("Agent", `Escrow ${escrowId} timeout executed as ${DisputeResolution[resolution]}`);
     return { txHash: receipt.hash, resolution, settlementMode };
   }
@@ -1008,7 +1102,11 @@ export class AgentClient {
 
     const config = getConfig();
     const tx = await this.bridge.bridgeOut(dstChain, preview.recipientBytes32, shares);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Bridge out failed"
+    );
     const msgId = extractEventArgOrThrow<string>(
       receipt,
       this.bridge,
@@ -1051,7 +1149,11 @@ export class AgentClient {
 
     const config = getConfig();
     const tx = await this.bridge.bridgeOut(dstChain, preview.recipientBytes32, shares);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Bridge out failed"
+    );
     const msgId = extractEventArgOrThrow<string>(
       receipt,
       this.bridge,
@@ -1092,11 +1194,19 @@ export class AgentClient {
     );
     if (allowance < shares) {
       const approveTx = await this.vault.approve(this.addresses.claimQueue, MaxUint256);
-      await approveTx.wait(config.blockConfirmations);
+      await waitForSuccessfulTransaction(
+        approveTx,
+        config.blockConfirmations,
+        "Claim queue approval failed"
+      );
     }
 
     const tx = await this.claimQueue.requestRedeem(shares, agentAddr);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Redeem request failed"
+    );
 
     const claimId = extractEventArgOrThrow<bigint>(
       receipt,
@@ -1113,7 +1223,11 @@ export class AgentClient {
   async claimRedemption(claimId: bigint): Promise<TxResult> {
     const config = getConfig();
     const tx = await this.claimQueue.claim(claimId);
-    const receipt = await tx.wait(config.blockConfirmations);
+    const receipt = await waitForSuccessfulTransaction(
+      tx,
+      config.blockConfirmations,
+      "Redemption claim failed"
+    );
     debugLog("Agent", `Claim ${claimId} collected`);
     return { txHash: receipt.hash };
   }
@@ -1303,7 +1417,10 @@ export class AgentClient {
     const completed = await withRetry(() => this.escrow.escrowCompletedMilestones(escrowId));
     const required = await withRetry(() => this.escrow.escrowRequiredMilestones(escrowId));
 
-    for (let m = Number(completed) + 1; m <= Number(required); m++) {
+    const completedMilestones = toSafeInteger(completed, "completedMilestones");
+    const requiredMilestones = toSafeInteger(required, "requiredMilestones");
+
+    for (let m = completedMilestones + 1; m <= requiredMilestones; m++) {
       const result = await this.submitFulfillment({
         escrowId,
         milestoneNumber: m,

@@ -67,6 +67,18 @@ export enum SDKErrorCode {
   UNKNOWN = "SDK_9999"
 }
 
+const MAX_DATE_MS_BIGINT = 8_640_000_000_000_000n;
+
+function formatTimestampForError(timestamp: bigint): string {
+  const timestampMs = timestamp * 1000n;
+
+  if (timestampMs < -MAX_DATE_MS_BIGINT || timestampMs > MAX_DATE_MS_BIGINT) {
+    return timestamp.toString();
+  }
+
+  return new Date(Number(timestampMs)).toISOString();
+}
+
 /**
  * Base SDK error class
  */
@@ -280,7 +292,7 @@ export class MEVUnavailableError extends SDKError {
  */
 export class NAVStaleError extends SDKError {
   constructor(lastUpdate: bigint) {
-    const lastUpdateDate = new Date(Number(lastUpdate) * 1000).toISOString();
+    const lastUpdateDate = formatTimestampForError(lastUpdate);
     super(SDKErrorCode.NAV_STALE, "NAV data is stale", {
       details: { lastUpdate: lastUpdateDate },
       suggestion: "Wait for NAV attestor to update the NAV before proceeding"

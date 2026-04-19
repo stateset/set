@@ -5,6 +5,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatBalance,
+  formatGas,
+  formatGasPrice,
+  formatTimestamp,
   parseAmount,
   formatUSD,
   formatPercentage,
@@ -101,6 +104,30 @@ describe('formatPercentage', () => {
 
   it('should handle custom decimals', () => {
     expect(formatPercentage(0.123456, 4)).toBe('12.3456%');
+  });
+});
+
+describe('gas formatting', () => {
+  it('should format large gas values without bigint precision loss', () => {
+    expect(formatGas(9007199254740993n)).toBe('9007199254.74M gas');
+  });
+
+  it('should format sub-gwei gas prices as mwei', () => {
+    expect(formatGasPrice(123456789n)).toBe('123.45 mwei');
+  });
+
+  it('should format very large gwei values without bigint precision loss', () => {
+    expect(formatGasPrice(98765432109876543210n)).toBe('98765432109.87 gwei');
+  });
+});
+
+describe('formatTimestamp', () => {
+  it('should format bigint unix timestamps', () => {
+    expect(formatTimestamp(1700000000n)).toBe('2023-11-14T22:13:20.000Z');
+  });
+
+  it('should reject out-of-range bigint timestamps', () => {
+    expect(() => formatTimestamp(8_640_000_000_000_001n)).toThrow('Timestamp out of range');
   });
 });
 

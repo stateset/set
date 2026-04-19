@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Interface, zeroPadValue } from "ethers";
 import { AgentClient, AgentErrorCode } from "../src/stablecoin/v2/AgentClient.js";
 import { DisputeResolution, EscrowStatus, FulfillmentType, SettlementMode } from "../src/stablecoin/v2/types.js";
+import { SDKErrorCode } from "../src/errors.js";
 import type {
   AgentStatus,
   EscrowInfo,
@@ -308,6 +309,163 @@ describe("AgentClient previewEscrowSettlement()", () => {
       disputeWindowEndsAt: 0,
     });
   });
+
+  it("rejects overflowed bigint fields instead of silently truncating them", async () => {
+    const client = Object.create(AgentClient.prototype) as AgentClient & {
+      escrow: { previewSettlement: ReturnType<typeof vi.fn> };
+    };
+
+    client.escrow = {
+      previewSettlement: vi.fn().mockResolvedValue({
+        status: 1n,
+        releaseAfterPassed: true,
+        fulfillmentSubmitted: false,
+        fulfillmentComplete: false,
+        disputeActive: false,
+        disputeResolved: false,
+        disputeTimedOut: false,
+        requiresArbiterResolution: false,
+        canBuyerRelease: true,
+        canMerchantRelease: false,
+        canArbiterRelease: false,
+        canBuyerRefund: true,
+        canArbiterRefund: false,
+        canArbiterResolve: false,
+        buyerReleaseMode: 1n,
+        merchantReleaseMode: 0n,
+        arbiterReleaseMode: 0n,
+        buyerRefundMode: 5n,
+        arbiterRefundMode: 0n,
+        requiredMilestones: BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+        completedMilestones: 1n,
+        nextMilestoneNumber: 2n,
+        disputedMilestone: 0n,
+        challengeWindowEndsAt: 1_700_000_000n,
+        disputeWindowEndsAt: 0n,
+      }),
+    };
+
+    await expect(client.previewEscrowSettlement(1n)).rejects.toMatchObject({
+      code: SDKErrorCode.VALIDATION_ERROR,
+      message: expect.stringContaining("requiredMilestones exceeds safe integer range"),
+    });
+  });
+});
+
+describe("AgentClient read helpers", () => {
+  it("normalizes bigint policy timestamps in getStatus", async () => {
+    const client = Object.create(AgentClient.prototype) as AgentClient & {
+      signer: { getAddress: ReturnType<typeof vi.fn> };
+      vault: { balanceOf: ReturnType<typeof vi.fn> };
+      paymaster: { gasTankShares: ReturnType<typeof vi.fn> };
+      policyModule: { policies: ReturnType<typeof vi.fn> };
+      groundingRegistry: {
+        isGroundedNow: ReturnType<typeof vi.fn>;
+        currentAssets: ReturnType<typeof vi.fn>;
+      };
+    };
+
+    client.signer = {
+      getAddress: vi.fn().mockResolvedValue("0x2000000000000000000000000000000000000002"),
+    };
+    client.vault = {
+      balanceOf: vi.fn().mockResolvedValue(10_000_000n),
+    };
+    client.paymaster = {
+      gasTankShares: vi.fn().mockResolvedValue(123n),
+    };
+    client.policyModule = {
+      policies: vi.fn().mockResolvedValue({
+        perTxLimitAssets: 1_500_000n,
+        dailyLimitAssets: 5_000_000n,
+        spentTodayAssets: 100_000n,
+        dayStart: 1_700_000_000n,
+        minAssetsFloor: 500_000n,
+        committedAssets: 25_000n,
+        sessionExpiry: 1_800_000_000n,
+        enforceMerchantAllowlist: true,
+        exists: true,
+      }),
+    };
+    client.groundingRegistry = {
+      isGroundedNow: vi.fn().mockResolvedValue(false),
+      currentAssets: vi.fn().mockResolvedValue([8_000_000n, 500_000n, RAY]),
+    };
+
+    await expect(client.getStatus()).resolves.toMatchObject({
+      address: "0x2000000000000000000000000000000000000002",
+      gasTankShares: 123n,
+      policy: expect.objectContaining({
+        dayStart: 1_700_000_000,
+        sessionExpiry: 1_800_000_000,
+        enforceMerchantAllowlist: true,
+      }),
+      sessionActive: true,
+    });
+  });
+
+  it("normalizes bigint escrow metadata in getEscrow", async () => {
+    const client = Object.create(AgentClient.prototype) as AgentClient & {
+      escrow: { escrows: ReturnType<typeof vi.fn> };
+    };
+
+    client.escrow = {
+      escrows: vi.fn().mockResolvedValue({
+        buyer: "0x3000000000000000000000000000000000000003",
+        merchant: "0x4000000000000000000000000000000000000004",
+        refundRecipient: "0x5000000000000000000000000000000000000005",
+        sharesHeld: 100n,
+        principalAssetsSnapshot: 90n,
+        committedAssets: 95n,
+        releaseAfter: 1_700_000_000n,
+        buyerBps: 2_000n,
+        status: 1n,
+        requiresFulfillment: true,
+        fulfillmentType: 2n,
+        disputed: false,
+        disputeReason: 0n,
+        fulfilledAt: 0n,
+        fulfillmentEvidence: "0xabc",
+        resolution: 0n,
+        resolvedAt: 0n,
+        resolutionEvidence: "0xdef",
+        challengeWindow: 86_400n,
+        arbiterDeadline: 172_800n,
+        timeoutResolution: 1n,
+        disputedAt: 0n,
+        settlementMode: 1n,
+        settledAt: 0n,
+      }),
+    };
+
+    await expect(client.getEscrow(12n)).resolves.toEqual({
+      id: 12n,
+      buyer: "0x3000000000000000000000000000000000000003",
+      merchant: "0x4000000000000000000000000000000000000004",
+      refundRecipient: "0x5000000000000000000000000000000000000005",
+      sharesHeld: 100n,
+      principalAssetsSnapshot: 90n,
+      committedAssets: 95n,
+      releaseAfter: 1_700_000_000,
+      buyerBps: 2_000,
+      status: EscrowStatus.FUNDED,
+      requiresFulfillment: true,
+      fulfillmentType: FulfillmentType.SERVICE,
+      disputed: false,
+      disputeReason: 0,
+      fulfilledAt: 0,
+      fulfillmentEvidence: "0xabc",
+      resolution: 0,
+      resolvedAt: 0,
+      resolutionEvidence: "0xdef",
+      challengeWindow: 86_400,
+      arbiterDeadline: 172_800,
+      timeoutResolution: DisputeResolution.RELEASE,
+      disputedAt: 0,
+      settlementMode: SettlementMode.BUYER_RELEASE,
+      settledAt: 0,
+    });
+  });
 });
 
 describe("AgentClient bridging", () => {
@@ -366,6 +524,7 @@ describe("AgentClient bridging", () => {
     );
     const receipt = {
       hash: "0xreceipt",
+      status: 1,
       logs: [{
         address: "0xbridge000000000000000000000000000000000000",
         topics: event.topics,
@@ -493,7 +652,8 @@ describe("AgentClient settlement controls", () => {
     );
     client.escrow = {
       resolveDispute: vi.fn().mockResolvedValue({
-        wait: vi.fn().mockResolvedValue({ hash: "0xresolve" }),
+        hash: "0xresolve",
+        wait: vi.fn().mockResolvedValue({ hash: "0xresolve", status: 1 }),
       }),
     };
 
@@ -546,7 +706,8 @@ describe("AgentClient settlement controls", () => {
     );
     client.escrow = {
       executeTimeout: vi.fn().mockResolvedValue({
-        wait: vi.fn().mockResolvedValue({ hash: "0xtimeout" }),
+        hash: "0xtimeout",
+        wait: vi.fn().mockResolvedValue({ hash: "0xtimeout", status: 1 }),
       }),
     };
 
@@ -554,6 +715,90 @@ describe("AgentClient settlement controls", () => {
       txHash: "0xtimeout",
       resolution: DisputeResolution.RELEASE,
       settlementMode: SettlementMode.DISPUTE_TIMEOUT_RELEASE,
+    });
+  });
+
+  it("surfaces failed dispute-resolution receipts instead of treating them as success", async () => {
+    const client = Object.create(AgentClient.prototype) as AgentClient & {
+      previewEscrowSettlement: ReturnType<typeof vi.fn>;
+      escrow: { resolveDispute: ReturnType<typeof vi.fn> };
+    };
+
+    client.previewEscrowSettlement = vi.fn().mockResolvedValue(
+      makeSettlementPreview({ canArbiterResolve: true })
+    );
+    client.escrow = {
+      resolveDispute: vi.fn().mockResolvedValue({
+        hash: "0xresolvefail",
+        wait: vi.fn().mockResolvedValue({ hash: "0xresolvefail", status: 0 }),
+      }),
+    };
+
+    await expect(client.resolveEscrowDispute(
+      7n,
+      DisputeResolution.RELEASE,
+      `0x${"a".repeat(64)}`
+    )).rejects.toMatchObject({
+      code: SDKErrorCode.TRANSACTION_FAILED,
+      message: expect.stringContaining("Dispute resolution failed"),
+    });
+  });
+});
+
+describe("AgentClient redemption flows", () => {
+  it("fails requestRedeem when the approval transaction fails on-chain", async () => {
+    const client = Object.create(AgentClient.prototype) as AgentClient & {
+      signer: { getAddress: ReturnType<typeof vi.fn> };
+      assertSystemReady: ReturnType<typeof vi.fn>;
+      addresses: { claimQueue: string };
+      vault: {
+        allowance: ReturnType<typeof vi.fn>;
+        approve: ReturnType<typeof vi.fn>;
+      };
+      claimQueue: { requestRedeem: ReturnType<typeof vi.fn> };
+    };
+
+    client.signer = {
+      getAddress: vi.fn().mockResolvedValue(RECIPIENT),
+    };
+    client.assertSystemReady = vi.fn().mockResolvedValue(undefined);
+    client.addresses = {
+      claimQueue: "0x6000000000000000000000000000000000000006",
+    };
+    client.vault = {
+      allowance: vi.fn().mockResolvedValue(0n),
+      approve: vi.fn().mockResolvedValue({
+        hash: "0xapprovefail",
+        wait: vi.fn().mockResolvedValue({ hash: "0xapprovefail", status: 0 }),
+      }),
+    };
+    client.claimQueue = {
+      requestRedeem: vi.fn(),
+    };
+
+    await expect(client.requestRedeem(10n)).rejects.toMatchObject({
+      code: SDKErrorCode.TRANSACTION_FAILED,
+      message: expect.stringContaining("Claim queue approval failed"),
+    });
+
+    expect(client.claimQueue.requestRedeem).not.toHaveBeenCalled();
+  });
+
+  it("fails claimRedemption when the claim receipt reports failure", async () => {
+    const client = Object.create(AgentClient.prototype) as AgentClient & {
+      claimQueue: { claim: ReturnType<typeof vi.fn> };
+    };
+
+    client.claimQueue = {
+      claim: vi.fn().mockResolvedValue({
+        hash: "0xclaimfail",
+        wait: vi.fn().mockResolvedValue({ hash: "0xclaimfail", status: 0 }),
+      }),
+    };
+
+    await expect(client.claimRedemption(5n)).rejects.toMatchObject({
+      code: SDKErrorCode.TRANSACTION_FAILED,
+      message: expect.stringContaining("Redemption claim failed"),
     });
   });
 });

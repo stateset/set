@@ -65,6 +65,46 @@ const DEFAULT_TX_OPTIONS: Required<TxBuilderOptions> = {
   onStatusChange: () => {}
 };
 
+const MULTIPLIER_SCALE = 10000n;
+
+type FeeOverrides =
+  | { gasPrice: bigint; maxFeePerGas?: undefined; maxPriorityFeePerGas?: undefined }
+  | { gasPrice?: undefined; maxFeePerGas: bigint; maxPriorityFeePerGas?: bigint };
+
+function applyMultiplier(value: bigint, multiplier: number): bigint {
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    throw new Error(`Invalid multiplier: ${multiplier}`);
+  }
+
+  const scaled = BigInt(Math.ceil(multiplier * Number(MULTIPLIER_SCALE)));
+  return (value * scaled + MULTIPLIER_SCALE - 1n) / MULTIPLIER_SCALE;
+}
+
+function buildFeeOverrides(
+  feeData: Awaited<ReturnType<JsonRpcProvider["getFeeData"]>>,
+  multiplier: number
+): FeeOverrides {
+  if (feeData.maxFeePerGas != null || feeData.maxPriorityFeePerGas != null) {
+    const maxFeePerGas = applyMultiplier(
+      feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n,
+      multiplier
+    );
+    const maxPriorityFeePerGas =
+      feeData.maxPriorityFeePerGas != null
+        ? applyMultiplier(feeData.maxPriorityFeePerGas, multiplier)
+        : undefined;
+
+    return {
+      maxFeePerGas,
+      maxPriorityFeePerGas
+    };
+  }
+
+  return {
+    gasPrice: applyMultiplier(feeData.gasPrice ?? 0n, multiplier)
+  };
+}
+
 /**
  * Sleep utility
  */
@@ -107,12 +147,18 @@ export class TransactionBuilder {
     method: string,
     args: any[],
     value?: bigint
-  ): Promise<{ gasLimit: bigint; gasPrice: bigint; totalCost: bigint }> {
+  ): Promise<{
+    gasLimit: bigint;
+    gasPrice?: bigint;
+    maxFeePerGas?: bigint;
+    maxPriorityFeePerGas?: bigint;
+    totalCost: bigint;
+  }> {
     this.updateStatus(TxStatus.ESTIMATING_GAS);
 
     const provider = this.wallet.provider!;
     const feeData = await provider.getFeeData();
-    const gasPrice = feeData.gasPrice || BigInt(0);
+    const feeOverrides = buildFeeOverrides(feeData, this.options.gasPriceMultiplier);
 
     // Estimate gas limit
     const gasEstimate = await contract[method].estimateGas(...args, {
@@ -120,11 +166,11 @@ export class TransactionBuilder {
     });
 
     // Apply multipliers
-    const gasLimit = BigInt(Math.ceil(Number(gasEstimate) * this.options.gasLimitMultiplier));
-    const adjustedGasPrice = BigInt(Math.ceil(Number(gasPrice) * this.options.gasPriceMultiplier));
-    const totalCost = gasLimit * adjustedGasPrice + (value || BigInt(0));
+    const gasLimit = applyMultiplier(gasEstimate, this.options.gasLimitMultiplier);
+    const billableGasPrice = feeOverrides.maxFeePerGas ?? feeOverrides.gasPrice ?? 0n;
+    const totalCost = gasLimit * billableGasPrice + (value || BigInt(0));
 
-    return { gasLimit, gasPrice: adjustedGasPrice, totalCost };
+    return { gasLimit, ...feeOverrides, totalCost };
   }
 
   /**
@@ -175,14 +221,21 @@ export class TransactionBuilder {
         }
 
         // Estimate gas
-        const { gasLimit, gasPrice } = await this.estimateGas(contract, method, args, value);
+        const feeEstimate = await this.estimateGas(contract, method, args, value);
 
         // Send transaction
         this.updateStatus(TxStatus.SENDING);
         const tx = await contract[method](...args, {
           value: value || BigInt(0),
-          gasLimit,
-          gasPrice
+          gasLimit: feeEstimate.gasLimit,
+          ...(feeEstimate.maxFeePerGas != null
+            ? {
+                maxFeePerGas: feeEstimate.maxFeePerGas,
+                ...(feeEstimate.maxPriorityFeePerGas != null
+                  ? { maxPriorityFeePerGas: feeEstimate.maxPriorityFeePerGas }
+                  : {})
+              }
+            : { gasPrice: feeEstimate.gasPrice ?? 0n })
         });
 
         this.updateStatus(TxStatus.CONFIRMING, tx.hash);
@@ -348,7 +401,10 @@ export class TransactionTracker {
    */
   getPending(): TrackedTransaction[] {
     return this.getAll().filter(
-      tx => tx.status === TxStatus.PENDING || tx.status === TxStatus.CONFIRMING
+      tx =>
+        tx.status === TxStatus.PENDING ||
+        tx.status === TxStatus.CONFIRMING ||
+        tx.status === TxStatus.CONFIRMED
     );
   }
 
@@ -405,7 +461,7 @@ export class TransactionTracker {
 
       const unsubscribe = this.on(txHash, event => {
         if (
-          event.type === 'confirmed' ||
+          (event.type === 'confirmed' && event.transaction.confirmations >= confirmations) ||
           (event.type === 'confirmation' && (event.confirmations ?? 0) >= confirmations)
         ) {
           clearTimeout(timeout);
@@ -642,8 +698,22 @@ export async function speedUpTransaction(
 
   // Get current gas price
   const feeData = await provider.getFeeData();
-  const originalGasPrice = tx.gasPrice || feeData.gasPrice || BigInt(0);
-  const newGasPrice = BigInt(Math.ceil(Number(originalGasPrice) * gasPriceMultiplier));
+  const hasEip1559Fees = tx.maxFeePerGas != null || tx.maxPriorityFeePerGas != null;
+  const replacementFees = hasEip1559Fees
+    ? {
+        maxFeePerGas: applyMultiplier(tx.maxFeePerGas ?? feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n, gasPriceMultiplier),
+        ...(tx.maxPriorityFeePerGas != null || feeData.maxPriorityFeePerGas != null
+          ? {
+              maxPriorityFeePerGas: applyMultiplier(
+                tx.maxPriorityFeePerGas ?? feeData.maxPriorityFeePerGas ?? 0n,
+                gasPriceMultiplier
+              )
+            }
+          : {})
+      }
+    : {
+        gasPrice: applyMultiplier(tx.gasPrice ?? feeData.gasPrice ?? 0n, gasPriceMultiplier)
+      };
 
   // Resubmit with same nonce but higher gas price
   const newTx = await wallet.sendTransaction({
@@ -652,7 +722,7 @@ export async function speedUpTransaction(
     value: tx.value,
     nonce: tx.nonce,
     gasLimit: tx.gasLimit,
-    gasPrice: newGasPrice
+    ...replacementFees
   });
 
   return newTx.hash;
@@ -682,8 +752,22 @@ export async function cancelTransaction(
 
   // Get current gas price
   const feeData = await provider.getFeeData();
-  const originalGasPrice = tx.gasPrice || feeData.gasPrice || BigInt(0);
-  const newGasPrice = BigInt(Math.ceil(Number(originalGasPrice) * gasPriceMultiplier));
+  const hasEip1559Fees = tx.maxFeePerGas != null || tx.maxPriorityFeePerGas != null;
+  const replacementFees = hasEip1559Fees
+    ? {
+        maxFeePerGas: applyMultiplier(tx.maxFeePerGas ?? feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n, gasPriceMultiplier),
+        ...(tx.maxPriorityFeePerGas != null || feeData.maxPriorityFeePerGas != null
+          ? {
+              maxPriorityFeePerGas: applyMultiplier(
+                tx.maxPriorityFeePerGas ?? feeData.maxPriorityFeePerGas ?? 0n,
+                gasPriceMultiplier
+              )
+            }
+          : {})
+      }
+    : {
+        gasPrice: applyMultiplier(tx.gasPrice ?? feeData.gasPrice ?? 0n, gasPriceMultiplier)
+      };
 
   // Send a self-transfer with same nonce to cancel
   const cancelTx = await wallet.sendTransaction({
@@ -692,7 +776,7 @@ export async function cancelTransaction(
     value: BigInt(0),
     nonce: tx.nonce,
     gasLimit: BigInt(21000),
-    gasPrice: newGasPrice
+    ...replacementFees
   });
 
   return cancelTx.hash;
