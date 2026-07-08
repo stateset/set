@@ -7,6 +7,7 @@ import {WSSDCCrossChainBridgeV2} from "./WSSDCCrossChainBridgeV2.sol";
 import {YieldEscrowV2} from "./YieldEscrowV2.sol";
 import {YieldPaymasterV2} from "./YieldPaymasterV2.sol";
 import {wSSDCVaultV2} from "./wSSDCVaultV2.sol";
+import {ProofOfReservesV2} from "./ProofOfReservesV2.sol";
 
 contract SSDCStatusLensV2 {
     error ZeroAddress();
@@ -127,5 +128,35 @@ contract SSDCStatusLensV2 {
 
     function reserveDeployed() external view returns (uint256) {
         return vault.deployedReserveAssets();
+    }
+
+    struct ReserveStatus {
+        bool attested; // at least one attestation recorded
+        bool solvent; // fresh attestation meeting the coverage floor
+        bool stale; // attestation older than maxStaleness
+        uint256 coverageRatioBps; // (on-chain liquid + attested reserves) / liabilities
+        uint256 reserveMarkBps; // attested reserve value / book-value deployedReserveAssets
+        uint256 attestedReserveValue; // off-chain reserve market value, settlement-asset units
+        uint256 totalBackingValue; // on-chain liquid + attested reserves
+        uint256 liabilityAssets; // vault liabilities at NAV
+        uint256 attestationAge; // seconds since last attestation
+    }
+
+    /// @notice Proof-of-reserves view, surfaced here so operators read solvency in the same place as
+    ///         the rest of system health. The lens is stateless, so the registry is passed in rather
+    ///         than stored — keeping this purely additive (no constructor or getStatus() change).
+    function getReserveStatus(ProofOfReservesV2 por) external view returns (ReserveStatus memory rs) {
+        if (address(por) == address(0)) revert ZeroAddress();
+        (bool solvent, bool stale, uint256 coverageBps, uint256 backing, uint256 liab, uint256 age) =
+            por.solvencyStatus();
+        rs.attested = por.hasAttestation();
+        rs.solvent = solvent;
+        rs.stale = stale;
+        rs.coverageRatioBps = coverageBps;
+        rs.reserveMarkBps = por.reserveMarkBps();
+        rs.attestedReserveValue = por.attestedReserveValue();
+        rs.totalBackingValue = backing;
+        rs.liabilityAssets = liab;
+        rs.attestationAge = age;
     }
 }

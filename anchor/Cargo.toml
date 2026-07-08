@@ -61,6 +61,10 @@ alloy-node-bindings = "0.8"
 name = "set-anchor"
 path = "src/main.rs"
 
+[[bin]]
+name = "reserve-attestor"
+path = "src/bin/reserve-attestor.rs"
+
 [[test]]
 name = "integration"
 path = "tests/integration.rs"

@@ -13,6 +13,7 @@ import "../../stablecoin/v2/WSSDCCrossChainBridgeV2.sol";
 import "../../stablecoin/v2/YieldEscrowV2.sol";
 import "../../stablecoin/v2/YieldPaymasterV2.sol";
 import "../../stablecoin/v2/SSDCV2CircuitBreaker.sol";
+import "../../stablecoin/v2/ProofOfReservesV2.sol";
 import "../../stablecoin/v2/interfaces/IETHUSDOracleV2.sol";
 import "../../stablecoin/v2/wSSDCVaultV2.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -31,6 +32,7 @@ contract DeploySSDCV2 is Script {
     WSSDCCrossChainBridgeV2 public bridge;
     SSDCStatusLensV2 public lens;
     SSDCV2CircuitBreaker public breaker;
+    ProofOfReservesV2 public proofOfReserves;
 
     function run() external {
         uint256 deployerPk = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -60,6 +62,13 @@ contract DeploySSDCV2 is Script {
         uint256 maxStaleness = vm.envOr("MAX_STALENESS", uint256(48 hours));
         uint256 maxNavJumpBps = vm.envOr("MAX_NAV_JUMP_BPS", uint256(2_000));
         uint256 staleRecoveryJumpMultiplier = vm.envOr("STALE_RECOVERY_JUMP_MULTIPLIER", uint256(3));
+
+        // Proof-of-reserves config. Attestor defaults to a distinct env var so duties stay separated
+        // from the NAV oracle; falls back to admin only if unset.
+        address reserveAttestor = vm.envOr("RESERVE_ATTESTOR", admin);
+        uint256 porMaxStaleness = vm.envOr("POR_MAX_STALENESS", uint256(24 hours));
+        uint256 porMinCoverageBps = vm.envOr("POR_MIN_COVERAGE_BPS", uint256(10_000));
+        uint256 porMaxDeviationBps = vm.envOr("POR_MAX_DEVIATION_BPS", uint256(2_000));
 
         console2.log("Deploying SSDC v2 suite");
         console2.log("deployer", deployer);
@@ -109,6 +118,13 @@ contract DeploySSDCV2 is Script {
         bridge = new WSSDCCrossChainBridgeV2(vault, nav, admin);
         lens = new SSDCStatusLensV2(nav, vault, queue, bridge, escrow, paymaster);
         breaker = new SSDCV2CircuitBreaker(nav, vault, queue, bridge, escrow, paymaster, admin);
+        proofOfReserves = new ProofOfReservesV2(
+            admin,
+            IVaultReservesV2(address(vault)),
+            porMaxStaleness,
+            porMinCoverageBps,
+            porMaxDeviationBps
+        );
 
         if (admin == deployer) {
             nav.grantRole(nav.ORACLE_ROLE(), oracleOperator);
@@ -152,6 +168,13 @@ contract DeploySSDCV2 is Script {
             escrow.grantRole(escrow.PAUSER_ROLE(), address(breaker));
             paymaster.grantRole(paymaster.PAUSER_ROLE(), address(breaker));
 
+            // Proof-of-reserves: grant the attestor role (separated from NAV oracle) and let the
+            // breaker consume the solvency signal via tripIfInsolvent().
+            if (reserveAttestor != admin) {
+                proofOfReserves.grantRole(proofOfReserves.ATTESTOR_ROLE(), reserveAttestor);
+            }
+            breaker.setProofOfReserves(proofOfReserves);
+
             console2.log("Role wiring complete (admin == deployer)");
         } else {
             console2.log("Admin differs from deployer; skipping role grants requiring admin privileges");
@@ -172,5 +195,6 @@ contract DeploySSDCV2 is Script {
         console2.log("WSSDCCrossChainBridgeV2", address(bridge));
         console2.log("SSDCStatusLensV2", address(lens));
         console2.log("SSDCV2CircuitBreaker", address(breaker));
+        console2.log("ProofOfReservesV2", address(proofOfReserves));
     }
 }

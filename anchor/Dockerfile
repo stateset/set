@@ -1,7 +1,7 @@
 # Set Chain Anchor Service Dockerfile
 
 # Build stage
-FROM rust:1.82-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 
 WORKDIR /app
 

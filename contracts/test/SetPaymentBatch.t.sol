@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../commerce/SetPaymentBatch.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/mocks/ERC1271WalletMock.sol";
 
 /// @dev Minimal ERC20 mock for testing payment settlement
 contract MockERC20 is ERC20 {
@@ -60,11 +61,18 @@ contract SetPaymentBatchTest is Test {
     address public owner = address(0x1);
     address public sequencer = address(0x2);
     address public unauthorized = address(0x3);
-    address public payer1 = address(0x4);
-    address public payer2 = address(0x5);
+    // Payers are derived from known private keys so they can produce real
+    // EIP-712 authorizations. Payees/others stay as plain addresses.
+    uint256 internal constant PAYER1_PK = 0xA11CE;
+    uint256 internal constant PAYER2_PK = 0xB0B;
+    address public payer1;
+    address public payer2;
     address public payee1 = address(0x6);
     address public payee2 = address(0x7);
     address public registryAddr = address(0x8);
+
+    /// @dev payer address => signing private key (0 if the payer cannot sign)
+    mapping(address => uint256) internal payerKey;
 
     // Events (must match contract definitions)
     event SequencerAuthorized(address indexed sequencer, bool authorized);
@@ -111,6 +119,12 @@ contract SetPaymentBatchTest is Test {
     event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
 
     function setUp() public {
+        // Derive payer addresses from known keys and register them for signing
+        payer1 = vm.addr(PAYER1_PK);
+        payer2 = vm.addr(PAYER2_PK);
+        payerKey[payer1] = PAYER1_PK;
+        payerKey[payer2] = PAYER2_PK;
+
         // Deploy mock tokens
         usdc = new MockERC20("USD Coin", "USDC", 6);
         ssUsd = new MockERC20("ssUSD", "ssUSD", 6);
@@ -155,17 +169,34 @@ contract SetPaymentBatchTest is Test {
         address token,
         uint64 nonce,
         uint64 validUntil
-    ) internal pure returns (SetPaymentBatch.PaymentIntent memory) {
-        return SetPaymentBatch.PaymentIntent({
+    ) internal view returns (SetPaymentBatch.PaymentIntent memory p) {
+        p = SetPaymentBatch.PaymentIntent({
             intentId: intentId,
             payer: payer,
             payee: payee,
             amount: amount,
             token: token,
             nonce: nonce,
+            validAfter: 0,
             validUntil: validUntil,
-            signingHash: keccak256(abi.encodePacked(intentId, payer, payee, amount))
+            signingHash: keccak256(abi.encodePacked(intentId, payer, payee, amount)),
+            authorization: bytes("")
         });
+        // Auto-sign a valid EIP-712 authorization if the payer has a known key.
+        uint256 pk = payerKey[payer];
+        if (pk != 0) {
+            p.authorization = _signAuthorization(p, pk);
+        }
+    }
+
+    /// @dev Produce an EIP-712 signature over the payment using the given key.
+    function _signAuthorization(
+        SetPaymentBatch.PaymentIntent memory p,
+        uint256 pk
+    ) internal view returns (bytes memory) {
+        bytes32 digest = paymentBatch.hashPaymentAuthorization(p);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function _makeDefaultPayment() internal view returns (SetPaymentBatch.PaymentIntent memory) {
@@ -731,7 +762,10 @@ contract SetPaymentBatchTest is Test {
     }
 
     function test_Settlement_InsufficientBalance() public {
-        address poorPayer = address(0x20);
+        // Keyed payer so authorization is valid and we reach the balance check.
+        uint256 poorPk = 0xB16B00B5;
+        address poorPayer = vm.addr(poorPk);
+        payerKey[poorPayer] = poorPk;
         // Give payer approval but no balance
         vm.prank(poorPayer);
         usdc.approve(address(paymentBatch), type(uint256).max);
@@ -757,7 +791,10 @@ contract SetPaymentBatchTest is Test {
     }
 
     function test_Settlement_InsufficientAllowance() public {
-        address noApprovalPayer = address(0x21);
+        // Keyed payer so authorization is valid and we reach the allowance check.
+        uint256 noApprovalPk = 0xA110;
+        address noApprovalPayer = vm.addr(noApprovalPk);
+        payerKey[noApprovalPayer] = noApprovalPk;
         usdc.mint(noApprovalPayer, 1_000_000e6);
         // No approval given
 
@@ -1715,5 +1752,230 @@ contract SetPaymentBatchTest is Test {
 
         assertEq(usdcConfig.dailyVolume, 100e6);
         assertEq(ssUsdConfig.dailyVolume, 200e6);
+    }
+
+    // =========================================================================
+    // 17. Per-Payment Payer Authorization (EIP-712) Tests
+    // =========================================================================
+
+    /// @dev Shared assertion: settlement emits "Invalid authorization" and moves no funds.
+    function _expectAuthFailure(
+        bytes32 batchId,
+        SetPaymentBatch.PaymentIntent memory payment
+    ) internal {
+        uint256 payee1Before = usdc.balanceOf(payee1);
+        uint256 payee2Before = usdc.balanceOf(payee2);
+        uint256 ssUsdPayee1Before = ssUsd.balanceOf(payee1);
+
+        SetPaymentBatch.PaymentIntent[] memory payments = _makePaymentArray(payment);
+        vm.prank(sequencer);
+        vm.expectEmit(true, true, true, true);
+        emit PaymentFailed(batchId, payment.intentId, payment.payer, "Invalid authorization");
+        paymentBatch.settleBatch(
+            batchId, keccak256("root"), keccak256("tenant"), 1, 1, payments
+        );
+
+        // No funds moved anywhere, intent not marked settled.
+        assertEq(usdc.balanceOf(payee1), payee1Before);
+        assertEq(usdc.balanceOf(payee2), payee2Before);
+        assertEq(ssUsd.balanceOf(payee1), ssUsdPayee1Before);
+        assertFalse(paymentBatch.isIntentSettled(payment.intentId));
+
+        SetPaymentBatch.BatchSettlement memory batch = paymentBatch.getBatch(batchId);
+        assertEq(batch.paymentCount, 0);
+    }
+
+    function test_Auth_ValidAuthorizationSettles() public {
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        assertGt(payment.authorization.length, 0);
+
+        uint256 payeeBefore = usdc.balanceOf(payee1);
+        _settleSinglePayment(keccak256("auth_ok"), payment);
+
+        assertEq(usdc.balanceOf(payee1), payeeBefore + 100e6);
+        assertTrue(paymentBatch.isIntentSettled(payment.intentId));
+    }
+
+    function test_Auth_WrongSigner_Fails() public {
+        // Claims payer1 but is signed with payer2's key.
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.authorization = _signAuthorization(payment, PAYER2_PK);
+        _expectAuthFailure(keccak256("auth_wrong_signer"), payment);
+    }
+
+    function test_Auth_MissingSignature_Fails() public {
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.authorization = bytes("");
+        _expectAuthFailure(keccak256("auth_missing"), payment);
+    }
+
+    function test_Auth_TamperedAmount_Fails() public {
+        // Signed over 100e6; sequencer inflates to 101e6 (still within limits/balance).
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.amount = 101e6;
+        _expectAuthFailure(keccak256("auth_amount"), payment);
+    }
+
+    function test_Auth_TamperedPayee_Fails() public {
+        // Signed to pay payee1; sequencer redirects to payee2.
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.payee = payee2;
+        _expectAuthFailure(keccak256("auth_payee"), payment);
+    }
+
+    function test_Auth_TamperedToken_Fails() public {
+        // Signed for USDC; sequencer swaps to ssUSD.
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.token = address(ssUsd);
+        _expectAuthFailure(keccak256("auth_token"), payment);
+    }
+
+    function test_Auth_TamperedNonce_Fails() public {
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.nonce = 999;
+        _expectAuthFailure(keccak256("auth_nonce"), payment);
+    }
+
+    function test_Auth_ExpiredValidBefore_Fails() public {
+        // Signature is valid, but the signed validBefore (validUntil) has passed.
+        SetPaymentBatch.PaymentIntent memory payment = _makePayment(
+            keccak256("auth_expired"), payer1, payee1, 100e6, address(usdc), 1,
+            uint64(block.timestamp - 1)
+        );
+        assertGt(payment.authorization.length, 0);
+
+        bytes32 batchId = keccak256("auth_expired_batch");
+        SetPaymentBatch.PaymentIntent[] memory payments = _makePaymentArray(payment);
+        vm.prank(sequencer);
+        vm.expectEmit(true, true, true, true);
+        emit PaymentFailed(batchId, payment.intentId, payer1, "Payment expired");
+        paymentBatch.settleBatch(
+            batchId, keccak256("root"), keccak256("tenant"), 1, 1, payments
+        );
+    }
+
+    function test_Auth_NotYetValid_Fails() public {
+        // validAfter in the future; signed over it, so signature is valid but window not open.
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+        payment.validAfter = uint64(block.timestamp + 1 hours);
+        payment.authorization = _signAuthorization(payment, PAYER1_PK);
+
+        bytes32 batchId = keccak256("auth_notyet_batch");
+        SetPaymentBatch.PaymentIntent[] memory payments = _makePaymentArray(payment);
+        vm.prank(sequencer);
+        vm.expectEmit(true, true, true, true);
+        emit PaymentFailed(batchId, payment.intentId, payer1, "Payment not yet valid");
+        paymentBatch.settleBatch(
+            batchId, keccak256("root"), keccak256("tenant"), 1, 1, payments
+        );
+    }
+
+    function test_Auth_ReplayedNonce_Fails() public {
+        // First payment settles with a valid signature over nonce 55.
+        SetPaymentBatch.PaymentIntent memory p1 = _makePayment(
+            keccak256("rn1"), payer1, payee1, 100e6, address(usdc), 55,
+            uint64(block.timestamp + 1 hours)
+        );
+        _settleSinglePayment(keccak256("rn_b1"), p1);
+
+        // Fresh intent, same payer + nonce, freshly and validly signed -> nonce blocks it.
+        SetPaymentBatch.PaymentIntent memory p2 = _makePayment(
+            keccak256("rn2"), payer1, payee1, 100e6, address(usdc), 55,
+            uint64(block.timestamp + 1 hours)
+        );
+        assertGt(p2.authorization.length, 0);
+
+        bytes32 batchId = keccak256("rn_b2");
+        SetPaymentBatch.PaymentIntent[] memory payments = _makePaymentArray(p2);
+        vm.prank(sequencer);
+        vm.expectEmit(true, true, true, true);
+        emit PaymentFailed(batchId, p2.intentId, payer1, "Nonce already used");
+        paymentBatch.settleBatch(
+            batchId, keccak256("root2"), keccak256("tenant"), 2, 2, payments
+        );
+    }
+
+    function test_Auth_DomainSeparator_BindsVerifyingContract() public {
+        // A signature valid for `paymentBatch` must NOT settle on an independent
+        // instance (different verifyingContract in the EIP-712 domain).
+        SetPaymentBatch.PaymentIntent memory payment = _makeDefaultPayment();
+
+        SetPaymentBatch impl2 = new SetPaymentBatch();
+        bytes memory initData = abi.encodeCall(
+            SetPaymentBatch.initialize,
+            (owner, sequencer, address(usdc), address(ssUsd), registryAddr)
+        );
+        ERC1967Proxy proxy2 = new ERC1967Proxy(address(impl2), initData);
+        SetPaymentBatch pb2 = SetPaymentBatch(address(proxy2));
+
+        // Domain separators differ.
+        assertTrue(
+            paymentBatch.hashPaymentAuthorization(payment)
+                != pb2.hashPaymentAuthorization(payment)
+        );
+
+        vm.prank(payer1);
+        usdc.approve(address(pb2), type(uint256).max);
+
+        bytes32 batchId = keccak256("domain_batch");
+        SetPaymentBatch.PaymentIntent[] memory payments = _makePaymentArray(payment);
+        vm.prank(sequencer);
+        vm.expectEmit(true, true, true, true);
+        emit PaymentFailed(batchId, payment.intentId, payer1, "Invalid authorization");
+        pb2.settleBatch(batchId, keccak256("root"), keccak256("tenant"), 1, 1, payments);
+    }
+
+    // ---- ERC-1271 smart-contract payer path ----
+
+    function test_Auth_ERC1271_SmartWalletPayer_Settles() public {
+        uint256 ownerPk = 0xC0FFEE;
+        address walletOwner = vm.addr(ownerPk);
+        ERC1271WalletMock wallet = new ERC1271WalletMock(walletOwner);
+
+        usdc.mint(address(wallet), 1_000_000e6);
+        vm.prank(address(wallet));
+        usdc.approve(address(paymentBatch), type(uint256).max);
+
+        // payer = smart wallet; authorization = owner's ECDSA sig, validated via ERC-1271.
+        SetPaymentBatch.PaymentIntent memory payment = _makePayment(
+            keccak256("erc1271_ok"), address(wallet), payee1, 100e6, address(usdc), 1,
+            uint64(block.timestamp + 1 hours)
+        );
+        payment.authorization = _signAuthorization(payment, ownerPk);
+
+        uint256 payeeBefore = usdc.balanceOf(payee1);
+        _settleSinglePayment(keccak256("erc1271_batch"), payment);
+
+        assertEq(usdc.balanceOf(payee1), payeeBefore + 100e6);
+        assertTrue(paymentBatch.isIntentSettled(payment.intentId));
+    }
+
+    function test_Auth_ERC1271_WrongOwner_Fails() public {
+        uint256 ownerPk = 0xC0FFEE;
+        uint256 attackerPk = 0xBAD;
+        address walletOwner = vm.addr(ownerPk);
+        ERC1271WalletMock wallet = new ERC1271WalletMock(walletOwner);
+
+        usdc.mint(address(wallet), 1_000_000e6);
+        vm.prank(address(wallet));
+        usdc.approve(address(paymentBatch), type(uint256).max);
+
+        SetPaymentBatch.PaymentIntent memory payment = _makePayment(
+            keccak256("erc1271_bad"), address(wallet), payee1, 100e6, address(usdc), 1,
+            uint64(block.timestamp + 1 hours)
+        );
+        payment.authorization = _signAuthorization(payment, attackerPk); // not the wallet owner
+
+        bytes32 batchId = keccak256("erc1271_bad_batch");
+        uint256 payeeBefore = usdc.balanceOf(payee1);
+        SetPaymentBatch.PaymentIntent[] memory payments = _makePaymentArray(payment);
+        vm.prank(sequencer);
+        vm.expectEmit(true, true, true, true);
+        emit PaymentFailed(batchId, payment.intentId, address(wallet), "Invalid authorization");
+        paymentBatch.settleBatch(
+            batchId, keccak256("root"), keccak256("tenant"), 1, 1, payments
+        );
+        assertEq(usdc.balanceOf(payee1), payeeBefore);
+        assertFalse(paymentBatch.isIntentSettled(payment.intentId));
     }
 }

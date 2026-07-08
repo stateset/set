@@ -8,6 +8,7 @@ import {SSDCClaimQueueV2} from "./SSDCClaimQueueV2.sol";
 import {WSSDCCrossChainBridgeV2} from "./WSSDCCrossChainBridgeV2.sol";
 import {YieldEscrowV2} from "./YieldEscrowV2.sol";
 import {YieldPaymasterV2} from "./YieldPaymasterV2.sol";
+import {ProofOfReservesV2} from "./ProofOfReservesV2.sol";
 
 /// @title SSDCV2CircuitBreaker
 /// @notice Global emergency shutdown for the SSDC v2 system.
@@ -26,6 +27,11 @@ contract SSDCV2CircuitBreaker is AccessControl {
 
     bool public breakerTripped;
 
+    /// @notice Optional reserve-solvency oracle. When set, anyone may trip the breaker via
+    ///         `tripIfInsolvent()` if reserves are provably insufficient. Settable so wiring it in
+    ///         does not require redeploying the breaker.
+    ProofOfReservesV2 public proofOfReserves;
+
     // Track which components were paused by us vs already paused
     bool public navWasPaused;
     bool public vaultWasPaused;
@@ -37,9 +43,13 @@ contract SSDCV2CircuitBreaker is AccessControl {
     error ZeroAddress();
     error BREAKER_ALREADY_TRIPPED();
     error BREAKER_NOT_TRIPPED();
+    error PROOF_NOT_SET();
+    error RESERVES_SOLVENT();
 
     event BreakerTripped(address indexed caller, uint256 timestamp);
     event BreakerReset(address indexed caller, uint256 timestamp);
+    event ProofOfReservesSet(address indexed proofOfReserves);
+    event BreakerTrippedInsolvent(address indexed caller, uint256 coverageRatioBps);
 
     constructor(
         NAVControllerV2 navController_,
@@ -66,6 +76,37 @@ contract SSDCV2CircuitBreaker is AccessControl {
     /// @notice Atomically pauses all SSDC v2 subsystems.
     /// @dev Saves pre-trip pause state so resetBreaker only unpauses what the breaker paused.
     function tripBreaker() external onlyRole(BREAKER_ROLE) {
+        _trip();
+        emit BreakerTripped(msg.sender, block.timestamp);
+    }
+
+    /// @notice Permissionless emergency trip when reserves are provably insufficient.
+    /// @dev Fires only on a FRESH attestation whose coverage is below the configured floor — i.e.
+    ///      reserves are demonstrably gone, not merely stale. Staleness is intentionally excluded so
+    ///      this cannot be used to grief the system during normal attestation gaps. Requires the
+    ///      breaker to hold the pause roles on each subsystem, same as tripBreaker().
+    function tripIfInsolvent() external {
+        ProofOfReservesV2 por = proofOfReserves;
+        if (address(por) == address(0)) {
+            revert PROOF_NOT_SET();
+        }
+        // Must have a fresh attestation that is below the coverage floor.
+        if (por.isStale() || !por.hasAttestation() || por.coverageRatioBps() >= por.minCoverageBps()) {
+            revert RESERVES_SOLVENT();
+        }
+
+        _trip();
+        emit BreakerTrippedInsolvent(msg.sender, por.coverageRatioBps());
+    }
+
+    /// @notice Wire in (or replace) the reserve-solvency oracle consumed by tripIfInsolvent().
+    function setProofOfReserves(ProofOfReservesV2 proofOfReserves_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        proofOfReserves = proofOfReserves_;
+        emit ProofOfReservesSet(address(proofOfReserves_));
+    }
+
+    /// @dev Atomically pauses all subsystems, recording pre-trip pause state.
+    function _trip() internal {
         if (breakerTripped) {
             revert BREAKER_ALREADY_TRIPPED();
         }
@@ -99,7 +140,6 @@ contract SSDCV2CircuitBreaker is AccessControl {
         }
 
         breakerTripped = true;
-        emit BreakerTripped(msg.sender, block.timestamp);
     }
 
     /// @notice Unpauses only components that were paused by the breaker.

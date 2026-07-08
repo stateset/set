@@ -1431,7 +1431,7 @@ No shares are created or destroyed during settlement. For every refund: all `sha
 
 The following risks are **accepted in V2** and documented for operational awareness:
 
-1. **Reserve custody risk**: Off-chain Treasury assets are not verifiable on-chain in real-time. The NAV oracle is an attestation, not a proof. Proof-of-reserves attestation should be published regularly.
+1. **Reserve custody risk**: Off-chain Treasury assets are not verifiable on-chain in real-time. The NAV oracle is an attestation, not a cryptographic proof. This is **partially mitigated** by the `ProofOfReservesV2` registry (see [Section 12.5](#125-proof-of-reserves)): an attestor — held to a role *separate from the NAV oracle*, enforcing separation of duties — periodically records the off-chain reserve market value and a hash binding it to the custodian statement. The contract then computes coverage `(on-chain liquid + attested reserves) / liabilities` on-chain, flips to insolvent on staleness, and lets anyone trip the circuit breaker via `tripIfInsolvent()` when reserves are provably below the coverage floor. The residual risk is that the attestation still rests on attestor honesty; a fully trustless proof would bind the attested value to custodian-signed holdings (e.g. Merkle proofs against a regulated-custodian feed), which is future work.
 
 2. **Single arbiter power**: A single ARBITER_ROLE holder can decide any dispute outcome. V2 adds `arbiterDeadline` timeout, but no escalation or appeals. Use a multisig in production.
 
@@ -1444,6 +1444,28 @@ The following risks are **accepted in V2** and documented for operational awaren
 6. **Breaker snapshot limitations**: The circuit breaker's snapshot-and-restore model preserves only the pre-trip pause state. If governance decides during an active incident that a specific subsystem should remain paused after reset, the snapshot cannot express this. The workaround is: after `resetBreaker()`, immediately call `setPaused(true)` on the subsystem that should stay paused. This is a two-transaction operation, not atomic.
 
 7. **EOA policy bypass**: ERC-20 `transfer()` on the vault bypasses the policy module entirely. The safety model depends on agents using compliant smart account wallets with policy-enforcing validators (see [Section 4.8](#48-agent-account-model)). EOAs can hold shares but receive no policy protection.
+
+### 12.5 Proof of Reserves
+
+`ProofOfReservesV2` makes reserve solvency verifiable on-chain rather than purely off-chain trust in the NAV oracle. It is an additive accountability layer — it does not change the economic design.
+
+**Separation of duties.** The reserve attestor holds `ATTESTOR_ROLE`, deliberately distinct from the NAV controller's `ORACLE_ROLE`. A single compromised key therefore cannot both move the share price (NAV) and fabricate the reserves behind it.
+
+**Attestation.** The attestor periodically records `(reserveValue, portfolioHash, epoch)`, where `reserveValue` is the market value of the off-chain Treasury portfolio in settlement-asset units and `portfolioHash` binds it to the exact custodian statement. Epochs are strictly monotonic. A deviation guard bounds how far `reserveValue` can move between attestations (governance can override via `forceAttestation` for legitimate restatements or loss events).
+
+**On-chain coverage.** The contract computes coverage directly:
+
+```
+coverageRatioBps = (vault.availableSettlementAssets() + attestedReserveValue) * 10_000 / vault.totalAssets()
+```
+
+Because the vault only records `deployedReserveAssets` at *book* value, `reserveMarkBps = attestedReserveValue / deployedReserveAssets` surfaces off-chain reserve losses that book value alone would hide. The system is `isSolvent()` only when a *fresh* attestation meets the `minCoverageBps` floor; staleness flips it insolvent.
+
+**Enforcement.** The circuit breaker consumes this signal: `tripIfInsolvent()` is permissionless and halts all subsystems when — and only when — a fresh attestation is provably below the coverage floor. Staleness is excluded from the trip condition so routine attestation gaps cannot be used to grief the system.
+
+**Operation.** The off-chain `reserve-attestor` service (in `anchor/`) reads the reserve feed, hashes the statement, and submits attestations on the configured interval, exposing `/health` and `/stats`.
+
+**Residual trust.** This remains attestation-based: it does not yet cryptographically bind `reserveValue` to custodian-signed holdings. A fully trustless proof (e.g. Merkle proofs against a regulated-custodian feed) is future work.
 
 ---
 

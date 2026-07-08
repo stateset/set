@@ -6,8 +6,10 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 /**
  * @title SetPaymentBatch
@@ -31,17 +33,46 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  *
  * ## Security Model
  *
- * - Only authorized sequencers can submit batches
- * - Payment signatures are verified off-chain by sequencer
+ * - Only authorized sequencers can submit batches (liveness / ordering role only)
+ * - Every payment carries an on-chain EIP-712 authorization signed by the payer;
+ *   funds cannot move without it (see {_settlePayment} and the residual threat
+ *   model documented there)
  * - Merkle proofs allow independent verification
  * - Reentrancy protection on all transfers
+ *
+ * ## Residual Threat Model (after per-payment payer authorization)
+ *
+ * The sequencer is a permissioned relayer, NOT a custodian. With EIP-712 payer
+ * authorization enforced on-chain, a compromised or malicious sequencer:
+ *
+ *   CANNOT:
+ *     - Move a payer's tokens to any payee, token, or amount the payer did not sign.
+ *       Every {PaymentIntent} field bound into the typed-data hash (payer, payee,
+ *       token, amount, nonce, validAfter, validBefore) is authenticated; tampering
+ *       with any of them invalidates the signature and the payment is skipped.
+ *     - Replay a payment (per-payer nonce + intentId are single-use).
+ *     - Settle a payment outside its [validAfter, validBefore] window.
+ *     - Forge authorization for smart-contract payers (verified via ERC-1271).
+ *
+ *   CAN still (liveness / ordering powers inherent to a single sequencer):
+ *     - Withhold / censor settlement of an otherwise-valid authorized payment.
+ *     - Delay a payment and choose WHEN (within its validity window) and in what
+ *       ORDER to include it relative to other payments.
+ *     - Choose which authorized payments to include in a given batch.
+ *     - Grief by submitting a payment it knows will fail (e.g. after the payer
+ *       revoked allowance), wasting its own gas; this cannot move payer funds.
+ *
+ *   These residual powers are mitigated off-chain by decentralizing the sequencer
+ *   set and by the payer's own [validAfter, validBefore] windows and allowance
+ *   controls, not by this contract.
  */
 contract SetPaymentBatch is
     Initializable,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable,
     PausableUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    EIP712Upgradeable
 {
     using SafeERC20 for IERC20;
 
@@ -50,15 +81,21 @@ contract SetPaymentBatch is
     // =========================================================================
 
     /// @notice Payment intent for batch settlement
+    /// @dev `authorization` is the payer's EIP-712 signature over
+    ///      {PAYMENT_AUTHORIZATION_TYPEHASH}. It is NOT part of the signed data.
+    ///      `signingHash` is retained for backward compatibility / off-chain
+    ///      bookkeeping and is not used for on-chain authorization.
     struct PaymentIntent {
         bytes32 intentId;           // Unique intent ID (UUID as bytes32)
-        address payer;              // Sender wallet address
+        address payer;              // Sender wallet address (authorizing key)
         address payee;              // Recipient wallet address
         uint256 amount;             // Payment amount in smallest unit
         address token;              // Token contract address (0x0 for native)
         uint64 nonce;               // Replay protection nonce
-        uint64 validUntil;          // Expiry timestamp
-        bytes32 signingHash;        // Hash that was signed
+        uint64 validAfter;          // Not valid before this timestamp (0 = no lower bound)
+        uint64 validUntil;          // Expiry timestamp (EIP-712 `validBefore`)
+        bytes32 signingHash;        // Legacy off-chain hash (not authorization-bearing)
+        bytes authorization;        // Payer EIP-712 signature (EOA ECDSA or ERC-1271)
     }
 
     /// @notice Batch commitment for settlement
@@ -94,6 +131,18 @@ contract SetPaymentBatch is
         uint128 dailyVolume;        // Current daily volume
         uint64 lastDayReset;        // Last daily reset timestamp
     }
+
+    // =========================================================================
+    // Constants (EIP-712)
+    // =========================================================================
+
+    /// @notice EIP-712 type hash for a per-payment payer authorization.
+    /// @dev Binds every value that affects fund movement. `validBefore` maps to
+    ///      {PaymentIntent-validUntil}. Changing this string is a breaking change
+    ///      for off-chain signers.
+    bytes32 public constant PAYMENT_AUTHORIZATION_TYPEHASH = keccak256(
+        "PaymentAuthorization(bytes32 intentId,address payer,address payee,address token,uint256 amount,uint64 nonce,uint64 validAfter,uint64 validBefore)"
+    );
 
     // =========================================================================
     // State Variables
@@ -196,6 +245,7 @@ contract SetPaymentBatch is
     error AmountAboveMaximum();
     error DailyLimitExceeded();
     error PaymentExpired();
+    error InvalidAuthorization();
     error NonceAlreadyUsed();
     error IntentAlreadySettled();
     error InvalidProof();
@@ -241,6 +291,11 @@ contract SetPaymentBatch is
         __ReentrancyGuard_init();
         __Pausable_init();
         __UUPSUpgradeable_init();
+        // EIP-712 domain binds chainid + this (proxy) address into every payer
+        // authorization signature. NOTE: proxies deployed before this upgrade must
+        // run a reinitializer that calls __EIP712_init with these same params;
+        // fresh deployments via this initializer are unaffected.
+        __EIP712_init("SetPaymentBatch", "1");
 
         if (_sequencer != address(0)) {
             authorizedSequencers[_sequencer] = true;
@@ -440,7 +495,20 @@ contract SetPaymentBatch is
             return (false, "Already settled");
         }
 
-        // Check expiry
+        // Verify on-chain payer authorization BEFORE any other check. This is the
+        // gate that prevents a malicious sequencer from moving funds the payer did
+        // not sign for. No state is mutated and no funds move until after this and
+        // the transfer below both succeed.
+        if (!_verifyAuthorization(_payment)) {
+            return (false, "Invalid authorization");
+        }
+
+        // Check validity window (lower bound)
+        if (block.timestamp < _payment.validAfter) {
+            return (false, "Payment not yet valid");
+        }
+
+        // Check expiry (EIP-712 validBefore)
         if (block.timestamp > _payment.validUntil) {
             return (false, "Payment expired");
         }
@@ -510,6 +578,60 @@ contract SetPaymentBatch is
         }
 
         return (true, "");
+    }
+
+    // =========================================================================
+    // Payer Authorization (EIP-712)
+    // =========================================================================
+
+    /**
+     * @notice Compute the EIP-712 digest a payer must sign to authorize a payment.
+     * @dev Off-chain signers MUST reproduce this exact digest. The domain is
+     *      {name: "SetPaymentBatch", version: "1", chainId, verifyingContract: this}
+     *      and the struct is {PAYMENT_AUTHORIZATION_TYPEHASH}. `signingHash` and
+     *      `authorization` are intentionally excluded from the hash.
+     * @param _payment Payment intent (its `authorization` field is ignored here)
+     * @return digest EIP-712 typed-data hash to be signed by `_payment.payer`
+     */
+    function hashPaymentAuthorization(
+        PaymentIntent calldata _payment
+    ) public view returns (bytes32 digest) {
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    PAYMENT_AUTHORIZATION_TYPEHASH,
+                    _payment.intentId,
+                    _payment.payer,
+                    _payment.payee,
+                    _payment.token,
+                    _payment.amount,
+                    _payment.nonce,
+                    _payment.validAfter,
+                    _payment.validUntil
+                )
+            )
+        );
+    }
+
+    /**
+     * @notice Verify the payer authorized this exact payment.
+     * @dev Uses OpenZeppelin {SignatureChecker}, which:
+     *        - for EOA payers, runs ECDSA.recover with the low-`s` malleability
+     *          guard and canonical `v` handling; and
+     *        - for smart-contract payers (payer address has code), delegates to
+     *          ERC-1271 `isValidSignature`.
+     *      Any tampering with an authenticated field changes the digest and fails.
+     * @param _payment Payment intent including the payer signature
+     * @return valid True if `_payment.authorization` is a valid signature by `_payment.payer`
+     */
+    function _verifyAuthorization(
+        PaymentIntent calldata _payment
+    ) internal view returns (bool valid) {
+        return SignatureChecker.isValidSignatureNow(
+            _payment.payer,
+            hashPaymentAuthorization(_payment),
+            _payment.authorization
+        );
     }
 
     // =========================================================================

@@ -58,6 +58,17 @@ contract SetRegistry is
         uint64 timestamp;        // When proof was submitted
     }
 
+    /// @notice Optimistic challenge state for a STARK proof commitment.
+    /// @dev Since STARK validity is not verified on-chain, proofs are treated optimistically: valid
+    ///      unless challenged within `proofChallengeWindow`. A proof is only `isProofFinalized` once
+    ///      the window elapses undisputed. Packed into 2 slots.
+    struct ProofChallenge {
+        bool disputed;           // True once an authorized challenger has flagged the proof
+        uint64 challengeDeadline; // proof.timestamp + proofChallengeWindow at time of challenge
+        address challenger;      // Who raised the challenge
+        bytes32 reasonHash;      // Hash of the off-chain challenge evidence
+    }
+
     // =========================================================================
     // State Variables
     // =========================================================================
@@ -117,6 +128,11 @@ contract SetRegistry is
 
     event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
 
+    event ProofChallengeWindowUpdated(uint64 window);
+    event ChallengerAuthorized(address indexed challenger, bool authorized);
+    event StarkProofChallenged(bytes32 indexed batchId, address indexed challenger, bytes32 reasonHash);
+    event StarkProofChallengeResolved(bytes32 indexed batchId, bool upheld);
+
     // =========================================================================
     // Errors
     // =========================================================================
@@ -135,6 +151,11 @@ contract SetRegistry is
     error InvalidAddress();
     error ArrayLengthMismatch();
     error EmptyArray();
+    error NotAuthorizedChallenger();
+    error NoStarkProof();
+    error ChallengeWindowClosed();
+    error ProofAlreadyDisputed();
+    error ProofNotDisputed();
 
     // =========================================================================
     // Initialization
@@ -396,6 +417,107 @@ contract SetRegistry is
     ) {
         StarkProofCommitment storage proof = starkProofs[_batchId];
         return (proof.proofHash, proof.policyHash, proof.allCompliant, proof.timestamp);
+    }
+
+    // =========================================================================
+    // Optimistic STARK proof finalization
+    // =========================================================================
+
+    /// @notice Set the challenge window (seconds). 0 = proofs are final on commit.
+    function setProofChallengeWindow(uint64 _window) external onlyOwner {
+        proofChallengeWindow = _window;
+        emit ProofChallengeWindowUpdated(_window);
+    }
+
+    /// @notice Authorize or revoke an address allowed to challenge proofs.
+    function setAuthorizedChallenger(address _challenger, bool _authorized) external onlyOwner {
+        if (_challenger == address(0)) {
+            revert InvalidAddress();
+        }
+        bool current = authorizedChallengers[_challenger];
+        if (current == _authorized) {
+            return;
+        }
+        authorizedChallengers[_challenger] = _authorized;
+        if (_authorized) {
+            authorizedChallengerCount += 1;
+        } else {
+            authorizedChallengerCount -= 1;
+        }
+        emit ChallengerAuthorized(_challenger, _authorized);
+    }
+
+    /// @notice Challenge a committed STARK proof within its challenge window.
+    /// @param _batchId Batch whose proof is being challenged.
+    /// @param _reasonHash Hash of the off-chain evidence justifying the challenge.
+    function challengeStarkProof(bytes32 _batchId, bytes32 _reasonHash) external whenNotPaused {
+        if (!authorizedChallengers[msg.sender]) {
+            revert NotAuthorizedChallenger();
+        }
+        StarkProofCommitment storage proof = starkProofs[_batchId];
+        if (proof.timestamp == 0) {
+            revert NoStarkProof();
+        }
+        // Window is open only while now < proof.timestamp + proofChallengeWindow.
+        uint256 deadline = uint256(proof.timestamp) + uint256(proofChallengeWindow);
+        if (block.timestamp >= deadline) {
+            revert ChallengeWindowClosed();
+        }
+        if (proofChallenges[_batchId].disputed) {
+            revert ProofAlreadyDisputed();
+        }
+
+        proofChallenges[_batchId] = ProofChallenge({
+            disputed: true,
+            challengeDeadline: uint64(deadline),
+            challenger: msg.sender,
+            reasonHash: _reasonHash
+        });
+        emit StarkProofChallenged(_batchId, msg.sender, _reasonHash);
+    }
+
+    /// @notice Resolve a disputed proof. If upheld, the proof is invalidated (deleted); otherwise the
+    ///         dispute is cleared and the proof stands.
+    function resolveChallenge(bytes32 _batchId, bool _upheld) external onlyOwner {
+        if (!proofChallenges[_batchId].disputed) {
+            revert ProofNotDisputed();
+        }
+
+        if (_upheld) {
+            // The proof was bad: remove it so isProofFinalized() reports false.
+            // NOTE: totalStarkProofs is not decremented here because the contract never increments
+            // it on commit (it is currently always 0 — a pre-existing accounting gap). Decrementing
+            // would underflow. Flagged for a separate fix rather than silently entangling it here.
+            delete starkProofs[_batchId];
+            delete proofChallenges[_batchId];
+        } else {
+            // Challenge rejected: the proof stands, clear the dispute flag.
+            delete proofChallenges[_batchId];
+        }
+        emit StarkProofChallengeResolved(_batchId, _upheld);
+    }
+
+    /// @notice Whether a batch's STARK proof is final: present, undisputed, and past its challenge
+    ///         window. Consumers gating value on proofs should require this rather than `hasStarkProof`.
+    function isProofFinalized(bytes32 _batchId) external view returns (bool) {
+        StarkProofCommitment storage proof = starkProofs[_batchId];
+        if (proof.timestamp == 0) {
+            return false;
+        }
+        if (proofChallenges[_batchId].disputed) {
+            return false;
+        }
+        return block.timestamp >= uint256(proof.timestamp) + uint256(proofChallengeWindow);
+    }
+
+    /// @notice Read the challenge state for a batch's proof.
+    function getProofChallenge(bytes32 _batchId)
+        external
+        view
+        returns (bool disputed, uint64 challengeDeadline, address challenger, bytes32 reasonHash)
+    {
+        ProofChallenge storage c = proofChallenges[_batchId];
+        return (c.disputed, c.challengeDeadline, c.challenger, c.reasonHash);
     }
 
     // =========================================================================
@@ -1107,5 +1229,22 @@ contract SetRegistry is
     // =========================================================================
 
     /// @dev Reserved storage slots for future upgrades
-    uint256[50] private __gap;
+    // -------------------------------------------------------------------------
+    // Optimistic STARK proof finalization (appended; __gap reduced 50 -> 46)
+    // -------------------------------------------------------------------------
+
+    /// @notice Seconds a STARK proof can be challenged before it is final. 0 = instant finality
+    ///         (preserves pre-upgrade behavior).
+    uint64 public proofChallengeWindow;
+
+    /// @notice Challenge state per batch's STARK proof.
+    mapping(bytes32 => ProofChallenge) public proofChallenges;
+
+    /// @notice Addresses permitted to challenge proofs (distinct from sequencers).
+    mapping(address => bool) public authorizedChallengers;
+
+    /// @notice Count of authorized challengers.
+    uint256 public authorizedChallengerCount;
+
+    uint256[46] private __gap;
 }
