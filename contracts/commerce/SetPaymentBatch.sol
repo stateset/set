@@ -86,16 +86,16 @@ contract SetPaymentBatch is
     ///      `signingHash` is retained for backward compatibility / off-chain
     ///      bookkeeping and is not used for on-chain authorization.
     struct PaymentIntent {
-        bytes32 intentId;           // Unique intent ID (UUID as bytes32)
-        address payer;              // Sender wallet address (authorizing key)
-        address payee;              // Recipient wallet address
-        uint256 amount;             // Payment amount in smallest unit
-        address token;              // Token contract address (0x0 for native)
-        uint64 nonce;               // Replay protection nonce
-        uint64 validAfter;          // Not valid before this timestamp (0 = no lower bound)
-        uint64 validUntil;          // Expiry timestamp (EIP-712 `validBefore`)
-        bytes32 signingHash;        // Legacy off-chain hash (not authorization-bearing)
-        bytes authorization;        // Payer EIP-712 signature (EOA ECDSA or ERC-1271)
+        bytes32 intentId; // Unique intent ID (UUID as bytes32)
+        address payer; // Sender wallet address (authorizing key)
+        address payee; // Recipient wallet address
+        uint256 amount; // Payment amount in smallest unit
+        address token; // Token contract address (0x0 for native)
+        uint64 nonce; // Replay protection nonce
+        uint64 validAfter; // Not valid before this timestamp (0 = no lower bound)
+        uint64 validUntil; // Expiry timestamp (EIP-712 `validBefore`)
+        bytes32 signingHash; // Legacy off-chain hash (not authorization-bearing)
+        bytes authorization; // Payer EIP-712 signature (EOA ECDSA or ERC-1271)
     }
 
     /// @notice Batch commitment for settlement
@@ -108,14 +108,14 @@ contract SetPaymentBatch is
     /// submitter removed (available from event/tx receipt)
     /// executed removed (use settledAt != 0 as existence check)
     struct BatchSettlement {
-        bytes32 merkleRoot;         // Merkle root of payment intents
-        bytes32 tenantStoreKey;     // Tenant/store identifier
-        uint128 totalAmount;        // Total amount (max ~3.4e38, sufficient for any token)
-        uint64 sequenceStart;       // First sequence number
-        uint64 sequenceEnd;         // Last sequence number
-        address token;              // Primary token for this batch
-        uint64 settledAt;           // Settlement timestamp (0 = not settled)
-        uint32 paymentCount;        // Number of payments
+        bytes32 merkleRoot; // Merkle root of payment intents
+        bytes32 tenantStoreKey; // Tenant/store identifier
+        uint128 totalAmount; // Total amount (max ~3.4e38, sufficient for any token)
+        uint64 sequenceStart; // First sequence number
+        uint64 sequenceEnd; // Last sequence number
+        address token; // Primary token for this batch
+        uint64 settledAt; // Settlement timestamp (0 = not settled)
+        uint32 paymentCount; // Number of payments
     }
 
     /// @notice Asset configuration (packed: 3 slots instead of 6)
@@ -124,12 +124,12 @@ contract SetPaymentBatch is
     ///   Slot 2: maxAmount(16) + dailyLimit(16) = 32 bytes
     ///   Slot 3: dailyVolume(16) + lastDayReset(8) = 24 bytes
     struct AssetConfig {
-        bool enabled;               // Whether asset is accepted
-        uint128 minAmount;          // Minimum payment amount
-        uint128 maxAmount;          // Maximum payment amount
-        uint128 dailyLimit;         // Daily volume limit
-        uint128 dailyVolume;        // Current daily volume
-        uint64 lastDayReset;        // Last daily reset timestamp
+        bool enabled; // Whether asset is accepted
+        uint128 minAmount; // Minimum payment amount
+        uint128 maxAmount; // Maximum payment amount
+        uint128 dailyLimit; // Daily volume limit
+        uint128 dailyVolume; // Current daily volume
+        uint64 lastDayReset; // Last daily reset timestamp
     }
 
     // =========================================================================
@@ -207,10 +207,7 @@ contract SetPaymentBatch is
     );
 
     event BatchSettled(
-        bytes32 indexed batchId,
-        uint32 paymentsSettled,
-        uint256 totalAmount,
-        uint256 gasUsed
+        bytes32 indexed batchId, uint32 paymentsSettled, uint256 totalAmount, uint256 gasUsed
     );
 
     event PaymentSettled(
@@ -223,10 +220,7 @@ contract SetPaymentBatch is
     );
 
     event PaymentFailed(
-        bytes32 indexed batchId,
-        bytes32 indexed intentId,
-        address indexed payer,
-        string reason
+        bytes32 indexed batchId, bytes32 indexed intentId, address indexed payer, string reason
     );
 
     event ContractUpgraded(address indexed newImplementation, address indexed authorizer);
@@ -311,9 +305,9 @@ contract SetPaymentBatch is
         if (_usdcToken != address(0)) {
             assetConfigs[_usdcToken] = AssetConfig({
                 enabled: true,
-                minAmount: 1e4,           // 0.01 USDC
-                maxAmount: 1e12,          // 1M USDC
-                dailyLimit: 1e14,         // 100M USDC/day
+                minAmount: 1e4, // 0.01 USDC
+                maxAmount: 1e12, // 1M USDC
+                dailyLimit: 1e14, // 100M USDC/day
                 dailyVolume: 0,
                 lastDayReset: uint64(block.timestamp)
             });
@@ -323,9 +317,9 @@ contract SetPaymentBatch is
         if (_ssUsdToken != address(0)) {
             assetConfigs[_ssUsdToken] = AssetConfig({
                 enabled: true,
-                minAmount: 1e4,           // 0.01 ssUSD
-                maxAmount: 1e12,          // 1M ssUSD
-                dailyLimit: 1e14,         // 100M ssUSD/day
+                minAmount: 1e4, // 0.01 ssUSD
+                maxAmount: 1e12, // 1M ssUSD
+                dailyLimit: 1e14, // 100M ssUSD/day
                 dailyVolume: 0,
                 lastDayReset: uint64(block.timestamp)
             });
@@ -352,9 +346,13 @@ contract SetPaymentBatch is
         authorizedSequencers[_sequencer] = _authorized;
 
         if (_authorized && !wasAuthorized) {
-            unchecked { ++sequencerCount; }
+            unchecked {
+                ++sequencerCount;
+            }
         } else if (!_authorized && wasAuthorized) {
-            unchecked { --sequencerCount; }
+            unchecked {
+                --sequencerCount;
+            }
         }
 
         emit SequencerAuthorized(_sequencer, _authorized);
@@ -391,7 +389,9 @@ contract SetPaymentBatch is
      * @notice Update the registry address
      * @param _registry New registry address
      */
-    function setRegistry(address _registry) external onlyOwner {
+    function setRegistry(
+        address _registry
+    ) external onlyOwner {
         registry = _registry;
     }
 
@@ -440,15 +440,19 @@ contract SetPaymentBatch is
         uint32 successCount = 0;
 
         // Process each payment
-        for (uint256 i = 0; i < _payments.length; ) {
+        for (uint256 i = 0; i < _payments.length;) {
             PaymentIntent calldata payment = _payments[i];
 
             // Validate and settle individual payment
             (bool success, string memory reason) = _settlePayment(_batchId, payment);
 
             if (success) {
-                unchecked { totalAmount += payment.amount; }
-                unchecked { ++successCount; }
+                unchecked {
+                    totalAmount += payment.amount;
+                }
+                unchecked {
+                    ++successCount;
+                }
 
                 emit PaymentSettled(
                     _batchId,
@@ -461,7 +465,9 @@ contract SetPaymentBatch is
             } else {
                 emit PaymentFailed(_batchId, payment.intentId, payment.payer, reason);
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         // Record batch settlement
@@ -556,14 +562,12 @@ contract SetPaymentBatch is
 
         // Transfer tokens. Handle both reverting tokens and non-reverting tokens
         // that return `false` on failure.
-        (bool ok, bytes memory returndata) = address(token).call(
-            abi.encodeWithSelector(
-                IERC20.transferFrom.selector,
-                _payment.payer,
-                _payment.payee,
-                _payment.amount
-            )
-        );
+        (bool ok, bytes memory returndata) = address(token)
+            .call(
+                abi.encodeWithSelector(
+                    IERC20.transferFrom.selector, _payment.payer, _payment.payee, _payment.amount
+                )
+            );
         if (!ok || (returndata.length > 0 && !abi.decode(returndata, (bool)))) {
             return (false, "Transfer failed");
         }
@@ -628,9 +632,7 @@ contract SetPaymentBatch is
         PaymentIntent calldata _payment
     ) internal view returns (bool valid) {
         return SignatureChecker.isValidSignatureNow(
-            _payment.payer,
-            hashPaymentAuthorization(_payment),
-            _payment.authorization
+            _payment.payer, hashPaymentAuthorization(_payment), _payment.authorization
         );
     }
 
@@ -642,7 +644,9 @@ contract SetPaymentBatch is
      * @notice Get batch settlement details
      * @param _batchId Batch ID to query
      */
-    function getBatch(bytes32 _batchId) external view returns (BatchSettlement memory) {
+    function getBatch(
+        bytes32 _batchId
+    ) external view returns (BatchSettlement memory) {
         return batches[_batchId];
     }
 
@@ -650,7 +654,9 @@ contract SetPaymentBatch is
      * @notice Check if an intent has been settled
      * @param _intentId Intent ID to check
      */
-    function isIntentSettled(bytes32 _intentId) external view returns (bool) {
+    function isIntentSettled(
+        bytes32 _intentId
+    ) external view returns (bool) {
         return settledIntents[_intentId];
     }
 
@@ -659,7 +665,10 @@ contract SetPaymentBatch is
      * @param _payer Payer address
      * @param _nonce Nonce to check
      */
-    function isNonceUsed(address _payer, uint64 _nonce) external view returns (bool) {
+    function isNonceUsed(
+        address _payer,
+        uint64 _nonce
+    ) external view returns (bool) {
         return usedNonces[_payer][_nonce];
     }
 
@@ -667,19 +676,25 @@ contract SetPaymentBatch is
      * @notice Get asset configuration
      * @param _token Token address
      */
-    function getAssetConfig(address _token) external view returns (AssetConfig memory) {
+    function getAssetConfig(
+        address _token
+    ) external view returns (AssetConfig memory) {
         return assetConfigs[_token];
     }
 
     /**
      * @notice Get settlement statistics
      */
-    function getStats() external view returns (
-        uint256 _totalPayments,
-        uint256 _totalVolume,
-        uint256 _totalBatches,
-        uint256 _sequencers
-    ) {
+    function getStats()
+        external
+        view
+        returns (
+            uint256 _totalPayments,
+            uint256 _totalVolume,
+            uint256 _totalBatches,
+            uint256 _sequencers
+        )
+    {
         return (totalPaymentsSettled, totalVolumeSettled, totalBatchesSettled, sequencerCount);
     }
 
@@ -724,7 +739,9 @@ contract SetPaymentBatch is
     // Upgrade Authorization
     // =========================================================================
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {
         emit ContractUpgraded(newImplementation, msg.sender);
     }
 
