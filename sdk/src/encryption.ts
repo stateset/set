@@ -670,7 +670,7 @@ export class MEVProtectionClient {
     return {
       txId,
       waitForExecution: async () => {
-        const tx = await this.mempool.waitForStatus(txId, EncryptedTxStatus.Executed);
+        await this.mempool.waitForStatus(txId, EncryptedTxStatus.Executed);
         const dtx = await this.mempool.getDecryptedTransaction(txId);
         return { success: dtx.success, data: dtx.data };
       }

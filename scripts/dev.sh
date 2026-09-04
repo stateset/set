@@ -31,9 +31,9 @@ ensure_deps() {
        [ ! -d "lib/openzeppelin-contracts/contracts" ] || \
        [ ! -d "lib/openzeppelin-contracts-upgradeable/contracts" ]; then
         log_info "Installing Foundry dependencies..."
-        run_foundry_tool forge install foundry-rs/forge-std --no-commit 2>/dev/null || true
-        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts --no-commit 2>/dev/null || true
-        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts-upgradeable --no-commit 2>/dev/null || true
+        run_foundry_tool forge install foundry-rs/forge-std@7117c90c8cf6c68e5acce4f09a6b24715cea4de6 --no-commit
+        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts@932fddf69a699a9a80fd2396fd1a2ab91cdda123 --no-commit
+        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
     fi
 }
 
@@ -49,6 +49,7 @@ usage() {
     echo "  start       Start local Anvil node"
     echo "  deploy      Deploy contracts to local node"
     echo "  test        Run contract tests"
+    echo "  test-critical Run focused security-critical contract tests"
     echo "  status      Check local node status"
     echo "  validate    Validate local devnet config"
     echo "  smoke       Deploy and run smoke checks"
@@ -63,6 +64,7 @@ usage() {
     echo "  $0 start                    # Start Anvil"
     echo "  $0 deploy                   # Deploy all contracts"
     echo "  $0 test                     # Run Foundry tests"
+    echo "  $0 test-critical            # Run fast critical contract suites"
     echo "  $0 validate                 # Validate devnet config"
     echo "  $0 smoke                    # Deploy and run smoke checks"
     echo "  $0 anchor-start             # Run anchor service locally"
@@ -403,6 +405,9 @@ case "${1:-}" in
     test)
         shift
         cmd_test "$@"
+        ;;
+    test-critical)
+        "$SCRIPT_DIR/test-contract-smoke.sh"
         ;;
     status)
         cmd_status

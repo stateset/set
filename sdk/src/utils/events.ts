@@ -4,8 +4,8 @@
  * Helpers for parsing and extracting events from transaction receipts.
  */
 
-import { Contract, TransactionReceipt, Log, Interface, keccak256, toUtf8Bytes, LogDescription } from "ethers";
-import { EventParseError, SDKError, SDKErrorCode } from "../errors.js";
+import { Contract, TransactionReceipt, Log, keccak256, toUtf8Bytes } from "ethers";
+import { EventParseError } from "../errors.js";
 
 /**
  * Parsed event result

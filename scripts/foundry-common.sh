@@ -47,7 +47,7 @@ foundry_image() {
     local version
     version="$(foundry_version)"
 
-    if echo "$version" | grep -Eq '^(stable|latest|nightly|nightly-[0-9a-f]{40})$'; then
+    if grep -Eq '^(stable|latest|nightly|nightly-[0-9a-f]{40})$' <<< "$version"; then
         echo "ghcr.io/foundry-rs/foundry:${version}"
         return
     fi
@@ -57,7 +57,10 @@ foundry_image() {
 
 has_valid_foundry_tool() {
     local tool="$1"
+    local tool_name
     local version_output
+
+    tool_name="${tool##*/}"
 
     if ! command -v "$tool" >/dev/null 2>&1; then
         return 1
@@ -67,7 +70,26 @@ has_valid_foundry_tool() {
         return 1
     fi
 
-    echo "$version_output" | grep -Eiq "^${tool}( | Version:)"
+    grep -Eiq "^${tool_name}( | Version:)" <<< "$version_output"
+}
+
+foundry_host_tool() {
+    local tool="$1"
+    local resolved
+
+    resolved="$(command -v "$tool" 2>/dev/null || true)"
+    if [ -n "$resolved" ] && has_valid_foundry_tool "$resolved"; then
+        echo "$resolved"
+        return 0
+    fi
+
+    resolved="${FOUNDRY_BIN_DIR:-${HOME:-}/.foundry/bin}/$tool"
+    if [ -x "$resolved" ] && has_valid_foundry_tool "$resolved"; then
+        echo "$resolved"
+        return 0
+    fi
+
+    return 1
 }
 
 foundry_backend() {
@@ -82,7 +104,7 @@ foundry_backend() {
         return
     fi
 
-    if has_valid_foundry_tool "$tool"; then
+    if foundry_host_tool "$tool" >/dev/null; then
         echo "host"
         return
     fi
@@ -117,7 +139,9 @@ run_foundry_tool() {
 
     case "$backend" in
         host)
-            "$tool" "$@"
+            local host_tool
+            host_tool="$(foundry_host_tool "$tool")"
+            "$host_tool" "$@"
             ;;
         docker)
             local image

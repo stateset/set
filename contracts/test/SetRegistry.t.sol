@@ -207,7 +207,7 @@ contract SetRegistryTest is Test {
         assertTrue(allCompliant);
         assertEq(proofSize, 1024);
         assertEq(provingTimeMs, 500);
-
+        assertEq(registry.totalCommitments(), 1);
     }
 
     function test_CommitStarkProof() public {
@@ -246,6 +246,7 @@ contract SetRegistryTest is Test {
         assertTrue(registry.hasStarkProof(batchId));
         assertTrue(registry.verifyStarkProofHash(batchId, proofHash));
         assertFalse(registry.verifyStarkProofHash(batchId, keccak256("wrong")));
+        assertEq(registry.totalStarkProofs(), 1);
     }
 
     function test_CommitStarkProof_InvalidProof() public {
@@ -1078,8 +1079,7 @@ contract SetRegistryTest is Test {
         );
 
         (commitmentCount, proofCount, isPaused, isStrictMode) = registry.getRegistryStats();
-        // totalCommitments no longer incremented in commitBatch (gas optimization)
-        // commitmentCount is now stale; verify other stats still work
+        assertEq(commitmentCount, 1);
         assertFalse(isPaused);
     }
 

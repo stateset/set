@@ -9,9 +9,15 @@ CI).
 - 10/10 overall means every dimension meets its 10/10 criteria.
 - Evidence should link to concrete artifacts in this repository.
 
-## Current Status: 9/10 (Ready for Final Steps)
+## Current Status
 
-All infrastructure is in place. Complete the final operational steps to reach 10/10.
+**Engineering baseline: A candidate. Production launch readiness: incomplete.**
+
+This scorecard treats code, local tests, deployed systems, and independently
+verified systems as distinct states. A checked item must have the evidence it
+claims; a template, script, or configuration file is not deployment evidence.
+Mainnet remains blocked until the independent audit, public testnet exercise,
+and governance verification below are complete.
 
 ## Dimensions and criteria
 
@@ -19,7 +25,7 @@ All infrastructure is in place. Complete the final operational steps to reach 10
 A 10/10 security score requires:
 - [x] Threat model and assumptions documented (`docs/threat-model.md`)
 - [ ] Independent audit completed and published (`docs/audit-report.md`) **← Schedule audit**
-- [x] Multisig + timelock for admin/upgrade keys (`docs/governance-evidence.md`)
+- [ ] Multisig + timelock deployed for admin/upgrade keys (`docs/governance-evidence.md`)
   - Timelock contract: `contracts/governance/SetTimelock.sol`
   - Deployment script: `contracts/script/DeployGovernance.s.sol`
   - Tests: `contracts/test/SetTimelock.t.sol`
@@ -29,6 +35,10 @@ A 10/10 security score requires:
 - [x] Static analysis tooling (`contracts/slither.config.json`, `scripts/security-analysis.sh`)
 - [x] Security CI workflow (`.github/workflows/security.yml`)
 - [x] Security-critical fixes implemented and tested:
+  - SetRegistry: batch/proof submission counters restored and covered by an isolated smoke suite
+  - OrderEscrow: confirmation-window enforcement and fee-on-transfer insolvency protection
+  - FxOracle: full-precision conversion and zero-pair rejection
+  - ProofOfReservesV2: checked packed-config bounds; attestor input/readiness hardening
   - ForcedInclusion: Real inclusion-proof verification against L2OutputOracle
   - EncryptedMempool: Decryption proofs bound to encrypted payloads
   - TreasuryVault: Redemption shares burned at request time (NAV manipulation fix)
@@ -39,7 +49,7 @@ A 10/10 security score requires:
 A 10/10 decentralization score requires:
 - [x] Sequencer decentralization plan with milestones (`docs/decentralization.md`)
 - [x] Permissionless node guidance and incentives (`docs/node-operators.md`)
-- [x] Fault proof / dispute system configured and exercised (`docs/fault-proof-exercise.md`)
+- [ ] Fault proof / dispute system exercised on Sepolia (`docs/fault-proof-exercise.md`)
   - Exercise script: `scripts/fault-proof-exercise.sh`
   - Documentation with checklist
   - **← Complete exercise on Sepolia and record results**
@@ -50,19 +60,21 @@ A 10/10 decentralization score requires:
   - MEV monitoring alerts: `docker/monitoring/alerts.yml`
   - Tests: `contracts/test/SequencerAttestation.t.sol`, `contracts/test/ForcedInclusion.t.sol`
 
-### Reliability and Operations (10/10)
+### Reliability and Operations (implementation complete; deployment evidence pending)
 A 10/10 reliability score requires:
 - [x] SLOs and alert thresholds defined (`docs/monitoring.md`)
-- [x] Monitoring and alerting implemented (`docker/docker-compose.monitoring.yml`)
+- [x] Monitoring and alerting configuration implemented (`docker/docker-compose.monitoring.yml`)
+- [ ] Monitoring alerts exercised against the public testnet and recorded
 - [x] Backup/restore procedures for node data (`docs/runbook.md`)
 - [x] Incident response and on-call runbooks (`docs/runbook.md`)
-- [x] CI smoke coverage for contracts and anchor service (`.github/workflows`)
+- [x] CI smoke coverage configured for contracts and anchor service (`.github/workflows`)
+- [ ] Required CI checks green on the release commit
 
-### Developer Experience (10/10)
+### Developer Experience (A+ baseline)
 A 10/10 devx score requires:
 - [x] One-command local devnet (`scripts/dev.sh`)
 - [x] Documented testing and debugging (`docs/local_testing_guide.md`)
-- [x] Reproducible builds and pinned tool versions (`docs/toolchain.md`)
+- [x] Reproducible builds, committed lockfiles, and pinned tool versions (`docs/toolchain.md`)
 - [x] CI for contracts, anchor, and devnet flows (`.github/workflows`)
 - [x] Example integrations for merchants or apps (`docs/integration-example.md`)
 - [x] Comprehensive SDK with error handling (`sdk/src/errors.ts`, `sdk/src/utils/`)
@@ -72,11 +84,11 @@ A 10/10 devx score requires:
 
 ### Ecosystem and Adoption (9/10)
 A 10/10 ecosystem score requires:
-- [x] Block explorer and indexing
+- [x] Block explorer and indexing configuration
   - Docker compose: `docker/docker-compose.explorer.yml`
   - Documentation: `docs/explorer.md`
   - Includes: Blockscout + frontend + contract verifier + visualizer
-- [x] Bridge and token onramp support
+- [x] Bridge and token onramp documentation and configuration
   - Documentation: `docs/bridge.md`
   - OP Stack Standard Bridge contracts
   - Bridge UI options documented

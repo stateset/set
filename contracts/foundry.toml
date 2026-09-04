@@ -39,10 +39,12 @@ invariant = { runs = 256, depth = 15 }
 # Gas reporting
 gas_reports = ["SetRegistry", "SetPaymaster", "SetPaymentBatch", "SetTimelock", "SequencerAttestation", "ForcedInclusion", "EncryptedMempool", "ThresholdKeyRegistry", "SSDC", "NAVOracle", "TreasuryVault", "TokenRegistry"]
 
-# Faster local profile (disable via-ir for quicker compiles)
+# Faster local/targeted profile. The contracts require via-IR, so sparse mode
+# avoids compiling unrelated sources while preserving release-equivalent codegen.
 [profile.fast]
 via_ir = true
 optimizer_runs = 50
+sparse_mode = true
 fuzz = { runs = 64, max_test_rejects = 4096 }
 invariant = { runs = 64, depth = 10 }
 

@@ -104,6 +104,7 @@ The `dev.sh` script provides convenient commands:
 ./scripts/dev.sh start       # Start Anvil node
 ./scripts/dev.sh deploy      # Deploy all contracts
 ./scripts/dev.sh test        # Run Foundry tests
+./scripts/dev.sh test-critical # Run isolated registry/escrow/FX/reserve security suites
 ./scripts/dev.sh status      # Check node status
 ./scripts/dev.sh validate    # Validate config vs live node
 ./scripts/dev.sh smoke       # Deploy + commit batch + verify multiproof
@@ -186,6 +187,15 @@ Run the Foundry test suite:
 ./scripts/dev.sh test --match-test testCommitBatch
 ./scripts/dev.sh test -vvvv  # Extra verbosity
 ```
+
+For fast feedback on the security-critical paths, use the focused smoke gate:
+
+```bash
+./scripts/dev.sh test-critical
+```
+
+It runs registry accounting, order escrow, FX conversion, and proof-of-reserves
+tests with separate Foundry caches. The full suite remains the release gate.
 
 Run tests directly via Docker:
 ```bash

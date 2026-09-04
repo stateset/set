@@ -485,9 +485,8 @@ contract SetRegistry is
 
         if (_upheld) {
             // The proof was bad: remove it so isProofFinalized() reports false.
-            // NOTE: totalStarkProofs is not decremented here because the contract never increments
-            // it on commit (it is currently always 0 — a pre-existing accounting gap). Decrementing
-            // would underflow. Flagged for a separate fix rather than silently entangling it here.
+            // totalStarkProofs is a cumulative submission counter, matching totalCommitments,
+            // so invalidation does not rewrite historical submission volume.
             delete starkProofs[_batchId];
             delete proofChallenges[_batchId];
         } else {
@@ -951,6 +950,9 @@ contract SetRegistry is
         });
 
         latestCommitment[tenantStoreKey] = _batchId;
+        unchecked {
+            ++totalCommitments;
+        }
 
         emit BatchCommitted(
             _batchId,
@@ -969,7 +971,7 @@ contract SetRegistry is
     function _validateAndStoreStarkProof(
         bytes32 _batchId,
         bytes32 _proofHash,
-        bytes32 _prevStateRoot,
+        bytes32,
         bytes32 _newStateRoot,
         bytes32 _policyHash,
         uint64 _policyLimit,
@@ -1034,6 +1036,9 @@ contract SetRegistry is
             provingTimeMs: _provingTimeMs,
             timestamp: uint64(block.timestamp)
         });
+        unchecked {
+            ++totalStarkProofs;
+        }
 
         emit StarkProofCommitted(
             _batchId,

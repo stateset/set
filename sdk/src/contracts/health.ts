@@ -1,5 +1,5 @@
 import { Contract } from "ethers";
-import type { RegistryStats, ThresholdRegistryStatus } from "../types.js";
+import type { RegistryStats } from "../types.js";
 import { fetchRegistryStats } from "./registry.js";
 import { getPaymasterHealthSummary } from "./paymaster.js";
 import { fetchTreasuryVaultHealth } from "./treasury-vault.js";

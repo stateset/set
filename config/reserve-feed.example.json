@@ -1,0 +1,19 @@
+{
+  "schema": "set.proof-of-reserves.feed/v1",
+  "as_of": "2026-06-16T00:00:00Z",
+  "settlement_asset": "USDC",
+  "decimals": 6,
+  "reserve_value": "0",
+  "holdings": [
+    {
+      "instrument": "US T-Bill",
+      "cusip": "912797XXX",
+      "maturity": "2026-09-10",
+      "market_value": "0"
+    }
+  ],
+  "custodian": {
+    "name": "<custodian>",
+    "statement_id": "<statement-id>"
+  }
+}

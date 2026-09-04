@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anvil-config
+  namespace: set-chain
+data:
+  CHAIN_ID: "84532001"
+  BLOCK_TIME: "2"
+  ACCOUNTS: "10"
+  BALANCE: "10000"
+  GAS_LIMIT: "30000000"
+  CODE_SIZE_LIMIT: "49152"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anvil
+  namespace: set-chain
+  labels:
+    app: anvil
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: anvil
+  template:
+    metadata:
+      labels:
+        app: anvil
+    spec:
+      containers:
+        - name: anvil
+          image: us-central1-docker.pkg.dev/stateset-network/stateset-container/anvil:latest
+          command:
+            - anvil
+            - --host=0.0.0.0
+            - --port=8545
+            - --chain-id=84532001
+            - --block-time=2
+            - --accounts=10
+            - --balance=10000
+            - --mnemonic=test test test test test test test test test test test junk
+            - --gas-limit=30000000
+            - --code-size-limit=49152
+          ports:
+            - containerPort: 8545
+              name: rpc
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          readinessProbe:
+            exec:
+              command:
+                - cast
+                - chain-id
+                - --rpc-url
+                - http://localhost:8545
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - cast
+                - chain-id
+                - --rpc-url
+                - http://localhost:8545
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anvil
+  namespace: set-chain
+  labels:
+    app: anvil
+spec:
+  type: ClusterIP
+  selector:
+    app: anvil
+  ports:
+    - port: 8545
+      targetPort: 8545
+      protocol: TCP
+      name: rpc

@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: deploy-contracts
+  namespace: set-chain
+  labels:
+    app: deploy-contracts
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: deploy-contracts
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-anvil
+          image: us-central1-docker.pkg.dev/stateset-network/stateset-container/anvil:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Anvil RPC..."
+              until cast chain-id --rpc-url http://anvil.set-chain.svc.cluster.local:8545 2>/dev/null; do
+                echo "  Anvil not ready, retrying..."
+                sleep 2
+              done
+              echo "Anvil is up, chain ID: $(cast chain-id --rpc-url http://anvil.set-chain.svc.cluster.local:8545)"
+      containers:
+        - name: deployer
+          image: us-central1-docker.pkg.dev/stateset-network/stateset-container/anvil:latest
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              RPC=http://anvil.set-chain.svc.cluster.local:8545
+              DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+              echo "============================================"
+              echo "  Deploying Set Chain Contracts"
+              echo "============================================"
+
+              # Check if contracts are already deployed
+              CODE=$(cast code 0xe7f1725e7734ce288f8367e1bb143e90bb3f0512 --rpc-url $RPC 2>/dev/null || echo "0x")
+              if [ "$CODE" != "0x" ] && [ -n "$CODE" ]; then
+                echo "Contracts already deployed, skipping."
+                exit 0
+              fi
+
+              cd /contracts
+              forge script script/Deploy.s.sol \
+                --rpc-url $RPC \
+                --private-key $DEPLOYER_KEY \
+                --broadcast \
+                -vvv
+
+              echo ""
+              echo "Verifying SetRegistry at 0xe7f1725e7734ce288f8367e1bb143e90bb3f0512..."
+              cast call 0xe7f1725e7734ce288f8367e1bb143e90bb3f0512 "owner()(address)" --rpc-url $RPC
+              echo "Contracts deployed successfully!"
+          volumeMounts:
+            - name: contracts
+              mountPath: /contracts
+      volumes:
+        - name: contracts
+          emptyDir: {}

@@ -17,6 +17,7 @@ jwt.txt
 p2p-node-key.txt
 **/jwt.txt
 **/p2p-node-key.txt
+/k8s/secrets.yaml
 
 # =============================================================================
 # Rust
@@ -24,7 +25,9 @@ p2p-node-key.txt
 /anchor/target/
 **/target/
 **/*.rs.bk
-Cargo.lock
+# Application binaries must commit their lockfile for reproducible builds.
+# The workspace lockfile lives at the repository root.
+/anchor/Cargo.lock
 
 # =============================================================================
 # Solidity / Foundry
@@ -48,7 +51,9 @@ Cargo.lock
 # Node.js / Hardhat
 # =============================================================================
 node_modules/
+# The SDK is published and tested with npm; keep its lockfile in version control.
 package-lock.json
+!/sdk/package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -145,3 +150,6 @@ anchor/data/
 *.temp
 .cache/
 *.orig
+.autoresearch/
+.autoresearch-stablecoin/
+.codex

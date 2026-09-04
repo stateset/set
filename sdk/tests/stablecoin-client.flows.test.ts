@@ -7,7 +7,7 @@ vi.mock("ethers", async () => {
 
   return {
     ...actual,
-    Contract: vi.fn((address: string) => {
+    Contract: vi.fn(function Contract(address: string) {
       const contract = contractRegistry.get(address);
       if (!contract) {
         throw new Error(`Missing mock contract for ${address}`);

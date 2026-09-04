@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anchor-config
+  namespace: set-chain
+data:
+  L2_RPC_URL: "http://anvil.set-chain.svc.cluster.local:8545"
+  SET_REGISTRY_ADDRESS: "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+  SEQUENCER_API_URL: "http://stateset-sequencer.sequencer.svc.cluster.local:80"
+  ANCHOR_INTERVAL_SECS: "60"
+  MIN_EVENTS_FOR_ANCHOR: "100"
+  HEALTH_PORT: "9090"
+  EXPECTED_L2_CHAIN_ID: "84532001"
+  RUST_LOG: "info,set_anchor=debug"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: set-anchor
+  namespace: set-chain
+  labels:
+    app: set-anchor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: set-anchor
+  template:
+    metadata:
+      labels:
+        app: set-anchor
+    spec:
+      initContainers:
+        - name: wait-for-anvil
+          image: us-central1-docker.pkg.dev/stateset-network/stateset-container/anvil:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Anvil..."
+              until cast chain-id --rpc-url http://anvil.set-chain.svc.cluster.local:8545 2>/dev/null; do
+                sleep 2
+              done
+              echo "Anvil ready"
+        - name: deploy-contracts
+          image: us-central1-docker.pkg.dev/stateset-network/stateset-container/anvil:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Deploying contracts to Set Chain..."
+              cd /contracts
+              forge script script/Deploy.s.sol \
+                --rpc-url http://anvil.set-chain.svc.cluster.local:8545 \
+                --private-key $DEPLOYER_PRIVATE_KEY \
+                --broadcast \
+                -vvv || echo "Contracts may already be deployed, continuing..."
+          env:
+            - name: DEPLOYER_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: set-chain-secrets
+                  key: DEPLOYER_PRIVATE_KEY
+          volumeMounts:
+            - name: contracts
+              mountPath: /contracts
+      containers:
+        - name: set-anchor
+          image: us-central1-docker.pkg.dev/stateset-network/stateset-container/set-anchor:latest
+          ports:
+            - containerPort: 9090
+              name: health
+          envFrom:
+            - configMapRef:
+                name: anchor-config
+          env:
+            - name: SEQUENCER_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: set-chain-secrets
+                  key: SEQUENCER_PRIVATE_KEY
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: contracts
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: set-anchor
+  namespace: set-chain
+  labels:
+    app: set-anchor
+spec:
+  type: ClusterIP
+  selector:
+    app: set-anchor
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: health

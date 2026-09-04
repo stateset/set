@@ -9,6 +9,9 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CONTRACTS_DIR="$PROJECT_ROOT/contracts"
 REPORTS_DIR="$PROJECT_ROOT/reports/security"
 
+# shellcheck source=./foundry-common.sh
+. "$SCRIPT_DIR/foundry-common.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -41,27 +44,13 @@ run_slither() {
 
     cd "$CONTRACTS_DIR"
 
-    # Run slither with JSON output
-    echo "Analyzing SetRegistry.sol..."
-    slither SetRegistry.sol \
+    # Analyze the full production source tree and fail on high-severity findings.
+    slither . \
         --config-file slither.config.json \
-        --json "$REPORTS_DIR/slither-registry.json" \
+        --fail-high \
+        --json "$REPORTS_DIR/slither.json" \
         --markdown-root . \
-        2>&1 | tee "$REPORTS_DIR/slither-registry.log" || true
-
-    echo "Analyzing commerce/SetPaymaster.sol..."
-    slither commerce/SetPaymaster.sol \
-        --config-file slither.config.json \
-        --json "$REPORTS_DIR/slither-paymaster.json" \
-        --markdown-root . \
-        2>&1 | tee "$REPORTS_DIR/slither-paymaster.log" || true
-
-    echo "Analyzing governance/SetTimelock.sol..."
-    slither governance/SetTimelock.sol \
-        --config-file slither.config.json \
-        --json "$REPORTS_DIR/slither-timelock.json" \
-        --markdown-root . \
-        2>&1 | tee "$REPORTS_DIR/slither-timelock.log" || true
+        2>&1 | tee "$REPORTS_DIR/slither.log"
 
     echo -e "${GREEN}Slither analysis complete. Reports saved to $REPORTS_DIR${NC}"
 }
@@ -82,7 +71,7 @@ run_aderyn() {
     aderyn . \
         --output "$REPORTS_DIR/aderyn-report.md" \
         --exclude "lib/,test/,script/" \
-        2>&1 | tee "$REPORTS_DIR/aderyn.log" || true
+        2>&1 | tee "$REPORTS_DIR/aderyn.log"
 
     echo -e "${GREEN}Aderyn analysis complete. Report saved to $REPORTS_DIR/aderyn-report.md${NC}"
 }
@@ -94,7 +83,7 @@ run_forge_tests() {
 
     cd "$CONTRACTS_DIR"
 
-    forge test --gas-report 2>&1 | tee "$REPORTS_DIR/forge-test-gas.log"
+    run_foundry_tool forge test --gas-report 2>&1 | tee "$REPORTS_DIR/forge-test-gas.log"
 
     echo -e "${GREEN}Forge tests complete.${NC}"
 }
@@ -107,11 +96,11 @@ generate_summary() {
     cd "$CONTRACTS_DIR"
 
     # Contract sizes
-    forge build --sizes 2>&1 | tee "$REPORTS_DIR/contract-sizes.log"
+    run_foundry_tool forge build --sizes 2>&1 | tee "$REPORTS_DIR/contract-sizes.log"
 
     # Storage layout
-    forge inspect SetRegistry storage --pretty > "$REPORTS_DIR/storage-registry.txt" 2>/dev/null || true
-    forge inspect SetPaymaster storage --pretty > "$REPORTS_DIR/storage-paymaster.txt" 2>/dev/null || true
+    run_foundry_tool forge inspect SetRegistry storage --pretty > "$REPORTS_DIR/storage-registry.txt"
+    run_foundry_tool forge inspect SetPaymaster storage --pretty > "$REPORTS_DIR/storage-paymaster.txt"
 
     echo -e "${GREEN}Summary generated.${NC}"
 }
@@ -150,9 +139,7 @@ This report summarizes the results of automated security analysis tools.
 
 Review the individual tool reports for detailed findings:
 
-- `slither-registry.json` - SetRegistry findings
-- `slither-paymaster.json` - SetPaymaster findings
-- `slither-timelock.json` - SetTimelock findings
+- `slither.json` - full contract-tree findings
 - `aderyn-report.md` - Cross-contract analysis
 
 ## Recommendations

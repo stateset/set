@@ -505,6 +505,9 @@ docker-compose -f docker-compose.reth.yml up -d
 ### Contract Tests
 
 ```bash
+# Fast security-critical gate
+./scripts/dev.sh test-critical
+
 cd contracts
 
 # Run all tests
