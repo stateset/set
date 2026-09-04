@@ -699,7 +699,7 @@ Alternative L1 clients: Nethermind, Reth.
 | Component | Technology | Version |
 |-----------|------------|---------|
 | Smart contracts | Solidity | 0.8.20 |
-| Contract framework | Foundry (Forge) | Latest |
+| Contract framework | Foundry (Forge) | v1.8.1 |
 | Anchor service | Rust | 2021 Edition |
 | Async runtime | Tokio | Full features |
 | Ethereum client | Alloy | 0.9 |

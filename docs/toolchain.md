@@ -3,9 +3,9 @@
 Pinned tool versions for reproducible builds:
 
 - Rust: 1.90.0 (see `rust-toolchain.toml`)
-- Node.js: 20.x for SDK tests and release workflows (see `sdk/package.json`, `.github/workflows/security.yml`)
-- Foundry: nightly-2024-05-20 (see `.foundry-version`)
-  - Docker fallback defaults to `ghcr.io/foundry-rs/foundry:nightly`
+- Node.js: 20.20.0 for SDK tests and release workflows (see `sdk/package.json`, `.github/workflows/security.yml`)
+- Foundry: v1.8.1 (see `.foundry-version`)
+  - Docker fallback uses `ghcr.io/foundry-rs/foundry:v1.8.1`
   - Set `FOUNDRY_DOCKER_IMAGE` to pin an exact GHCR tag or digest if you need Docker to match a specific Foundry build
 
 ## Updating Versions

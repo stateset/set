@@ -35,7 +35,7 @@ foundry_version() {
         return
     fi
 
-    echo "nightly-2024-05-20"
+    echo "v1.8.1"
 }
 
 foundry_image() {
@@ -47,7 +47,7 @@ foundry_image() {
     local version
     version="$(foundry_version)"
 
-    if grep -Eq '^(stable|latest|nightly|nightly-[0-9a-f]{40})$' <<< "$version"; then
+    if grep -Eq '^(stable|latest|nightly|nightly-[0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+)$' <<< "$version"; then
         echo "ghcr.io/foundry-rs/foundry:${version}"
         return
     fi

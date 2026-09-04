@@ -11,7 +11,7 @@ CI).
 
 ## Current Status
 
-**Engineering baseline: A candidate. Production launch readiness: incomplete.**
+**Engineering baseline: A+ candidate. Production launch readiness: incomplete.**
 
 This scorecard treats code, local tests, deployed systems, and independently
 verified systems as distinct states. A checked item must have the evidence it
@@ -81,6 +81,20 @@ A 10/10 devx score requires:
 - [x] SDK documentation and examples (`sdk/README.md`)
 - [x] API reference documentation (`docs/api-reference.md`)
 - [x] Glossary of terms (`docs/glossary.md`)
+
+### Release Engineering (10/10 implementation)
+A 10/10 release-engineering score requires:
+- [x] Annotated tags matched to package versions (`scripts/check-release-readiness.sh`)
+- [x] Complete contract, invariant, Rust/Anvil, and SDK certification on release tags
+- [x] Immutable commit-SHA pins for all third-party GitHub Actions
+- [x] Reproducible SDK and Rust lockfiles with pinned toolchains
+- [x] SPDX SBOM and SHA-256 checksums for release artifacts
+- [x] GitHub build-provenance attestations
+- [x] Secret-file and CI-pin checks before packaging
+- [x] Automated dependency update configuration (`.github/dependabot.yml`)
+- [x] Public vulnerability disclosure policy (`SECURITY.md`)
+- [x] Time-bound, fail-closed dependency exception policy (`docs/security-exceptions.md`)
+- [x] Default-branch enforcement settings documented (`docs/repository-settings.md`)
 
 ### Ecosystem and Adoption (9/10)
 A 10/10 ecosystem score requires:
@@ -240,4 +254,5 @@ docker compose -f docker/docker-compose.explorer.yml up -d
 |------|-------|-------|
 | 2024-XX-XX | 7/10 | Initial assessment |
 | 2024-XX-XX | 9/10 | Added governance, explorer, bridge, security tooling |
-| TBD | 10/10 | Audit + Sepolia deployment + fault proof exercise |
+| 2026-09-04 | A+ engineering candidate | Release certification, provenance, full Anvil tests, pinned CI |
+| TBD | 10/10 production | Audit + Sepolia deployment + fault proof exercise |

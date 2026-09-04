@@ -14,7 +14,10 @@ on:
       - '.github/workflows/security.yml'
   push:
     branches:
+      - master
       - main
+    tags:
+      - 'v*'
     paths:
       - 'contracts/**/*.sol'
       - 'anchor/**'
@@ -27,27 +30,38 @@ on:
       - '.github/workflows/security.yml'
   workflow_dispatch:
 
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   slither:
     name: Slither Analysis
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: nightly-2024-05-20
+          version: v1.8.1
 
       - name: Install upgradeable contracts
         working-directory: contracts
         run: forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
 
       - name: Run Slither
-        uses: crytic/slither-action@v0.4.0
+        uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
         with:
           target: contracts/
           slither-config: contracts/slither.config.json
@@ -55,24 +69,25 @@ jobs:
           sarif: results.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@5ba2889ada762081db2c4f32a729827dce632c7b # v3
         if: always()
         with:
           sarif_file: results.sarif
 
   forge-tests:
     name: Forge Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: nightly-2024-05-20
+          version: v1.8.1
 
       - name: Install upgradeable contracts
         working-directory: contracts
@@ -95,17 +110,18 @@ jobs:
 
   coverage:
     name: Test Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: nightly-2024-05-20
+          version: v1.8.1
 
       - name: Install upgradeable contracts
         working-directory: contracts
@@ -121,50 +137,55 @@ jobs:
 
   rust-tests:
     name: Rust Anchor Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: 1.90.0
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            anchor/target/
+            target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
-      - name: Run unit tests
-        working-directory: anchor
-        run: cargo test --lib
+      - name: Install Foundry for Anvil integration tests
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+
+      - name: Run unit and integration tests
+        run: cargo test --workspace
+
+      - name: Run Anvil integration tests
+        run: cargo test --test integration -- --ignored --test-threads=1
 
       - name: Run clippy
-        working-directory: anchor
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Check formatting
-        working-directory: anchor
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
   sdk-tests:
     name: SDK Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '20.20.0'
           cache: 'npm'
           cache-dependency-path: sdk/package-lock.json
 
@@ -190,13 +211,14 @@ jobs:
 
   dependency-audit:
     name: Dependency Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: 1.90.0
 
@@ -204,13 +226,12 @@ jobs:
         run: cargo install cargo-audit --version 0.22.0 --locked
 
       - name: Audit Rust dependencies
-        working-directory: anchor
-        run: cargo audit
+        run: ./scripts/cargo-audit.sh
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '20.20.0'
 
       - name: Install SDK dependencies
         working-directory: sdk

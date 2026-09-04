@@ -2,6 +2,43 @@
 
 All notable changes to Set will be documented in this file.
 
+## [Unreleased]
+
+## [0.3.5] - 2026-09-04
+
+### Added
+
+- Release certification with full contract/invariant, Rust/Anvil, and SDK quality gates
+- SPDX SBOMs, SHA-256 checksums, and build-provenance attestations for tagged releases
+- Automated dependency update configuration and a public vulnerability disclosure policy
+- A strict CI failure policy for new RustSec advisories classified as unsound, with documented
+  time-bound exceptions for the pinned Alloy provider line
+
+### Fixed
+
+- Replaced the stale anchor integration bytecode placeholder with an auditable Solidity fixture
+- Restored execution of all four Anvil-dependent anchor integration tests
+- Corrected a NatSpec mismatch that prevented compilation of the complete Solidity suite
+- Removed the unsound `scc` test dependency and refreshed compatible Rust dependencies
+- Replaced the obsolete Foundry nightly and incorrect default-branch CI trigger with pinned,
+  supported release settings
+
+## [0.3.4] - 2026-09-04
+
+### Added
+
+- Commerce order escrow and full-precision FX oracle contracts with dedicated tests
+- Proof-of-reserves v2 contracts, breaker coverage, and hardened reserve attestor service
+- Kubernetes deployment templates with secret-safe examples
+- Reproducible SDK and Rust lockfiles, pinned toolchains, linting, and critical smoke suites
+
+### Fixed
+
+- Restored SetRegistry batch and STARK-proof accounting counters
+- Enforced escrow confirmation windows and fee-on-transfer solvency checks
+- Added checked proof-of-reserves configuration bounds and attestor readiness validation
+- Hardened SDK health, encryption, event, retry, and gas-flow behavior
+
 ## [0.2.1] - 2026-02-27
 
 ### Fixed

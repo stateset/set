@@ -606,7 +606,8 @@ contract wSSDC is
      * @param receiver Address receiving shares
      * @return maxAssets Maximum depositable assets
      */
-    function maxDeposit(address) public view override returns (uint256 maxAssets) {
+    function maxDeposit(address receiver) public view override returns (uint256 maxAssets) {
+        receiver;
         if (paused()) return 0;
         if (depositCap == 0) return type(uint256).max;
         if (totalDeposited >= depositCap) return 0;

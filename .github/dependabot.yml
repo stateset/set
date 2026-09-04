@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /sdk
+    schedule:
+      interval: weekly
+    groups:
+      sdk-production:
+        dependency-type: production
+      sdk-development:
+        dependency-type: development
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      rust:
+        patterns: ['*']

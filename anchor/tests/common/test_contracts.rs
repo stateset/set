@@ -11,6 +11,8 @@ use alloy::{
     transports::http::Http,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
+use anyhow::{bail, Context};
+use std::process::Command;
 
 type HttpTransport = Http<reqwest::Client>;
 
@@ -114,8 +116,7 @@ impl TestSetRegistry {
             .wallet(wallet)
             .on_http(rpc_url.parse()?);
 
-        // Deploy the contract
-        // For testing, we'll deploy a simple mock that implements the interface
+        // Deploy the source-auditable test double.
         let address = Self::deploy_mock_registry(&provider, owner, sequencer).await?;
 
         // Format private keys as hex strings
@@ -136,17 +137,7 @@ impl TestSetRegistry {
         owner: Address,
         sequencer: Address,
     ) -> anyhow::Result<Address> {
-        // For integration tests, we use a pre-compiled bytecode
-        // In a real scenario, you'd compile the contract with forge
-
-        // Try to load bytecode from fixtures, otherwise use inline mock
-        let bytecode = if let Ok(hex_bytecode) = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/SetRegistry.bin"),
-        ) {
-            hex::decode(hex_bytecode.trim()).unwrap_or_else(|_| Self::mock_bytecode())
-        } else {
-            Self::mock_bytecode()
-        };
+        let bytecode = Self::compile_mock_registry()?;
 
         // Deploy contract
         let tx = alloy::rpc::types::TransactionRequest::default().with_deploy_code(bytecode);
@@ -170,12 +161,53 @@ impl TestSetRegistry {
         Ok(address)
     }
 
-    /// Generate mock bytecode for a simple registry
-    /// This is a fallback when the actual contract bytecode isn't available
-    fn mock_bytecode() -> Vec<u8> {
-        // This would be replaced with actual compiled bytecode in CI
-        // For now, return empty to trigger compilation requirement
-        vec![]
+    /// Compile the test registry from auditable Solidity source.
+    ///
+    /// Keeping source instead of opaque checked-in bytecode prevents the fixture from silently
+    /// drifting away from the ABI exercised by these integration tests.
+    fn compile_mock_registry() -> anyhow::Result<Vec<u8>> {
+        let fixture_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let build_dir = tempfile::tempdir().context("create temporary Foundry build directory")?;
+        let out_dir = build_dir.path().join("out");
+        let cache_dir = build_dir.path().join("cache");
+        let forge = std::env::var_os("FOUNDRY_FORGE").unwrap_or_else(|| "forge".into());
+
+        let output = Command::new(forge)
+            .args(["build", "--root"])
+            .arg(&fixture_root)
+            .arg("--out")
+            .arg(&out_dir)
+            .arg("--cache-path")
+            .arg(&cache_dir)
+            .output()
+            .context("run forge to compile the SetRegistry integration fixture")?;
+
+        if !output.status.success() {
+            bail!(
+                "fixture compilation failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+
+        let artifact_path = out_dir.join("TestSetRegistry.sol/TestSetRegistry.json");
+        let artifact: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&artifact_path).with_context(|| {
+                format!("read fixture artifact at {}", artifact_path.display())
+            })?)
+            .context("parse fixture artifact")?;
+        let encoded_bytecode = artifact
+            .pointer("/bytecode/object")
+            .and_then(serde_json::Value::as_str)
+            .context("fixture artifact has no deployable bytecode")?;
+        let object = encoded_bytecode
+            .strip_prefix("0x")
+            .unwrap_or(encoded_bytecode);
+
+        let bytecode = hex::decode(object).context("decode fixture deployment bytecode")?;
+        if bytecode.is_empty() {
+            bail!("fixture compiler returned empty deployment bytecode");
+        }
+        Ok(bytecode)
     }
 
     /// Check if sequencer is authorized

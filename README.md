@@ -34,6 +34,7 @@ Notes:
 - [Security](#security)
 - [Decentralization and Fault Proofs](#decentralization-and-fault-proofs)
 - [Scorecard](#scorecard)
+- [Release process](docs/release-process.md)
 - [Troubleshooting](#troubleshooting)
 - [Resources](#resources)
 
@@ -167,7 +168,7 @@ set/
 | Component | Technology | Version |
 |-----------|------------|---------|
 | Smart Contracts | Solidity | 0.8.20 |
-| Contract Framework | Foundry (Forge) | Latest |
+| Contract Framework | Foundry (Forge) | v1.8.1 |
 | Anchor Service | Rust | 2021 Edition |
 | Async Runtime | Tokio | Full features |
 | Ethereum Client | Alloy | 0.9 |

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use serial_test::serial;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -418,7 +417,6 @@ async fn test_service_skips_below_threshold() {
 
 #[tokio::test]
 #[ignore = "requires anvil binary - run with: cargo test -- --ignored"]
-#[serial]
 async fn test_full_anchor_flow_with_anvil() {
     // Deploy contract to Anvil
     let registry = TestSetRegistry::deploy()
@@ -497,7 +495,6 @@ async fn test_full_anchor_flow_with_anvil() {
 
 #[tokio::test]
 #[ignore = "requires anvil binary - run with: cargo test -- --ignored"]
-#[serial]
 async fn test_multiple_commitments_anchored_sequentially() {
     let registry = TestSetRegistry::deploy()
         .await
@@ -545,7 +542,6 @@ async fn test_multiple_commitments_anchored_sequentially() {
 
 #[tokio::test]
 #[ignore = "requires anvil binary - run with: cargo test -- --ignored"]
-#[serial]
 async fn test_unauthorized_sequencer_fails() {
     let registry = TestSetRegistry::deploy()
         .await

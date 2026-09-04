@@ -3,8 +3,10 @@
 #[cfg(test)]
 mod config_tests {
     use crate::config::AnchorConfig;
-    use serial_test::serial;
-    use std::env;
+    use once_cell::sync::Lazy;
+    use std::{env, sync::Mutex};
+
+    static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     fn clear_env_vars() {
         env::remove_var("L2_RPC_URL");
@@ -27,8 +29,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_from_env_required_fields() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
 
         // Missing required fields should error
@@ -54,8 +56,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_defaults() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var(
             "SET_REGISTRY_ADDRESS",
@@ -88,8 +90,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_validate_valid() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var(
             "SET_REGISTRY_ADDRESS",
@@ -107,8 +109,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_validate_bad_registry_address() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var("SET_REGISTRY_ADDRESS", "not-an-address");
         env::set_var(
@@ -128,8 +130,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_validate_bad_private_key() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var(
             "SET_REGISTRY_ADDRESS",
@@ -149,8 +151,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_validate_bad_url() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var(
             "SET_REGISTRY_ADDRESS",
@@ -171,8 +173,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_validate_zero_timeout() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var(
             "SET_REGISTRY_ADDRESS",
@@ -196,8 +198,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_validate_zero_max_retries() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var(
             "SET_REGISTRY_ADDRESS",
@@ -218,8 +220,8 @@ mod config_tests {
     }
 
     #[test]
-    #[serial]
     fn test_config_custom_values() {
+        let _guard = ENV_LOCK.lock().expect("environment test lock poisoned");
         clear_env_vars();
         env::set_var("SET_REGISTRY_ADDRESS", "0xabc");
         env::set_var("SEQUENCER_PRIVATE_KEY", "0x123");
