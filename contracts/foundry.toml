@@ -52,6 +52,41 @@ sparse_mode = true
 fuzz = { runs = 64, max_test_rejects = 4096 }
 invariant = { runs = 64, depth = 10 }
 
+# Coverage is deliberately rooted in release-critical contracts. The default
+# source root contains scripts and broad demo surfaces whose coverage-specific
+# minimal-IR instrumentation exceeds the Solidity compiler's Yul stack limit.
+[profile.coverage_registry]
+src = "coverage-src/registry"
+test = "coverage-test/registry"
+via_ir = true
+sparse_mode = true
+fuzz = { runs = 64, max_test_rejects = 4096 }
+invariant = { runs = 64, depth = 10 }
+
+[profile.coverage_escrow]
+src = "coverage-src/escrow"
+test = "coverage-test/escrow"
+via_ir = true
+sparse_mode = true
+fuzz = { runs = 64, max_test_rejects = 4096 }
+invariant = { runs = 64, depth = 10 }
+
+[profile.coverage_fx]
+src = "coverage-src/fx"
+test = "coverage-test/fx"
+via_ir = true
+sparse_mode = true
+fuzz = { runs = 64, max_test_rejects = 4096 }
+invariant = { runs = 64, depth = 10 }
+
+[profile.coverage_reserves]
+src = "coverage-src/reserves"
+test = "coverage-test/reserves"
+via_ir = true
+sparse_mode = true
+fuzz = { runs = 64, max_test_rejects = 4096 }
+invariant = { runs = 64, depth = 10 }
+
 # Autoresearch benchmark profile — via-IR required, focused gas reporting
 [profile.bench]
 via_ir = true

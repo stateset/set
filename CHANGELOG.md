@@ -20,6 +20,8 @@ All notable changes to Set will be documented in this file.
 - Migrated SARIF upload to the immutable CodeQL v4 action before the v3 retirement window
 - Added an on-demand devnet smoke entry point for pre-tag release-candidate certification
 - Upgraded GitHub-owned workflow actions to their current Node 24-based major releases
+- Replaced monolithic Solidity coverage with compiler-safe critical-contract shards, enforced
+  per-contract line thresholds, and retained LCOV reports as CI artifacts
 
 ## [0.3.5] - 2026-09-04
 
