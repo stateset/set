@@ -2,6 +2,7 @@ name: Devnet Smoke
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - master
