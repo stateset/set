@@ -19,6 +19,7 @@ All notable changes to Set will be documented in this file.
 - Enabled coverage's minimal IR pipeline for contracts that require via-IR compilation
 - Migrated SARIF upload to the immutable CodeQL v4 action before the v3 retirement window
 - Added an on-demand devnet smoke entry point for pre-tag release-candidate certification
+- Upgraded GitHub-owned workflow actions to their current Node 24-based major releases
 
 ## [0.3.5] - 2026-09-04
 
