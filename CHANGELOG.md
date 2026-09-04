@@ -26,6 +26,8 @@ All notable changes to Set will be documented in this file.
   within deterministic CI time bounds while release and security workflows retain full coverage
 - Removed duplicate smoke compilation from the comprehensive Forge job and sized its timeout for
   the release-equivalent via-IR build on standard hosted runners
+- Added a production-equivalent sparse profile for local deployment scripts, avoiding compilation
+  of test-only sources during devnet smoke checks
 
 ## [0.3.5] - 2026-09-04
 

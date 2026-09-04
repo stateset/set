@@ -102,7 +102,7 @@ cmd_deploy() {
     log_info "Deploying contracts..."
     echo ""
 
-    run_foundry_tool forge script script/Deploy.s.sol \
+    FOUNDRY_PROFILE=devnet run_foundry_tool forge script script/Deploy.s.sol:DeployScript \
         --rpc-url "$RPC_URL" \
         --broadcast \
         -vvv

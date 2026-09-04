@@ -74,7 +74,7 @@ jobs:
         run: ./scripts/dev.sh test-critical
 
       - name: Smoke test
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: ./scripts/dev.sh smoke
 
       - name: Anchor smoke test
