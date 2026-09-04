@@ -83,7 +83,7 @@ jobs:
           sarif_file: results.sarif
 
   forge-tests:
-    name: Forge Tests
+    name: Forge Unit and Integration Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -101,9 +101,39 @@ jobs:
         working-directory: contracts
         run: forge test --no-match-contract '.*Invariant.*' -vvv
 
+  forge-invariants:
+    name: Forge Invariant Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.8.1
+
       - name: Run invariant tests
         working-directory: contracts
         run: forge test --match-contract '.*Invariant.*' -vvv
+
+  forge-gas-report:
+    name: Forge Gas Report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.8.1
 
       - name: Gas report
         working-directory: contracts
