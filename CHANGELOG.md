@@ -4,6 +4,13 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-09-04
+
+### Fixed
+
+- Increased exhaustive invariant certification headroom after standard hosted runners reached the
+  previous job ceiling without reporting an assertion failure
+
 ## [0.3.6] - 2026-09-04
 
 ### Fixed
