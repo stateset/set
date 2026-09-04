@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-          submodules: recursive
+          submodules: true
 
       - name: Resolve requested tag
         id: release
@@ -38,8 +38,11 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             tag="${INPUT_TAG}"
-            git checkout "refs/tags/${tag}"
           fi
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+          git checkout "refs/tags/${tag}^{}"
+          git submodule sync
+          git submodule update --init --depth 1
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
@@ -56,10 +59,6 @@ jobs:
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.8.1
-
-      - name: Install upgradeable contract dependency
-        working-directory: contracts
-        run: forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
 
       - name: Test critical contract paths
         run: ./scripts/test-contract-smoke.sh
@@ -117,8 +116,9 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             tag="${INPUT_TAG}"
-            git checkout "refs/tags/${tag}"
           fi
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+          git checkout "refs/tags/${tag}^{}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js

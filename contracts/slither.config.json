@@ -1,9 +1,5 @@
 {
-  "filter_paths": [
-    "lib/",
-    "test/",
-    "script/"
-  ],
+  "filter_paths": "lib/|test/|script/",
   "solc_remaps": [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
@@ -15,12 +11,6 @@
   "exclude_medium": false,
   "exclude_high": false,
   "exclude_optimization": true,
-  "detectors_to_exclude": [
-    "naming-convention",
-    "solc-version"
-  ],
-  "printers_to_run": [
-    "contract-summary",
-    "function-summary"
-  ]
+  "detectors_to_exclude": "naming-convention,solc-version",
+  "printers_to_run": "contract-summary,function-summary"
 }

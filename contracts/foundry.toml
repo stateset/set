@@ -6,7 +6,11 @@ libs = ["lib"]
 test = "test"
 script = "script"
 cache_path = "cache"
-skip = ["lib/openzeppelin-contracts/certora/**", "lib/openzeppelin-contracts/test/**"]
+skip = [
+    "lib/**/certora/**",
+    "lib/**/test/**",
+    "lib/**/lib/**",
+]
 
 # Explicit remappings
 remappings = [

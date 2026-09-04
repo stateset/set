@@ -9,6 +9,11 @@ on:
       - 'Cargo.lock'
       - 'sdk/package-lock.json'
       - 'contracts/foundry.toml'
+      - 'contracts/foundry.lock'
+      - 'contracts/lib/**'
+      - 'contracts/slither.config.json'
+      - '.gitmodules'
+      - 'scripts/dev.sh'
       - 'scripts/foundry-common.sh'
       - 'scripts/test-contract-smoke.sh'
       - '.github/workflows/security.yml'
@@ -25,6 +30,11 @@ on:
       - 'Cargo.lock'
       - 'sdk/package-lock.json'
       - 'contracts/foundry.toml'
+      - 'contracts/foundry.lock'
+      - 'contracts/lib/**'
+      - 'contracts/slither.config.json'
+      - '.gitmodules'
+      - 'scripts/dev.sh'
       - 'scripts/foundry-common.sh'
       - 'scripts/test-contract-smoke.sh'
       - '.github/workflows/security.yml'
@@ -49,16 +59,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.8.1
-
-      - name: Install upgradeable contracts
-        working-directory: contracts
-        run: forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
 
       - name: Run Slither
         uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
@@ -69,8 +75,8 @@ jobs:
           sarif: results.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@5ba2889ada762081db2c4f32a729827dce632c7b # v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        if: ${{ always() && hashFiles('results.sarif') != '' }}
         with:
           sarif_file: results.sarif
 
@@ -82,16 +88,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.8.1
-
-      - name: Install upgradeable contracts
-        working-directory: contracts
-        run: forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
 
       - name: Run critical contract smoke suites
         run: ./scripts/test-contract-smoke.sh
@@ -116,24 +118,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.8.1
 
-      - name: Install upgradeable contracts
-        working-directory: contracts
-        run: forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
-
       - name: Run coverage
         working-directory: contracts
-        run: forge coverage --report summary
+        run: forge coverage --ir-minimum --report summary
 
       - name: Generate lcov report
         working-directory: contracts
-        run: forge coverage --report lcov
+        run: forge coverage --ir-minimum --report lcov
 
   rust-tests:
     name: Rust Anchor Tests
@@ -161,6 +159,8 @@ jobs:
 
       - name: Install Foundry for Anvil integration tests
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.8.1
 
       - name: Run unit and integration tests
         run: cargo test --workspace

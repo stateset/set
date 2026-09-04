@@ -4,6 +4,21 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-09-04
+
+### Fixed
+
+- Made the upgradeable OpenZeppelin dependency a pinned first-class submodule and stopped CI
+  from recursively compiling dependency-owned tests and formal-verification harnesses
+- Preserved annotated tag objects during release checkout so certification verifies tag type
+  instead of an Actions-generated lightweight checkout reference
+- Made fallback Foundry dependency installation shallow and independent of repository metadata
+- Pinned the deployment helper's fallback dependencies to the release-audited revisions
+- Added release checks that prove each Foundry lock revision matches an initialized direct submodule
+- Corrected Slither option types and made SARIF upload conditional on successful report creation
+- Enabled coverage's minimal IR pipeline for contracts that require via-IR compilation
+- Migrated SARIF upload to the immutable CodeQL v4 action before the v3 retirement window
+
 ## [0.3.5] - 2026-09-04
 
 ### Added

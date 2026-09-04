@@ -121,17 +121,17 @@ build_contracts() {
     # Install dependencies if needed
     if [ ! -d "lib/forge-std" ]; then
         log_info "Installing forge-std..."
-        forge install foundry-rs/forge-std --no-commit
+        forge install foundry-rs/forge-std@7117c90c8cf6c68e5acce4f09a6b24715cea4de6 --no-git --shallow
     fi
 
     if [ ! -d "lib/openzeppelin-contracts" ]; then
         log_info "Installing OpenZeppelin contracts..."
-        forge install OpenZeppelin/openzeppelin-contracts --no-commit
+        forge install OpenZeppelin/openzeppelin-contracts@932fddf69a699a9a80fd2396fd1a2ab91cdda123 --no-git --shallow
     fi
 
     if [ ! -d "lib/openzeppelin-contracts-upgradeable" ]; then
         log_info "Installing OpenZeppelin upgradeable contracts..."
-        forge install OpenZeppelin/openzeppelin-contracts-upgradeable --no-commit
+        forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-git --shallow
     fi
 
     # Build

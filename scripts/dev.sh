@@ -31,9 +31,9 @@ ensure_deps() {
        [ ! -d "lib/openzeppelin-contracts/contracts" ] || \
        [ ! -d "lib/openzeppelin-contracts-upgradeable/contracts" ]; then
         log_info "Installing Foundry dependencies..."
-        run_foundry_tool forge install foundry-rs/forge-std@7117c90c8cf6c68e5acce4f09a6b24715cea4de6 --no-commit
-        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts@932fddf69a699a9a80fd2396fd1a2ab91cdda123 --no-commit
-        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-commit
+        run_foundry_tool forge install foundry-rs/forge-std@7117c90c8cf6c68e5acce4f09a6b24715cea4de6 --no-git --shallow
+        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts@932fddf69a699a9a80fd2396fd1a2ab91cdda123 --no-git --shallow
+        run_foundry_tool forge install OpenZeppelin/openzeppelin-contracts-upgradeable@625fb3c2b2696f1747ba2e72d1e1113066e6c177 --no-git --shallow
     fi
 }
 
