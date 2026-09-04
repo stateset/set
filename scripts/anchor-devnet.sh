@@ -81,6 +81,18 @@ anchor_command() {
         return
     fi
 
+    # Cargo workspaces place build artifacts in the workspace-level target
+    # directory, even when invoked with the member manifest path.
+    if [ -x "$ROOT_DIR/target/release/set-anchor" ]; then
+        echo "$ROOT_DIR/target/release/set-anchor"
+        return
+    fi
+
+    if [ -x "$ROOT_DIR/target/debug/set-anchor" ]; then
+        echo "$ROOT_DIR/target/debug/set-anchor"
+        return
+    fi
+
     if [ -x "$ANCHOR_DIR/target/release/set-anchor" ]; then
         echo "$ANCHOR_DIR/target/release/set-anchor"
         return

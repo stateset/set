@@ -41,6 +41,17 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq pkg-config libssl-dev
 
@@ -76,6 +87,12 @@ jobs:
       - name: Smoke test
         timeout-minutes: 10
         run: ./scripts/dev.sh smoke
+
+      # Compile outside the runtime assertion window so a cold Cargo cache
+      # cannot be mistaken for an unhealthy Anchor service.
+      - name: Build Anchor service
+        timeout-minutes: 10
+        run: cargo build --locked --bin set-anchor
 
       - name: Anchor smoke test
         timeout-minutes: 5
