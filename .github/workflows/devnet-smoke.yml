@@ -66,9 +66,12 @@ jobs:
         timeout-minutes: 2
         run: ./scripts/dev.sh validate
 
-      - name: Contract tests
-        timeout-minutes: 25
-        run: ./scripts/dev.sh test
+      # The comprehensive suite is independently enforced by Security Analysis
+      # and Release Certification. Keep this workflow focused on the contracts
+      # exercised by the local deployment that follows.
+      - name: Critical contract tests
+        timeout-minutes: 10
+        run: ./scripts/dev.sh test-critical
 
       - name: Smoke test
         timeout-minutes: 5

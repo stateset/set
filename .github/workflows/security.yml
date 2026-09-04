@@ -85,7 +85,7 @@ jobs:
   forge-tests:
     name: Forge Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,9 +96,6 @@ jobs:
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.8.1
-
-      - name: Run critical contract smoke suites
-        run: ./scripts/test-contract-smoke.sh
 
       - name: Run tests
         working-directory: contracts

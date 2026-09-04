@@ -22,6 +22,10 @@ All notable changes to Set will be documented in this file.
 - Upgraded GitHub-owned workflow actions to their current Node 24-based major releases
 - Replaced monolithic Solidity coverage with compiler-safe critical-contract shards, enforced
   per-contract line thresholds, and retained LCOV reports as CI artifacts
+- Removed a redundant full-suite compilation from devnet smoke so local deployment checks stay
+  within deterministic CI time bounds while release and security workflows retain full coverage
+- Removed duplicate smoke compilation from the comprehensive Forge job and sized its timeout for
+  the release-equivalent via-IR build on standard hosted runners
 
 ## [0.3.5] - 2026-09-04
 
