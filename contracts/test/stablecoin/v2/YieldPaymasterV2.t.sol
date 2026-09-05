@@ -43,8 +43,8 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
 
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             100 * USD,
             uint40(block.timestamp + 1 days),
             false
@@ -99,8 +99,8 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             1_000 * USD,
             uint40(block.timestamp + 1 days),
             false
@@ -121,8 +121,8 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             80 * USD,
             uint40(block.timestamp + 1 days),
             false
@@ -150,8 +150,8 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             80 * USD,
             uint40(block.timestamp + 1 days),
             false
@@ -181,7 +181,7 @@ contract YieldPaymasterV2Test is SSDCV2TestBase {
         policy.setPolicy(
             user1,
             2 * USD,
-            type(uint256).max,
+            type(uint128).max,
             0,
             uint40(block.timestamp + 1 days),
             false

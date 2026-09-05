@@ -133,8 +133,8 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             0,
             uint40(block.timestamp + 1 days),
             false
@@ -156,8 +156,8 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             0,
             uint40(block.timestamp + 1 days),
             false
@@ -218,8 +218,8 @@ contract SSDCVaultGatewayV2Test is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             0,
             uint40(block.timestamp + 1 days),
             false

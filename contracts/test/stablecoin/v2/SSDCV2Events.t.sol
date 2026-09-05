@@ -137,7 +137,7 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
         policy.grantRole(policy.POLICY_CONSUMER_ROLE(), address(escrow));
         policy.grantRole(policy.POLICY_CONSUMER_ROLE(), address(paymaster));
         escrow.grantRole(escrow.FUNDER_ROLE(), user2);
-        policy.setPolicy(user1, type(uint256).max, type(uint256).max, 0, uint40(block.timestamp + 7 days), false);
+        policy.setPolicy(user1, type(uint128).max, type(uint128).max, 0, uint40(block.timestamp + 7 days), false);
         grounding.setCollateralProvider(address(paymaster), true);
 
         vm.stopPrank();
@@ -425,7 +425,7 @@ contract SSDCV2EventsTest is SSDCV2TestBase {
         _mintAndDeposit(user1, 1_000 ether);
 
         vm.prank(admin);
-        policy.setPolicy(user1, type(uint256).max, type(uint256).max, 0, 0, false);
+        policy.setPolicy(user1, type(uint128).max, type(uint128).max, 0, 0, false);
 
         vm.startPrank(user1);
         vault.approve(address(paymaster), type(uint256).max);

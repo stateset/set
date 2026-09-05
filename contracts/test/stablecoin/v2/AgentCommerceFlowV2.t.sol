@@ -58,8 +58,8 @@ contract AgentCommerceFlowV2Test is SSDCV2TestBase {
 
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             50 ether,
             uint40(block.timestamp + 7 days),
             false

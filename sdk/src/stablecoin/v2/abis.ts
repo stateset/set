@@ -79,7 +79,12 @@ export const ssdcClaimQueueV2Abi = [
 ] as const;
 
 export const ssdcPolicyModuleV2Abi = [
-  "function policies(address) view returns (uint256 perTxLimitAssets, uint256 dailyLimitAssets, uint256 spentTodayAssets, uint40 dayStart, uint256 minAssetsFloor, uint256 committedAssets, uint40 sessionExpiry, bool enforceMerchantAllowlist, bool exists)",
+  "function policies(address) view returns (uint128 perTxLimitAssets, uint128 dailyLimitAssets, uint128 spentTodayAssets, uint128 minAssetsFloor, uint128 committedAssets, uint40 dayStart, uint40 sessionExpiry, bool enforceMerchantAllowlist, bool exists)",
+  "function policyRevoked(address agent) view returns (bool)",
+  "function setPolicyRevoked(address agent, bool revoked) external",
+  "error POLICY_AMOUNT_OVERFLOW()",
+  "error POLICY_REVOKED()",
+  "event PolicyRevocationUpdated(address indexed agent, bool revoked)",
   "function merchantAllowlist(address agent, address merchant) view returns (bool)",
   "function setPolicy(address agent, uint256 perTxLimitAssets, uint256 dailyLimitAssets, uint256 minAssetsFloor, uint40 sessionExpiry, bool enforceMerchantAllowlist) external",
   "function setMerchantAllowed(address agent, address merchant, bool allowed) external",

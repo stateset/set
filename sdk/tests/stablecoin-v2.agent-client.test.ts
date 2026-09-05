@@ -39,6 +39,7 @@ function makeStatus(overrides: Partial<AgentStatus> = {}): AgentStatus {
     isGrounded: false,
     availableSpend: 8_000_000n,
     sessionActive: true,
+    policyRevoked: false,
     ...overrides,
   };
 }
@@ -358,7 +359,7 @@ describe("AgentClient read helpers", () => {
       signer: { getAddress: ReturnType<typeof vi.fn> };
       vault: { balanceOf: ReturnType<typeof vi.fn> };
       paymaster: { gasTankShares: ReturnType<typeof vi.fn> };
-      policyModule: { policies: ReturnType<typeof vi.fn> };
+      policyModule: { policies: ReturnType<typeof vi.fn>; policyRevoked: ReturnType<typeof vi.fn> };
       groundingRegistry: {
         isGroundedNow: ReturnType<typeof vi.fn>;
         currentAssets: ReturnType<typeof vi.fn>;
@@ -375,6 +376,7 @@ describe("AgentClient read helpers", () => {
       gasTankShares: vi.fn().mockResolvedValue(123n),
     };
     client.policyModule = {
+      policyRevoked: vi.fn().mockResolvedValue(false),
       policies: vi.fn().mockResolvedValue({
         perTxLimitAssets: 1_500_000n,
         dailyLimitAssets: 5_000_000n,

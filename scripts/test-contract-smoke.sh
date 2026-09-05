@@ -31,5 +31,6 @@ run_suite registry test/smoke test/smoke/SetRegistryAccounting.t.sol
 run_suite escrow commerce test/OrderEscrow.t.sol
 run_suite fx commerce test/FxOracle.t.sol
 run_suite reserves stablecoin test/stablecoin/v2/ProofOfReservesV2.t.sol
+run_suite agent-policy stablecoin/v2 test/stablecoin/v2/SSDCPolicyModuleV2.t.sol
 
 echo "All critical contract smoke suites passed."

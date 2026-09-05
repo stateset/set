@@ -24,6 +24,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
 
     mapping(address => AgentPolicy) public policies;
     mapping(address => mapping(address => bool)) public merchantAllowlist;
+    mapping(address => bool) public policyRevoked;
 
     error ZeroAddress();
     error POLICY_NOT_SET();
@@ -32,6 +33,8 @@ contract SSDCPolicyModuleV2 is AccessControl {
     error POLICY_ALLOWLIST();
     error POLICY_SESSION_EXPIRED();
     error POLICY_COMMITMENT();
+    error POLICY_AMOUNT_OVERFLOW();
+    error POLICY_REVOKED();
 
     event PolicyUpdated(
         address indexed agent,
@@ -43,6 +46,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     );
 
     event MerchantAllowlistUpdated(address indexed agent, address indexed merchant, bool allowed);
+    event PolicyRevocationUpdated(address indexed agent, bool revoked);
     event PolicySpendConsumed(address indexed agent, uint256 assetsConsumed, uint256 spentTodayAssets);
     event PolicyGasSpendConsumed(address indexed agent, uint256 assetsConsumed, uint256 spentTodayAssets);
     event PolicyCommitmentReserved(address indexed agent, uint256 assetsReserved, uint256 committedAssets);
@@ -63,6 +67,8 @@ contract SSDCPolicyModuleV2 is AccessControl {
         bool enforceMerchantAllowlist
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (agent == address(0)) revert ZeroAddress();
+        if (perTxLimitAssets > type(uint128).max || dailyLimitAssets > type(uint128).max ||
+            minAssetsFloor > type(uint128).max) revert POLICY_AMOUNT_OVERFLOW();
         AgentPolicy storage policy = policies[agent];
         policy.perTxLimitAssets = uint128(perTxLimitAssets);
         policy.dailyLimitAssets = uint128(dailyLimitAssets);
@@ -92,6 +98,14 @@ contract SSDCPolicyModuleV2 is AccessControl {
         emit MerchantAllowlistUpdated(agent, merchant, allowed);
     }
 
+    /// @notice Stop new spending without erasing outstanding commitments or daily usage.
+    ///         Updating limits does not implicitly restore a revoked policy.
+    function setPolicyRevoked(address agent, bool revoked) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (!policies[agent].exists) revert POLICY_NOT_SET();
+        policyRevoked[agent] = revoked;
+        emit PolicyRevocationUpdated(agent, revoked);
+    }
+
     function getConfiguredMinAssetsFloor(address agent) external view returns (uint256) {
         AgentPolicy storage policy = policies[agent];
         if (!policy.exists) {
@@ -113,7 +127,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
         if (!policy.exists) {
             return 0;
         }
-        return policy.minAssetsFloor + policy.committedAssets;
+        return uint256(policy.minAssetsFloor) + uint256(policy.committedAssets);
     }
 
     function canSpend(address agent, address merchant, uint256 assets) external view returns (bool) {
@@ -121,7 +135,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     }
 
     function canGasSpend(address agent, uint256 assets) external view returns (bool) {
-        return _canGasSpend(policies[agent], assets);
+        return !policyRevoked[agent] && _canGasSpend(policies[agent], assets);
     }
 
     function requireGasSpendAllowed(address agent, uint256 assets) external view {
@@ -129,6 +143,9 @@ contract SSDCPolicyModuleV2 is AccessControl {
         if (!policy.exists) {
             revert POLICY_NOT_SET();
         }
+
+        if (policyRevoked[agent]) revert POLICY_REVOKED();
+        _requireSpendCapacity(policy, assets);
 
         if (!_canGasSpend(policy, assets)) {
             if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) {
@@ -149,6 +166,9 @@ contract SSDCPolicyModuleV2 is AccessControl {
         if (!policy.exists) {
             revert POLICY_NOT_SET();
         }
+
+        if (policyRevoked[agent]) revert POLICY_REVOKED();
+        _requireSpendCapacity(policy, assets);
 
         _rollDay(policy);
 
@@ -181,6 +201,9 @@ contract SSDCPolicyModuleV2 is AccessControl {
             revert POLICY_NOT_SET();
         }
 
+        if (policyRevoked[agent]) revert POLICY_REVOKED();
+        _requireSpendCapacity(policy, assets);
+
         _rollDay(policy);
 
         if (!_canGasSpend(policy, assets)) {
@@ -206,6 +229,10 @@ contract SSDCPolicyModuleV2 is AccessControl {
         if (!policy.exists) {
             revert POLICY_NOT_SET();
         }
+
+        if (policyRevoked[agent]) revert POLICY_REVOKED();
+        if (policy.sessionExpiry > 0 && block.timestamp > policy.sessionExpiry) revert POLICY_SESSION_EXPIRED();
+        if (assets > type(uint128).max - uint256(policy.committedAssets)) revert POLICY_AMOUNT_OVERFLOW();
 
         policy.committedAssets += uint128(assets);
 
@@ -238,7 +265,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     ) internal view returns (bool) {
         uint256 spentTodayAssets = _effectiveSpentToday(policy);
 
-        if (!policy.exists) {
+        if (!policy.exists || policyRevoked[agent] || assets > type(uint128).max - spentTodayAssets) {
             return false;
         }
         if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
@@ -269,7 +296,7 @@ contract SSDCPolicyModuleV2 is AccessControl {
     ) internal view returns (bool) {
         uint256 spentTodayAssets = _effectiveSpentToday(policy);
 
-        if (!policy.exists) {
+        if (!policy.exists || assets > type(uint128).max - spentTodayAssets) {
             return false;
         }
         if (policy.perTxLimitAssets > 0 && assets > policy.perTxLimitAssets) {
@@ -291,5 +318,9 @@ contract SSDCPolicyModuleV2 is AccessControl {
         }
 
         return policy.spentTodayAssets;
+    }
+
+    function _requireSpendCapacity(AgentPolicy storage policy, uint256 assets) internal view {
+        if (assets > type(uint128).max - _effectiveSpentToday(policy)) revert POLICY_AMOUNT_OVERFLOW();
     }
 }

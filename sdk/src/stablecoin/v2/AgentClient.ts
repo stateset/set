@@ -13,6 +13,7 @@
  */
 
 import { Contract, JsonRpcProvider, Wallet, formatUnits, MaxUint256, zeroPadValue } from "ethers";
+import type { Signer } from "ethers";
 import {
   wSSDCVaultV2Abi,
   navControllerV2Abi,
@@ -82,6 +83,7 @@ export enum AgentErrorCode {
   SETTLEMENT_ACTION_UNAVAILABLE = "AGENT_8011",
   BRIDGE_ROUTE_UNAVAILABLE = "AGENT_8012",
   INVALID_BRIDGE_REQUEST = "AGENT_8013",
+  POLICY_REVOKED = "AGENT_8014",
 }
 
 export class AgentError extends Error {
@@ -145,8 +147,7 @@ async function waitForSuccessfulTransaction<
 // ---------------------------------------------------------------------------
 
 export class AgentClient {
-  private provider: JsonRpcProvider;
-  private signer: Wallet;
+  private signer: Signer;
   private addresses: SSDCV2Addresses;
 
   // Contract instances
@@ -162,10 +163,10 @@ export class AgentClient {
   private statusLens: Contract;
   private settlementAsset: Contract;
 
-  constructor(addresses: SSDCV2Addresses, signer: Wallet) {
-    this.addresses = addresses;
+  constructor(addresses: SSDCV2Addresses, signer: Signer) {
+    if (!signer.provider) throw new SDKError(SDKErrorCode.VALIDATION_ERROR, "Agent signer requires a provider");
+    this.addresses = { ...addresses };
     this.signer = signer;
-    this.provider = signer.provider as JsonRpcProvider;
 
     this.vault = new Contract(addresses.vault, wSSDCVaultV2Abi, signer);
     this.navController = new Contract(addresses.navController, navControllerV2Abi, signer);
@@ -254,12 +255,13 @@ export class AgentClient {
   async getStatus(): Promise<AgentStatus> {
     const agentAddr = await this.signer.getAddress();
 
-    const [shares, gasTankShares, policyRaw, isGrounded, collateralState] = await Promise.all([
+    const [shares, gasTankShares, policyRaw, isGrounded, collateralState, revoked] = await Promise.all([
       withRetry(() => this.vault.balanceOf(agentAddr)),
       withRetry(() => this.paymaster.gasTankShares(agentAddr)),
       withRetry(() => this.policyModule.policies(agentAddr)),
       withRetry(() => this.groundingRegistry.isGroundedNow(agentAddr)),
       withRetry(() => this.groundingRegistry.currentAssets(agentAddr)),
+      withRetry(() => this.policyModule.policyRevoked(agentAddr)),
     ]);
     const [assets, effectiveFloorAssets, navRay] = collateralState;
 
@@ -276,7 +278,7 @@ export class AgentClient {
     };
 
     const now = Math.floor(Date.now() / 1000);
-    const sessionActive = policy.sessionExpiry === 0 || policy.sessionExpiry > now;
+    const sessionActive = !revoked && (policy.sessionExpiry === 0 || policy.sessionExpiry > now);
     const availableSpend = computeAvailableSpendAssets({
       collateralAssets: assets,
       effectiveFloorAssets,
@@ -298,6 +300,7 @@ export class AgentClient {
       isGrounded,
       availableSpend,
       sessionActive,
+      policyRevoked: revoked,
     };
   }
 
@@ -420,7 +423,7 @@ export class AgentClient {
 
   /**
    * Simple share transfer to another agent/address.
-   * No escrow, no yield split. Immediate settlement.
+   * No escrow or policy-module budget consumption. Receipt confirmation is not L1 finality.
    */
   async transfer(to: string, shares: bigint): Promise<TxResult> {
     const validTo = validateAddress(to, "to");
@@ -442,6 +445,8 @@ export class AgentClient {
    * Transfer a specific asset amount worth of shares to another agent.
    * Applies SDK policy/session preflight, converts assets to shares at current
    * NAV, then sends the underlying transfer.
+   * Preflight is advisory: this path does not atomically consume the on-chain
+   * policy budget. Do not give an autonomous agent an unrestricted signing key.
    */
   async pay(to: string, assetAmount: bigint): Promise<TxResult & { sharesSent: bigint }> {
     const validTo = validateAddress(to, "to");
@@ -548,6 +553,9 @@ export class AgentClient {
 
   private async assertSpendAllowed(merchant: string, assets: bigint): Promise<AgentStatus> {
     const status = await this.getStatus();
+    if (status.policyRevoked) {
+      throw new AgentError(AgentErrorCode.POLICY_REVOKED, "Agent spending policy is revoked");
+    }
     if (status.isGrounded) {
       throw new AgentError(
         AgentErrorCode.AGENT_GROUNDED,
@@ -1464,11 +1472,17 @@ export class AgentClient {
 // Factory
 // ---------------------------------------------------------------------------
 
-export interface CreateAgentClientOptions {
+export type CreateAgentClientOptions = {
   addresses: SSDCV2Addresses;
+} & ({
+  signer: Signer;
+  privateKey?: never;
+  rpcUrl?: never;
+} | {
+  signer?: never;
   privateKey: string;
   rpcUrl: string;
-}
+});
 
 /**
  * Create an agent client connected to the SSDC V2 system.
@@ -1489,6 +1503,12 @@ export interface CreateAgentClientOptions {
  * ```
  */
 export function createAgentClient(options: CreateAgentClientOptions): AgentClient {
+  if (options.signer) {
+    if (options.privateKey !== undefined || options.rpcUrl !== undefined) {
+      throw new SDKError(SDKErrorCode.VALIDATION_ERROR, "Specify a signer or privateKey/rpcUrl, not both");
+    }
+    return new AgentClient(options.addresses, options.signer);
+  }
   const provider = new JsonRpcProvider(options.rpcUrl);
   const signer = new Wallet(options.privateKey, provider);
   return new AgentClient(options.addresses, signer);

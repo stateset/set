@@ -3,9 +3,13 @@
 A comprehensive TypeScript SDK for interacting with Set Chain, a commerce-optimized Ethereum Layer 2.
 
 Notes:
+
 - Sequencer-anchored batches use UUIDs encoded into `bytes32` on-chain. Use `batchIdFromUuid(...)`
   when querying batches created by the Rust anchor service.
 - `SetPaymaster` is an operator-managed sponsorship contract, not an ERC-4337 paymaster.
+- V2 agent clients accept a provider-connected external signer. See
+  [agent spending security](../docs/agent-spending-security.md) for policy revocation,
+  deployment compatibility and why raw transfers are not policy-enforced spending.
 
 ## Features
 

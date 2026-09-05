@@ -113,8 +113,8 @@ contract YieldPaymasterV2InvariantTest is StdInvariant, Test {
         paymaster.setEntryPoint(address(handler));
         policy.setPolicy(
             address(handler),
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             minAssetsFloor,
             0,
             false

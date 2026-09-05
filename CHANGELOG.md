@@ -4,6 +4,31 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-09-05
+
+Agent spending policy safety and external signer support.
+
+Compatibility: the SDK requires the updated V2 policy getter and revocation API;
+existing policy deployments must be upgraded or replaced before using it. Policy
+limits must fit uint128; callers using uint256.max must migrate to uint128.max.
+This release does not deploy or upgrade contracts. Sepolia remains on hold.
+
+### Fixed
+
+- V2 agent policy rejects packed-accounting overflow for limits, spending and
+  commitments; computes the combined collateral floor at full uint256 width
+- SDK policy getter ABI matches Solidity's packed field order
+- AgentClient snapshots deployment addresses so later caller mutations cannot
+  redirect approval targets
+
+### Added
+
+- Explicit agent policy revocation that preserves daily usage and outstanding
+  commitments while allowing authorized refund/settlement commitment release
+- Provider-connected external signer support for AgentClient, with revocation-aware
+  status/preflight and documentation of the unrestricted-transfer enforcement boundary
+- Agent policy boundary/fuzz regressions and critical contract smoke-suite coverage
+
 ## [0.3.10] - 2026-09-05
 
 Local launch/reset safety and fail-closed release validation. Reset now requires

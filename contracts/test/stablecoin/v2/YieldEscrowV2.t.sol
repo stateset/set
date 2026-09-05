@@ -48,8 +48,8 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         escrow.grantRole(escrow.FUNDER_ROLE(), user2);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             0,
             uint40(block.timestamp + 7 days),
             false
@@ -63,6 +63,44 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
 
         vm.expectRevert(YieldEscrowV2.ZeroAddress.selector);
         new YieldEscrowV2(vault, NAVControllerV2(address(0)), policy, grounding, admin, user3);
+    }
+
+    function test_RevocationBlocksNewEscrowButAllowsExistingRefundExactlyOnce() public {
+        _mintAndDeposit(user1, 100 ether);
+        _mintAndDeposit(user2, 100 ether);
+        YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
+            assetsDue: 40 ether,
+            expiry: uint40(block.timestamp + 1 days),
+            releaseAfter: uint40(block.timestamp),
+            maxNavAge: uint40(48 hours),
+            maxSharesIn: type(uint256).max,
+            requiresFulfillment: false,
+            fulfillmentType: YieldEscrowV2.FulfillmentType.NONE,
+            requiredMilestones: 0,
+            challengeWindow: 0,
+            arbiterDeadline: 0,
+            disputeTimeoutResolution: YieldEscrowV2.DisputeResolution.NONE
+        });
+        vm.startPrank(user2);
+        vault.approve(address(escrow), type(uint256).max);
+        uint256 escrowId = escrow.fundEscrowFor(user1, user1, user3, terms, 0);
+        vm.stopPrank();
+        assertEq(policy.getCommittedAssets(user1), 40 ether);
+        vm.prank(admin);
+        policy.setPolicyRevoked(user1, true);
+        uint256 funderShares = vault.balanceOf(user2);
+        vm.prank(user2);
+        vm.expectRevert(SSDCPolicyModuleV2.POLICY_REVOKED.selector);
+        escrow.fundEscrowFor(user1, user1, user3, terms, 0);
+        assertEq(vault.balanceOf(user2), funderShares);
+        uint256 buyerShares = vault.balanceOf(user1);
+        vm.prank(user1);
+        escrow.refund(escrowId);
+        assertEq(vault.balanceOf(user1), buyerShares + 40 ether);
+        assertEq(policy.getCommittedAssets(user1), 0);
+        vm.prank(user1);
+        vm.expectRevert(YieldEscrowV2.ESCROW_EMPTY.selector);
+        escrow.refund(escrowId);
     }
 
     function _readEscrow(uint256 escrowId) internal view returns (EscrowView memory v) {
@@ -96,7 +134,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         _mintAndDeposit(user2, 100 ether);
 
         vm.prank(admin);
-        policy.setPolicy(user1, type(uint256).max, type(uint256).max, 0, uint40(block.timestamp + 7 days), false);
+        policy.setPolicy(user1, type(uint128).max, type(uint128).max, 0, uint40(block.timestamp + 7 days), false);
 
         YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
             assetsDue: 40 ether,
@@ -194,7 +232,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         _mintAndDeposit(user1, 100 ether);
 
         vm.prank(admin);
-        policy.setPolicy(user1, 50 ether, type(uint256).max, 0, uint40(block.timestamp + 7 days), false);
+        policy.setPolicy(user1, 50 ether, type(uint128).max, 0, uint40(block.timestamp + 7 days), false);
 
         YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
             assetsDue: 100 ether,
@@ -221,7 +259,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         _mintAndDeposit(user1, 100 ether);
 
         vm.prank(admin);
-        policy.setPolicy(user1, type(uint256).max, type(uint256).max, 60 ether, uint40(block.timestamp + 7 days), false);
+        policy.setPolicy(user1, type(uint128).max, type(uint128).max, 60 ether, uint40(block.timestamp + 7 days), false);
 
         YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
             assetsDue: 50 ether,
@@ -249,7 +287,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         _mintAndDeposit(user2, 100 ether);
 
         vm.prank(admin);
-        policy.setPolicy(user1, type(uint256).max, type(uint256).max, 40 ether, uint40(block.timestamp + 7 days), false);
+        policy.setPolicy(user1, type(uint128).max, type(uint128).max, 40 ether, uint40(block.timestamp + 7 days), false);
 
         YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
             assetsDue: 50 ether,
@@ -300,7 +338,7 @@ contract YieldEscrowV2Test is SSDCV2TestBase {
         _mintAndDeposit(user2, 100 ether);
 
         vm.prank(admin);
-        policy.setPolicy(user1, type(uint256).max, type(uint256).max, 60 ether, uint40(block.timestamp + 7 days), false);
+        policy.setPolicy(user1, type(uint128).max, type(uint128).max, 60 ether, uint40(block.timestamp + 7 days), false);
 
         YieldEscrowV2.InvoiceTerms memory terms = YieldEscrowV2.InvoiceTerms({
             assetsDue: 50 ether,

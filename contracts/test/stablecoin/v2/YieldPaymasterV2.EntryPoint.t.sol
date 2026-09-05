@@ -74,8 +74,8 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
         grounding.setCollateralProvider(address(paymaster), true);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             20 * USD,
             uint40(block.timestamp + 2 days),
             false
@@ -118,8 +118,8 @@ contract YieldPaymasterV2EntryPointTest is SSDCV2TestBase {
         vm.prank(admin);
         policy.setPolicy(
             user1,
-            type(uint256).max,
-            type(uint256).max,
+            type(uint128).max,
+            type(uint128).max,
             195 * USD,
             uint40(block.timestamp + 2 days),
             false

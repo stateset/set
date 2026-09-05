@@ -49,6 +49,7 @@ export interface AgentStatus {
   isGrounded: boolean;
   availableSpend: bigint;
   sessionActive: boolean;
+  policyRevoked: boolean;
 }
 
 // ---------------------------------------------------------------------------
