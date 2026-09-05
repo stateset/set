@@ -45,6 +45,10 @@ and fails the SDK payment preflight. Receipt confirmation is not L1 finality.
 
 ## Critical limit: raw transfers are not policy-enforced
 
+An opt-in [restricted payment account](agent-payment-account.md) now provides a
+separate atomic direct-payment path for funds held by that account. It is a local
+integration candidate, not a deployed replacement for the methods below.
+
 `transfer()` is an ordinary token transfer. `pay()` adds an advisory SDK preflight
 but then calls that transfer; it does not atomically consume the policy budget.
 Two independent clients can both pass a preflight before either submits. Neither

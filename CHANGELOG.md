@@ -4,6 +4,21 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-09-05
+
+Opt-in restricted agent payment account and SDK ABI. Protection applies only to
+funds held by the new account; existing AgentClient payments remain advisory.
+No contracts are deployed by this release. Sepolia remains on hold, and full
+rollup lifecycle evidence and independent audit remain outstanding.
+
+### Added
+
+- Opt-in restricted agent payment account: fixed-merchant sessions, atomic policy
+  and session budget consumption, revocation epochs, nonce/order replay protection,
+  fresh-NAV rounding and collateral-floor checks; no arbitrary calls or approvals
+- SDK account ABI, adversarial account regressions and local integration guidance;
+  no contract deployment or change to the legacy advisory AgentClient payment path
+
 ## [0.3.11] - 2026-09-05
 
 Agent spending policy safety and external signer support.

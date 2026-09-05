@@ -78,6 +78,33 @@ export const ssdcClaimQueueV2Abi = [
   "event ClaimSkipped(uint256 indexed claimId, uint256 assetsNeeded, uint256 availableBuffer)",
 ] as const;
 
+/** Restricted, opt-in custody account; distinct from advisory AgentClient.pay(). */
+export const agentPaymentAccountV2Abi = [
+  "constructor(address vault_, address policy_, address owner_)",
+  "function vault() view returns (address)",
+  "function policy() view returns (address)",
+  "function owner() view returns (address)",
+  "function pendingOwner() view returns (address)",
+  "function transferOwnership(address newOwner)",
+  "function acceptOwnership()",
+  "function sessions(address key) view returns (address merchant, uint40 expiresAt, uint256 remainingAssets, uint256 epoch)",
+  "function paidOrders(bytes32 orderId) view returns (bool)",
+  "function nextNonce() view returns (uint256)",
+  "function setSession(address key, address merchant, uint40 expiresAt, uint256 budgetAssets)",
+  "function revokeSession(address key)",
+  "function pay(bytes32 orderId, uint256 epoch, uint256 nonce, uint256 assets, uint256 maxShares, uint40 deadline) returns (uint256 shares)",
+  "function withdrawShares(address recipient, uint256 shares)",
+  "error InvalidConfiguration()",
+  "error InvalidSession()",
+  "error InvalidPayment()",
+  "error AlreadyPaid()",
+  "error BudgetExceeded()",
+  "error CollateralFloor()",
+  "event SessionUpdated(address indexed key, address indexed merchant, uint256 epoch, uint40 expiresAt, uint256 budgetAssets)",
+  "event PaymentExecuted(bytes32 indexed orderId, address indexed key, address indexed merchant, uint256 nonce, uint256 assetsCharged, uint256 shares)",
+  "event OwnerWithdrawal(address indexed recipient, uint256 shares)",
+] as const;
+
 export const ssdcPolicyModuleV2Abi = [
   "function policies(address) view returns (uint128 perTxLimitAssets, uint128 dailyLimitAssets, uint128 spentTodayAssets, uint128 minAssetsFloor, uint128 committedAssets, uint40 dayStart, uint40 sessionExpiry, bool enforceMerchantAllowlist, bool exists)",
   "function policyRevoked(address agent) view returns (bool)",

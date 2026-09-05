@@ -4,6 +4,7 @@
 
 export { AgentClient, AgentError, AgentErrorCode, createAgentClient } from "./AgentClient.js";
 export type { CreateAgentClientOptions } from "./AgentClient.js";
+export { agentPaymentAccountV2Abi } from "./abis.js";
 
 export {
   // Enums
