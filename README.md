@@ -1,751 +1,288 @@
 # Set
 
-[![Solidity](https://img.shields.io/badge/Solidity-0.8.20-blue)](https://soliditylang.org/)
-[![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://www.rust-lang.org/)
-[![OP Stack](https://img.shields.io/badge/OP%20Stack-v1.8.0-red)](https://docs.optimism.io/)
+[![Release](https://img.shields.io/badge/release-v0.3.12-blue)](https://github.com/stateset/set/tree/v0.3.12)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-Set is an Ethereum Layer-2 (L2) network built on the **OP Stack**, designed for **commerce**. It offers faster, cheaper, and cryptographically verifiable transactions by leveraging optimistic rollups with Merkle root anchoring.
+Set is commerce infrastructure being developed around the OP Stack: Solidity
+contracts for payments, escrow and spending policies, a TypeScript agent SDK, and
+a Rust service that anchors commerce-event commitments on-chain.
 
-Notes:
-- The Rust anchor service submits sequencer-provided UUID batch IDs encoded into `bytes32`.
-- `SetPaymaster` is an operator-managed sponsorship contract, not an ERC-4337 paymaster.
-- STARK proof submissions in `SetRegistry` store proof metadata and state-root bindings; proof validity is verified off-chain.
+**Status: application development and local testing. Full rollup production
+readiness is not yet established. Sepolia deployment is on hold.** A release tag,
+passing unit tests or a running execution node does not certify L1 settlement,
+withdrawals, fault proofs or recovery.
 
-## Table of Contents
+## Contents
 
-- [Architecture](#architecture)
-- [Key Features](#key-features)
-- [Chain Configuration](#chain-configuration)
-- [Directory Structure](#directory-structure)
-- [Technology Stack](#technology-stack)
-- [Quick Start](#quick-start)
-  - [Local Development (Anvil)](#local-development-anvil)
-  - [Full Devnet](#full-devnet)
-- [Smart Contracts](#smart-contracts)
-  - [SetRegistry](#setregistry)
-  - [SetPaymaster](#setpaymaster)
-- [Anchor Service](#anchor-service)
-- [Integration with stateset-sequencer](#integration-with-stateset-sequencer)
-- [Docker Deployment](#docker-deployment)
+- [Current release](#current-release)
+- [Commerce capabilities](#commerce-capabilities)
+- [Architecture and trust boundaries](#architecture-and-trust-boundaries)
+- [Local quick start](#local-quick-start)
+- [Restricted agent payments](#restricted-agent-payments)
 - [Testing](#testing)
-- [Deployment Checklist](#deployment-checklist)
-- [Monitoring](#monitoring)
-- [Security](#security)
-- [Decentralization and Fault Proofs](#decentralization-and-fault-proofs)
-- [Scorecard](#scorecard)
-- [Release process](docs/release-process.md)
-- [Troubleshooting](#troubleshooting)
-- [Resources](#resources)
+- [Full rollup readiness](#full-rollup-readiness)
+- [Repository guide](#repository-guide)
+- [Operations and security](#operations-and-security)
+- [Contributing and releases](#contributing-and-releases)
 
-## Architecture
+## Current release
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                             SET L2 (84532001)                           │
-│                      (Commerce-Optimized OP Stack)                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐ │
-│  │   op-geth    │  │   op-node    │  │  op-batcher  │  │ op-proposer │ │
-│  │  (execution) │  │  (consensus) │  │   (batches)  │  │   (state)   │ │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └─────────────┘ │
-│         │                │                  │                │         │
-│         └────────────────┼──────────────────┴────────────────┘         │
-│                          │                                              │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                    Smart Contracts                                │  │
-│  │  ┌─────────────────────────┐  ┌────────────────────────────────┐ │  │
-│  │  │      SetRegistry        │  │         SetPaymaster           │ │  │
-│  │  │  (Merkle root anchoring │  │  (Gas abstraction for          │ │  │
-│  │  │   from sequencer)       │  │   merchant transactions)       │ │  │
-│  │  └─────────────────────────┘  └────────────────────────────────┘ │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                          │                                              │
-└──────────────────────────┼──────────────────────────────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  │                  ▼
-┌───────────────────┐      │      ┌─────────────────────────┐
-│  Anchor Service   │      │      │  stateset-sequencer     │
-│  (Rust)           │◄─────┴─────►│  (Off-chain commerce    │
-│  - Health metrics │             │   event processing)     │
-│  - Batch anchoring│             └─────────────────────────┘
-└───────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      ETHEREUM SEPOLIA (L1) - 11155111                   │
-│         OptimismPortal │ L2OutputOracle │ SystemConfig                  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+**v0.3.12** (`62021b9`) adds an opt-in restricted payment account and its SDK ABI.
+The SDK package is `@setchain/sdk@0.3.12`; the Rust anchor package remains `0.2.5`.
+These are repository release versions, not a claim of package-registry publication.
 
-## Key Features
+- Merchant-scoped session keys with expiry, revocation epochs and asset budgets.
+- Atomic session/policy budget consumption and vault-share transfer.
+- Account-wide nonces and duplicate-order protection.
+- Fresh-NAV valuation, conservative rounding and collateral-floor checks.
+- No arbitrary execution or token approvals exposed to session keys.
 
-| Feature | Description |
-|---------|-------------|
-| **2-second block times** | Fast confirmations optimized for commerce operations |
-| **Low gas fees** | EIP-1559 parameters tuned for merchant transactions |
-| **Merkle root anchoring** | Verifiable event commitments from stateset-sequencer |
-| **Multi-tenant isolation** | Per-tenant/store state tracking via `keccak256(tenantId, storeId)` |
-| **Inclusion proof verification** | On-chain verification of off-chain events |
-| **Gas sponsorship** | Merchants can sponsor user transactions via an operator-managed sponsorship vault |
-| **Strict mode verification** | State chain continuity checking to prevent gaps/forks |
+The account must hold the funds to enforce these controls. Existing
+`AgentClient.pay()` remains an advisory preflight followed by a normal transfer;
+it does **not** atomically consume the on-chain policy budget. This release does
+not deploy contracts or migrate existing balances.
 
-## Chain Configuration
+See the [changelog](CHANGELOG.md), [account integration guide](docs/agent-payment-account.md)
+and [agent spending security](docs/agent-spending-security.md).
 
-| Parameter | Value |
-|-----------|-------|
-| Chain ID | `84532001` |
-| Block Time | 2 seconds |
-| Gas Limit | 30M gas/block |
-| L1 Settlement | Ethereum Sepolia (11155111) |
-| Native Token | ETH |
-| EVM Version | Cancun |
-| OP Contracts Version | v1.8.0 |
+## Commerce capabilities
 
-## Directory Structure
+| Component | Implemented scope | Important boundary |
+|-----------|-------------------|--------------------|
+| `AgentPaymentAccountV2` | Restricted direct payments from account-held wSSDC shares | Trusted owner; not an ERC-4337 account or an escrow/bridge adapter |
+| `SSDCPolicyModuleV2` | Merchant allowlists, spending limits, revocation and commitment accounting | Only trusted policy consumers enforce accounting; ordinary token transfers bypass it |
+| `YieldEscrowV2` | Fund, fulfill, release, dispute and refund workflows | Contract state is not proof of external fulfillment |
+| `wSSDCVaultV2` and NAV modules | Vault shares, asset conversion and collateral-related checks | NAV, reserves and administrative controls remain trust dependencies |
+| `SetRegistry` | Tenant/store-scoped batch commitments and Merkle inclusion verification | Event inclusion is not proof of event truth or rollup settlement |
+| `SetPaymaster` | Operator-managed gas sponsorship | Not an ERC-4337 paymaster |
+| TypeScript SDK | Contract access, agent workflows and finality observations | Receipt success is distinct from L1 finality |
+| Rust anchor service | Submit sequencer commitments to `SetRegistry` | Anchors commerce events; it is not the OP Stack batcher |
 
-```
-set/
-├── anchor/                     # Rust anchor service
-│   ├── src/
-│   │   ├── main.rs            # Entry point
-│   │   ├── config.rs          # Configuration from env vars
-│   │   ├── client.rs          # Sequencer API client
-│   │   ├── service.rs         # Main anchor logic
-│   │   ├── health.rs          # Health/metrics HTTP server
-│   │   └── types.rs           # Data structures
-│   └── tests/
-│       └── integration.rs     # Integration tests
-├── contracts/                  # Solidity smart contracts
-│   ├── src/
-│   │   ├── SetRegistry.sol    # Merkle root anchoring (433 lines)
-│   │   └── commerce/
-│   │       └── SetPaymaster.sol # Gas abstraction (558 lines)
-│   ├── test/
-│   │   ├── SetRegistry.t.sol  # Registry tests
-│   │   └── SetPaymaster.t.sol # Paymaster tests
-│   └── lib/                   # Dependencies (git submodules)
-│       ├── forge-std/         # Foundry testing framework
-│       └── openzeppelin-contracts/
-├── op-stack/                   # OP Stack configuration
-│   ├── deployer/              # op-deployer intent files
-│   ├── batcher/               # Batch submission config
-│   ├── proposer/              # State root submission config
-│   ├── challenger/            # Dispute resolution config
-│   └── sequencer/             # op-geth/op-node config
-├── docker/                     # Docker Compose files
-│   ├── docker-compose.yml     # Main local devnet
-│   ├── docker-compose.sepolia.yml
-│   ├── docker-compose.local.yml
-│   └── config/                # JWT and node configs
-├── scripts/                    # Deployment and management
-│   ├── dev.sh                 # Local Anvil development helper
-│   ├── anchor-devnet.sh       # Anchor service local helper
-│   ├── deploy-set-contracts.sh
-│   ├── deploy-l1.sh
-│   ├── generate-genesis.sh
-│   ├── reset-devnet.sh
-│   ├── start-devnet.sh
-│   ├── stop-devnet.sh
-│   ├── quick-start-local.sh
-│   └── install-op-stack.sh
-├── config/                     # Chain configuration
-│   ├── chain-config.toml     # L2 chain parameters
-│   ├── local.env.example     # Local devnet env template
-│   └── sepolia.env.example   # Sepolia env template
-└── docs/                       # Documentation
-    ├── README.md              # Architecture overview
-    └── local_testing_guide.md # Anvil testing guide
-```
+## Architecture and trust boundaries
 
-## Technology Stack
+Set has three distinct layers:
 
-### Languages & Frameworks
+1. **Commerce applications:** agents and merchant services use the SDK and
+   contracts for payments, escrow and event verification.
+2. **Commerce anchoring:** `stateset-sequencer` supplies pending commitments to the
+   Rust anchor service, which submits them to `SetRegistry` and reports anchoring
+   results back to the sequencer. UUID batch IDs are encoded into `bytes32`.
+3. **Rollup infrastructure:** OP Stack execution, derivation, batching, proposals,
+   verification and challenges require a compatible deployment and independent
+   lifecycle evidence. Commerce-event anchoring does not replace those mechanisms.
 
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Smart Contracts | Solidity | 0.8.20 |
-| Contract Framework | Foundry (Forge) | v1.8.1 |
-| Anchor Service | Rust | 2021 Edition |
-| Async Runtime | Tokio | Full features |
-| Ethereum Client | Alloy | 0.9 |
-| HTTP Server | Axum | 0.8 |
-| Scripting | Bash | - |
+STARK submissions in `SetRegistry` store proof metadata and state-root bindings;
+proof validity is verified off-chain. The custom forced-inclusion request queue
+must not be confused with canonical OP Stack L1 forced inclusion.
 
-### OP Stack Components
+Repository configuration includes L2 chain ID `84532001`, a two-second block-time
+target and a 30M gas/block setting. These are configuration values, not measured
+production throughput or finality guarantees. Sepolia configuration is retained
+for future authorized work; it is not the local-development default.
 
-| Component | Purpose |
-|-----------|---------|
-| op-geth | L2 execution client (EVM) |
-| op-node | L2 consensus client |
-| op-batcher | Submits transaction batches to L1 |
-| op-proposer | Submits state roots to L1 |
-| op-challenger | Dispute resolution |
+## Local quick start
 
-### Dependencies
-
-**Solidity:**
-- OpenZeppelin Contracts (Upgradeable patterns)
-- Forge-std (Testing)
-
-**Rust:**
-- `tokio` - Async runtime
-- `alloy` - Ethereum interactions
-- `axum` - HTTP server for health endpoints
-- `tracing` - Structured logging
-- `serde` - Serialization
-- `reqwest` - HTTP client
-
-## Quick Start
-
-### Local Development (Anvil)
-
-The fastest way to get started for development and testing:
+Use the [pinned toolchain](docs/toolchain.md): Foundry v1.8.1, Rust 1.90.0 and
+Node.js 20.20.0 for SDK/release checks. Use Python 3.9+ for local process-safety
+tests. Initialize the repository's pinned submodules in a fresh checkout:
 
 ```bash
-# 1. Start local Anvil node (Chain ID: 84532001, 2s blocks)
+git submodule update --init --recursive
+
+# Start local Anvil and deploy the helper's application contracts.
 ./scripts/dev.sh start
-
-# 2. Deploy contracts to local Anvil
 ./scripts/dev.sh deploy
-
-# 3. Run contract tests
-./scripts/dev.sh test
-
-# 4. Check node status
 ./scripts/dev.sh status
 
-# 5. Fund a test account
-./scripts/dev.sh fund 0xYourAddress
-
-# Other commands
-./scripts/dev.sh accounts  # List pre-funded accounts
-./scripts/dev.sh console   # Open Foundry console
+# Run focused security-critical contract suites.
+./scripts/dev.sh test-critical
 ```
 
-`./scripts/dev.sh` auto-detects a usable Foundry backend. It prefers real local
-`forge`/`cast`/`anvil` binaries and otherwise falls back to the official Docker
-image from `docs/toolchain.md`. Set `FOUNDRY_USE_DOCKER=1` to force the Docker
-backend, or `FOUNDRY_DOCKER_IMAGE` to pin a specific GHCR image.
+Anvil is an application test chain, **not a complete OP Stack rollup**. The helper
+does not automatically deploy or configure the new restricted payment account;
+follow its [setup instructions](docs/agent-payment-account.md).
 
-**Pre-funded Test Accounts:**
+The helper prefers usable host Foundry binaries and otherwise supports the
+official Docker fallback documented in the toolchain guide. Local Anvil RPC binds
+to loopback. Startup will not stop another process or container to claim a port.
+Test-account keys are public development keys: never use them on public networks
+or for valuable assets.
 
-| Account | Address | Private Key |
-|---------|---------|-------------|
-| Account 0 | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` | `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` |
-| Account 1 | `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` | `0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d` |
-| ... | See `./scripts/dev.sh accounts` for all 10 accounts |
+Reset requires the node to be stopped explicitly and archives scoped artifacts
+instead of deleting them. That archive is not a chain-state backup. See the
+[local testing guide](docs/local_testing_guide.md) and
+[local lifecycle safeguards](docs/l2-readiness-gaps.md).
 
-### Full Devnet
+### Docker and full-stack configurations
 
-For a complete L2 environment with all OP Stack components:
+- `docker/docker-compose.local.yml` is an isolated **standalone execution client**,
+  not a complete rollup.
+- `docker/docker-compose.yml` is a legacy multi-service configuration. It is not a
+  certified full-devnet quick start; review compatibility, artifacts and exposed
+  ports before use.
+- `docker/docker-compose.sepolia.yml` targets a public network. **Do not launch it
+  while the Sepolia hold remains in effect.**
 
-**Prerequisites:**
-- Go 1.21+
-- Rust 1.70+
-- Docker & Docker Compose
-- 2+ ETH on Sepolia (for deployment)
+The legacy `start-devnet.sh` requires separately provisioned local rollup artifacts
+and `config/local-rollup.env`. Do not use the Sepolia-oriented genesis/deployment
+scripts as implicit local provisioning steps. See [full rollup readiness](#full-rollup-readiness).
 
-```bash
-# 1. Install OP Stack binaries
-./scripts/install-op-stack.sh
+## Restricted agent payments
 
-# 2. Configure environment
-cp config/sepolia.env.example config/sepolia.env
-# Edit sepolia.env with your addresses and private keys
+The intended custody boundary is a separately controlled owner and an agent that
+has only a merchant-scoped session key. Configure policy for the **account
+address**, grant the account its policy-consumer role, and fund it with vault
+shares. Keep the owner key outside the agent's control.
 
-# 3. Deploy L1 contracts to Sepolia
-./scripts/deploy-l1.sh
+The SDK exports `agent.agentPaymentAccountV2Abi` for explicit account interaction:
 
-# 4. Generate L2 genesis
-./scripts/generate-genesis.sh
+```ts
+import { Contract } from "ethers";
+import { agent } from "@setchain/sdk";
 
-# 5. Start the devnet
-./scripts/start-devnet.sh
-
-# Or use quick-start for minimal setup
-./scripts/quick-start-local.sh
+// Values come from your reviewed local deployment and order workflow.
+const account = new Contract(accountAddress, agent.agentPaymentAccountV2Abi, sessionSigner);
+const session = await account.sessions(await sessionSigner.getAddress());
+const nonce = await account.nextNonce();
+const tx = await account.pay(orderId, session.epoch, nonce, assets, maxShares, deadline);
+const receipt = await tx.wait();
+if (!receipt || receipt.status !== 1) throw new Error("Payment failed");
+// Apply the merchant's explicit finality requirement before fulfillment.
 ```
 
-**Verify Chain is Running:**
+Supply bounded slippage and deadlines. A stale nonce or epoch must be reconciled,
+not silently refreshed and resubmitted. Order uniqueness is per account, not global
+merchant deduplication or invoice authentication. Owner recovery is privileged
+and preserves collateral requirements; refunds do not automatically replenish
+purchase budgets. The session signer needs transaction gas.
 
-```bash
-# Check L2 block number
-cast block-number --rpc-url http://localhost:8547
-
-# Get chain ID (should return 84532001)
-cast chain-id --rpc-url http://localhost:8547
-
-# Check sync status
-curl -s http://localhost:8547 \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}'
-```
-
-## Smart Contracts
-
-### SetRegistry
-
-The SetRegistry contract stores batch commitments from the stateset-sequencer, enabling on-chain verification of off-chain commerce events.
-
-**Key Features:**
-- Multi-sequencer authorization
-- State chain continuity verification
-- Merkle inclusion proof verification
-- Per-tenant/store isolation
-
-**Core Functions:**
-
-| Function | Description |
-|----------|-------------|
-| `commitBatch()` | Submit a batch commitment with Merkle roots |
-| `verifyInclusion()` | Verify an event is included in a committed batch |
-| `getLatestStateRoot()` | Get current state root for a tenant/store |
-| `setSequencerAuthorization()` | Admin: authorize/revoke sequencers |
-| `setStrictMode()` | Enable/disable state chain verification |
-
-**Example Usage:**
-
-```solidity
-// Verify an order event was included in a batch
-bool valid = registry.verifyInclusion(
-    batchId,
-    orderEventHash,
-    merkleProof,
-    leafIndex
-);
-
-// Get latest state root for a tenant/store
-bytes32 stateRoot = registry.getLatestStateRoot(tenantId, storeId);
-```
-
-**Interact via CLI:**
-
-```bash
-# Check if a sequencer is authorized
-cast call $REGISTRY_ADDRESS "authorizedSequencers(address)" $SEQUENCER_ADDRESS
-
-# Get batch commitment
-cast call $REGISTRY_ADDRESS "batchCommitments(bytes32)" $BATCH_ID
-```
-
-### SetPaymaster
-
-Gas abstraction for sponsored commerce transactions, allowing merchants to pay for user gas fees.
-
-**Sponsorship Tiers:**
-
-| Tier | Monthly Limit | Per-Tx Limit |
-|------|---------------|--------------|
-| Starter | 0.1 ETH | 0.001 ETH |
-| Growth | 1 ETH | 0.01 ETH |
-| Enterprise | 10 ETH | 0.1 ETH |
-
-**Supported Operation Types:**
-
-| Operation | Description |
-|-----------|-------------|
-| `ORDER_CREATE` | Creating new orders |
-| `ORDER_UPDATE` | Updating order status |
-| `PAYMENT_PROCESS` | Processing payments |
-| `INVENTORY_UPDATE` | Updating inventory |
-| `RETURN_PROCESS` | Processing returns |
-| `COMMITMENT_ANCHOR` | Anchoring commitments |
-| `OTHER` | Other operations |
-
-**Features:**
-- Per-transaction and daily/monthly spend limits
-- Automatic refund of unused gas
-- Category-based sponsorship
-- Merchant dashboards
-
-## Anchor Service
-
-The anchor service (`set-anchor`) is a Rust service that bridges the stateset-sequencer to the SetRegistry contract on-chain.
-
-### Building
-
-```bash
-cd anchor
-cargo build --release
-```
-
-### Running
-
-```bash
-# Set required environment variables
-export SET_REGISTRY_ADDRESS=0x...
-export SEQUENCER_PRIVATE_KEY=0x...
-export SEQUENCER_API_URL=http://localhost:3000
-export L2_RPC_URL=http://localhost:8547
-export ANCHOR_INTERVAL_SECS=60  # seconds
-export MIN_EVENTS_FOR_ANCHOR=100
-
-# Run the service
-./target/release/set-anchor
-```
-
-**Local devnet:**
-
-```bash
-./scripts/dev.sh anchor-start
-./scripts/dev.sh anchor-smoke
-```
-
-Smoke overrides (optional):
-
-```bash
-EVENT_LEAF_0=0x... EVENT_LEAF_1=0x... TENANT_ID=0x... STORE_ID=0x... \
-NEW_STATE_ROOT=0x... ./scripts/dev.sh smoke
-```
-
-### Health Endpoints
-
-The anchor service exposes health and metrics endpoints:
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Liveness probe (service is running) |
-| `GET /ready` | Readiness probe (connected to chain and sequencer) |
-| `GET /metrics` | Prometheus-format metrics |
-| `GET /stats` | JSON statistics (anchored count, last anchor time, etc.) |
-
-**Example:**
-
-```bash
-# Check if service is ready
-curl http://localhost:9090/ready
-
-# Get metrics
-curl http://localhost:9090/metrics
-```
-
-## Integration with stateset-sequencer
-
-Set integrates with the stateset-sequencer through a two-phase process:
-
-```
-stateset-sequencer                    Anchor Service                    SetRegistry
-       │                                    │                                │
-       │  1. Create BatchCommitment         │                                │
-       │     with Merkle roots              │                                │
-       │                                    │                                │
-       │  2. GET /v1/commitments/pending    │                                │
-       │◄───────────────────────────────────│                                │
-       │     Return unanchored batches      │                                │
-       │                                    │                                │
-       │                                    │  3. commitBatch(...)           │
-       │                                    │───────────────────────────────►│
-       │                                    │     Returns tx hash            │
-       │                                    │◄───────────────────────────────│
-       │                                    │                                │
-       │  4. POST /v1/commitments/{id}/anchored                              │
-       │◄───────────────────────────────────│                                │
-       │     with chain_tx_hash             │                                │
-       │                                    │                                │
-```
-
-**API Endpoints:**
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/commitments/pending` | GET | List unanchored commitments |
-| `/v1/commitments/{id}/anchored` | POST | Notify of successful anchoring |
-
-## Docker Deployment
-
-### Local Devnet
-
-```bash
-cd docker
-
-# Start full local devnet (includes L1)
-docker-compose up -d
-
-# Check logs
-docker-compose logs -f op-geth
-
-# Stop
-docker-compose down
-```
-
-### Sepolia Testnet
-
-```bash
-cd docker
-
-# Connects to real Ethereum Sepolia
-docker-compose -f docker-compose.sepolia.yml up -d
-```
-
-### With Optional Services
-
-```bash
-# With block explorer
-docker-compose --profile explorer up -d
-
-# With anchor service
-docker-compose --profile anchor up -d
-```
-
-### Alternative L1 Clients
-
-```bash
-# Using Nethermind as L1
-docker-compose -f docker-compose.nethermind.yml up -d
-
-# Using Reth as L1
-docker-compose -f docker-compose.reth.yml up -d
-```
+The v0.3.11+ SDK requires the updated V2 policy getter and `policyRevoked` API.
+Older policy deployments without that method fail status queries rather than
+assuming spending is allowed. See [compatibility and setup](docs/agent-spending-security.md)
+before adopting these APIs.
 
 ## Testing
 
-### Contract Tests
+Local validation preceding v0.3.12 recorded:
+
+| Check | Result and scope |
+|-------|------------------|
+| SDK | 515 tests across 40 files; typecheck, lint and build passed |
+| Targeted Solidity | 108 tests across eight suites, including 14 account tests and a 256-run account budget fuzz test |
+| ABI consistency | 13 exported account functions and exported events checked against the compiled Solidity ABI |
+| Release metadata | Version/tag and dependency-pin checks passed |
+
+The targeted Solidity run used local Foundry and Solc 0.8.24; it was not a full
+pinned-toolchain release certification or invariant-suite run. These results are
+application-level evidence, not a deployed-rollup or independent-audit report.
+Check the [CI runs](https://github.com/stateset/set/actions) for commit-specific
+workflow results rather than assuming every tagged release is fully certified.
 
 ```bash
-# Fast security-critical gate
+# From the repository root: critical contract suites.
 ./scripts/dev.sh test-critical
 
-cd contracts
+# Local lifecycle and readiness regressions (some tests bind loopback listeners).
+python3 -m unittest discover -s scripts/tests -v
 
-# Run all tests
-forge test
-
-# Run with verbosity
-forge test -vvv
-
-# Run specific test
-forge test --match-test testCommitBatch
-
-# Run with gas reporting
-forge test --gas-report
-
-# Generate coverage
-forge coverage
+# Release metadata checks; no deployment.
+bash scripts/check-release-readiness.sh
 ```
 
-### Anchor Service Tests
+SDK checks:
 
 ```bash
-cd anchor
-
-# Run unit tests
-cargo test
-
-# Run integration tests (requires Anvil running)
-cargo test --test integration
-
-# Run with logs
-RUST_LOG=debug cargo test
+cd sdk
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-## Deployment Checklist
-
-### Accounts Setup
-
-1. [ ] Generate 5 Ethereum accounts:
-   - Admin (owns contracts)
-   - Batcher (submits batches to L1)
-   - Proposer (submits state roots)
-   - Challenger (dispute resolution)
-   - Sequencer (L2 block production)
-
-2. [ ] Fund each account with 0.5+ Sepolia ETH
-
-### Infrastructure
-
-3. [ ] Configure Sepolia RPC endpoint (Infura/Alchemy)
-4. [ ] Set up JWT secret for engine API authentication
-5. [ ] Prepare data directories for persistent storage
-
-### Deployment
-
-6. [ ] Run `deploy-l1.sh` - Deploy OP Stack contracts to Sepolia
-7. [ ] Run `generate-genesis.sh` - Create L2 genesis block
-8. [ ] Start L2 nodes (op-geth, op-node)
-9. [ ] Start op-batcher and op-proposer
-10. [ ] Deploy SetRegistry to L2
-11. [ ] Deploy SetPaymaster to L2
-12. [ ] Start anchor service
-
-### Verification
-
-13. [ ] Verify L2 is producing blocks (2s intervals)
-14. [ ] Verify batches are being submitted to L1
-15. [ ] Test anchor service connectivity
-16. [ ] Verify contract deployments with `cast`
-
-## Monitoring
-
-See `docs/monitoring.md` for SLOs, alert suggestions, and metric definitions.
-
-### Key Metrics
-
-| Metric | Expected | Alert Threshold |
-|--------|----------|-----------------|
-| Block production | Every 2 seconds | > 10s gap |
-| Batch submission | Every few minutes | > 30 min gap |
-| Anchor lag | < 5 minutes | > 15 minutes |
-| L2 safe head lag | < 10 blocks | > 100 blocks |
-
-### Viewing Logs
+Full contract and Rust checks, each from the repository root:
 
 ```bash
-# op-geth logs
-tail -f logs/op-geth.log
-
-# op-node logs
-tail -f logs/op-node.log
-
-# Anchor service logs
-docker-compose logs -f set-anchor
-
-# All OP Stack logs
-./scripts/start-devnet.sh logs
+(cd contracts && forge test)
+(cd anchor && cargo test --locked)
 ```
 
-### Anchor Service Metrics
+Do not run `forge update` merely to fix a failing test: dependency revisions are
+pinned in `contracts/foundry.lock` and Git submodules. Inspect failures and consult
+the [toolchain guide](docs/toolchain.md) before changing dependencies.
 
-```bash
-# Prometheus metrics (HEALTH_PORT, default 9090)
-curl http://localhost:9090/metrics
+## Full rollup readiness
 
-# JSON stats
-curl http://localhost:9090/stats | jq
-```
+**A+ and production readiness remain unproven.** The next acceptance gates require
+execution evidence tied to source revisions and the actual deployment:
 
-## Security
+1. Pin a compatible local L1 and OP Stack with a sequencer, batcher, proposer,
+   independent verifier and challenger; reconcile legacy proposer/dispute wiring.
+2. Execute deposits, L2 payments, L1 batch submission, independent derivation and
+   proven/finalized withdrawals.
+3. Resolve valid and invalid output disputes, and demonstrate that invalid claims
+   cannot authorize withdrawals.
+4. Exercise canonical forced inclusion during sequencer downtime, L1 reorgs,
+   batcher/RPC failures, backup restoration and key rotation.
+5. Connect durable merchant reconciliation and idempotent fulfillment to explicit
+   payment-finality policies; measure latency, costs and recovery against agreed targets.
+6. Verify deployed governance, proxy implementations and fault-proof wiring, and
+   obtain an independent audit before claiming production assurance.
 
-### Best Practices
+Public-network exercises require explicit authorization. Local success does not
+lift the Sepolia hold. The [readiness evidence](docs/l2-readiness-gaps.md) is the
+primary gap list; the [scorecard](docs/scorecard.md) is a rubric with historical,
+version-specific assessments—not certification of this release.
 
-- **Multi-sig admin**: Use a multisig wallet for admin/owner roles in production
-- **Key management**: Never commit private keys; use environment variables or secret managers
-- **Sequencer authorization**: Only authorize trusted sequencer addresses
-- **Strict mode**: Enable strict mode in production to prevent state gaps
-- **Threat model**: Review and maintain `docs/threat-model.md`
-- **Operations runbook**: Keep `docs/runbook.md` current with incident response steps
-- **Governance policy**: Maintain `docs/security.md` for upgrade and key management
+## Repository guide
 
-### Pre-Production Checklist
+- [contracts/](contracts/): registry, commerce, governance and stablecoin contracts.
+- [contracts/stablecoin/v2/](contracts/stablecoin/v2/): policy, vault, escrow,
+  paymaster and restricted account implementations.
+- [sdk/](sdk/README.md): TypeScript SDK and tests.
+- [anchor/](anchor/): Rust anchoring service and reserve attestor.
+- [op-stack/](op-stack/): node, batcher, proposer, challenger and deployment configuration.
+- [scripts/](scripts/): local tooling, checks, tests and deployment helpers.
+- [docker/](docker/): separate execution, legacy rollup and public-network profiles.
+- [docs/](docs/): architecture, operational guidance and readiness evidence.
 
-- [ ] Smart contract audit completed
-- [ ] Penetration testing of anchor service
-- [ ] Key rotation procedures documented
-- [ ] Incident response plan prepared
-- [ ] Monitoring and alerting configured
+## Operations and security
 
-## Decentralization and Fault Proofs
+Use separately controlled administrative roles, reviewed multisig/timelock
+configuration, least-privilege policy consumers and protected signing services.
+Do not expose unrestricted keys or arbitrary signing to agents. Treat NAV,
+reserve management, bridge controls and governance as explicit trust boundaries.
 
-See `docs/decentralization.md` and `docs/fault-proofs.md` for the phased
-decentralization plan and fault-proof operations. Validate production config with:
+The anchor service exposes `/health`, `/ready`, `/metrics` and `/stats`.
+Service readiness does not establish rollup settlement correctness. Monitoring
+thresholds are operating targets to validate, not achieved service guarantees.
 
-```bash
-./scripts/validate-ops-config.sh --mode testnet --require-fault-proofs --require-admin-policy
-```
-
-Verify L1 settlement contracts:
-
-```bash
-./scripts/check-l1-settlement.sh --env-file config/sepolia.env --mode testnet --require-addresses
-```
-
-## Scorecard
-
-See `docs/scorecard.md` for the 10/10 rubric and progress tracking. Supporting
-docs include `docs/threat-model.md`, `docs/security.md`, `docs/runbook.md`, and
-`docs/architecture.md`.
-
-## Troubleshooting
-
-### Common Issues
-
-**L2 not producing blocks:**
-```bash
-# Check op-node sync status
-curl -s http://localhost:9545 \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"optimism_syncStatus","params":[],"id":1}' | jq
-
-# Verify L1 connection
-curl -s http://localhost:8545 -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
-```
-
-**Anchor service not connecting:**
-```bash
-# Check health endpoint
-curl http://localhost:9090/ready
-
-# Verify environment variables
-echo $SET_REGISTRY_ADDRESS
-echo $L2_RPC_URL
-
-# Check sequencer API
-curl http://localhost:3000/v1/commitments/pending
-```
-
-**Contract deployment failing:**
-```bash
-# Ensure you have ETH
-cast balance $DEPLOYER_ADDRESS --rpc-url http://localhost:8547
-
-# Check gas prices
-cast gas-price --rpc-url http://localhost:8547
-
-# Verify RPC is responding
-cast chain-id --rpc-url http://localhost:8547
-```
-
-**Tests failing:**
-```bash
-# Update dependencies
-cd contracts && forge update
-
-# Clean and rebuild
-forge clean && forge build
-
-# Run with more verbosity
-forge test -vvvv
-```
-
-## Resources
-
-### Documentation
-
-- [OP Stack Documentation](https://docs.optimism.io/operators/chain-operators)
-- [Optimism Monorepo](https://github.com/ethereum-optimism/optimism)
-- [Foundry Book](https://book.getfoundry.sh/)
-- [Alloy Documentation](https://alloy.rs/)
-
-### Project Documentation
-
-- [Local Testing Guide](docs/local_testing_guide.md)
-- [Architecture Overview](docs/architecture.md)
-- [Scorecard](docs/scorecard.md)
-- [Toolchain Versions](docs/toolchain.md)
+- [Agent spending security](docs/agent-spending-security.md)
+- [Restricted account integration](docs/agent-payment-account.md)
+- [Commerce finality](docs/commerce-finality.md)
+- [Architecture](docs/architecture.md)
+- [Integration example](docs/integration-example.md)
 - [Monitoring and SLOs](docs/monitoring.md)
-- [Security and Governance](docs/security.md)
-- [Node Operator Guide](docs/node-operators.md)
-- [Integration Example](docs/integration-example.md)
-- [Block Explorer and Indexing](docs/explorer.md)
-- [Bridge and Onramp Support](docs/bridge.md)
-- [Operations History](docs/operations-history.md)
-- [SDK](sdk/README.md)
-- [Audit Report](docs/audit-report.md)
-- [Governance Evidence](docs/governance-evidence.md)
-- [Fault Proof Exercise Log](docs/fault-proof-exercise.md)
-- [Decentralization Roadmap](docs/decentralization.md)
-- [Fault Proof Operations](docs/fault-proofs.md)
-- [Threat Model](docs/threat-model.md)
-- [Operations Runbook](docs/runbook.md)
+- [Security and governance](docs/security.md)
+- [Threat model](docs/threat-model.md)
+- [Operations runbook](docs/runbook.md)
+- [Node operator guide](docs/node-operators.md)
+- [Decentralization roadmap](docs/decentralization.md)
+- [Fault-proof operations](docs/fault-proofs.md)
+- [Audit status](docs/audit-report.md)
+- [Governance evidence](docs/governance-evidence.md)
+- [Fault-proof exercise status](docs/fault-proof-exercise.md)
 
-### Related Projects
+## Contributing and releases
 
-- [StateSet Sequencer](../stateset-sequencer/) - Off-chain commerce event processing
-- [StateSet Network](../) - Parent project documentation
+Keep changes scoped, preserve unrelated work and accompany security changes with
+adversarial tests. Distinguish implementation, local execution, deployed evidence
+and independent verification in documentation.
+
+See the [release process](docs/release-process.md), [changelog](CHANGELOG.md) and
+[pinned toolchain](docs/toolchain.md). Version bumps, tags and pushes do not authorize
+contract deployment or public-network operations.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
