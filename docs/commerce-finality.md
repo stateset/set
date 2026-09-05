@@ -1,5 +1,21 @@
 # Commerce transaction finality
 
+## Transaction-flow results are not settlement evidence
+
+Transaction helpers in `tx/flows` report the transaction builder's confirmation
+outcome, not independent payment verification or L1 finality. Redemption request,
+encrypted transaction and forced-inclusion identifiers are extracted only from
+non-removed logs whose emitter matches the resolved target contract. A matching
+ABI signature from another contract is ignored.
+
+A confirmed transaction with no matching event still returns `success: true`,
+with the optional identifier absent. Investigate the receipt; do not automatically
+resubmit and risk a duplicate action. A successful forced-inclusion request only
+confirms the request transaction, not eventual inclusion or execution on L2.
+Emitter matching does not independently establish canonicality or finality.
+
+## Independent finality observations
+
 The SDK exposes `inspectTransactionFinality` to observe a transaction against one
 or more OP Stack execution RPCs. It checks chain identity, canonical receipt block,
 safe/finalized heads and receipt stability across the observation. With multiple

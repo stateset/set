@@ -1,4 +1,4 @@
-import { Contract, Wallet, TransactionReceipt, Log } from "ethers";
+import { Contract, Wallet, TransactionReceipt, Log, getAddress } from "ethers";
 import { TransactionBuilder, TxStatus } from "./builder.js";
 import type { TxBuilderOptions } from "./builder.js";
 
@@ -39,11 +39,18 @@ interface ParsedEvent {
 function findEvent(
   receipt: TransactionReceipt,
   contract: Contract,
-  eventName: string
+  eventName: string,
+  contractAddress: string
 ): ParsedEvent | undefined {
   const iface = contract.interface;
 
   for (const log of receipt.logs) {
+    // ABI compatibility alone does not establish which contract emitted a log.
+    if (
+      typeof log.address !== "string" ||
+      log.address.toLowerCase() !== contractAddress.toLowerCase() ||
+      log.removed === true
+    ) continue;
     try {
       const parsed = iface.parseLog({
         topics: log.topics as string[],
@@ -87,7 +94,7 @@ export async function executeDepositFlow(
 
   try {
     // Step 1: Check and approve allowance
-    const vaultAddress = await treasuryVault.getAddress();
+    const vaultAddress = getAddress(await treasuryVault.getAddress());
     const allowance = await collateralToken.allowance(wallet.address, vaultAddress) as bigint;
 
     if (allowance < amount) {
@@ -309,7 +316,7 @@ export async function executeRedemptionRequestFlow(
 
   try {
     // Step 1: Check and approve allowance
-    const vaultAddress = await treasuryVault.getAddress();
+    const vaultAddress = getAddress(await treasuryVault.getAddress());
     const allowance = await ssUSD.allowance(wallet.address, vaultAddress) as bigint;
 
     if (allowance < amount) {
@@ -358,7 +365,7 @@ export async function executeRedemptionRequestFlow(
     // Extract request ID from event
     let requestId: bigint | undefined;
     if (requestResult.receipt) {
-      const event = findEvent(requestResult.receipt, treasuryVault, 'RedemptionRequested');
+      const event = findEvent(requestResult.receipt, treasuryVault, 'RedemptionRequested', vaultAddress);
       if (event) {
         requestId = event.args?.requestId;
       }
@@ -528,6 +535,8 @@ export async function executeEncryptedTxFlow(
   let totalCost = BigInt(0);
 
   try {
+    // Resolve the emitter before submitting, so address resolution cannot fail after a send.
+    const mempoolAddress = getAddress(await mempool.getAddress());
     // Calculate required value (gas deposit + value deposit)
     const gasDeposit = gasLimit * maxFeePerGas;
     const totalValue = gasDeposit + valueDeposit;
@@ -551,7 +560,7 @@ export async function executeEncryptedTxFlow(
     // Extract tx ID from event
     let txId: string | undefined;
     if (submitResult.receipt) {
-      const event = findEvent(submitResult.receipt, mempool, 'EncryptedTxSubmitted');
+      const event = findEvent(submitResult.receipt, mempool, 'EncryptedTxSubmitted', mempoolAddress);
       if (event) {
         txId = event.args?.txId;
       }
@@ -580,7 +589,7 @@ export async function executeEncryptedTxFlow(
 }
 
 /**
- * Force transaction inclusion flow (L1)
+ * Submit a forced-inclusion request/bond (L1). Success does not prove L2 execution.
  */
 export async function executeForcedInclusionFlow(
   wallet: Wallet,
@@ -597,6 +606,7 @@ export async function executeForcedInclusionFlow(
   let totalCost = BigInt(0);
 
   try {
+    const forcedAddress = getAddress(await forcedInclusion.getAddress());
     const forceResult = await builder.execute(
       forcedInclusion,
       'forceTransaction',
@@ -617,7 +627,7 @@ export async function executeForcedInclusionFlow(
     let txId: string | undefined;
     let deadline: bigint | undefined;
     if (forceResult.receipt) {
-      const event = findEvent(forceResult.receipt, forcedInclusion, 'TransactionForced');
+      const event = findEvent(forceResult.receipt, forcedInclusion, 'TransactionForced', forcedAddress);
       if (event) {
         txId = event.args?.txId;
         deadline = event.args?.deadline;

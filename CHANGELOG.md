@@ -4,6 +4,19 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-09-05
+
+Transaction-flow event integrity patch. Rollup settlement, recovery and independent
+audit remain unverified; Sepolia deployment stays on hold.
+
+### Fixed
+
+- Redemption, encrypted-transaction and forced-inclusion flows only extract identifiers
+  from logs emitted by the resolved target contract; removed logs are ignored and
+  emitter resolution completes before submitting a transaction
+- Added transaction-flow regressions for spoofed events, approval handling, failed
+  transactions, exceptions and accumulated successful-transaction costs
+
 ## [0.3.8] - 2026-09-05
 
 Commerce verification and local operations hardening release. Full rollup settlement,

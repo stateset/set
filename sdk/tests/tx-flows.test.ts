@@ -122,13 +122,14 @@ describe("tx flows", () => {
       status: TxStatus.CONFIRMED,
       hash: "0xsubmit",
       receipt: {
-        logs: [{ topics: event.topics, data: event.data }]
+        logs: [{ address: sender, topics: event.topics, data: event.data }]
       },
       gasUsed: 21_000n,
       totalCost: 42n
     } as any);
 
     const mempool = {
+      getAddress: vi.fn().mockResolvedValue(sender),
       interface: iface
     } as any;
 
@@ -170,13 +171,14 @@ describe("tx flows", () => {
       status: TxStatus.CONFIRMED,
       hash: "0xforce",
       receipt: {
-        logs: [{ topics: event.topics, data: event.data }]
+        logs: [{ address: sender, topics: event.topics, data: event.data }]
       },
       gasUsed: 50_000n,
       totalCost: 84n
     } as any);
 
     const forcedInclusion = {
+      getAddress: vi.fn().mockResolvedValue(sender),
       interface: iface
     } as any;
 
