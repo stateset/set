@@ -21,9 +21,13 @@ Notes:
 npm install @setchain/sdk ethers
 ```
 
-SDK tests require Node 20+. `npm test` will use a local Node 20+ binary when
+SDK tests require Node 20+, Python 3 with SQLite support, and permission to bind
+loopback HTTP listeners. Python is a test/reference dependency, not an SDK runtime
+dependency. `npm test` will use a local Node 20+ binary when
 available, honor `SET_SDK_NODE_BIN`, and otherwise fall back to Docker when
-`docker` is installed.
+`docker` is installed. The default Docker fallback builds `tests/Dockerfile` with
+Node and Python (initial build needs network access); a custom `SET_SDK_NODE_IMAGE`
+must provide both runtimes.
 
 ## Quick Start
 
@@ -482,3 +486,12 @@ See the [API Reference](../docs/api-reference.md) for complete documentation of 
 ## License
 
 MIT
+# Transaction finality for commerce
+
+Use `inspectTransactionFinality` to distinguish sequencer inclusion from safe and
+finalized blocks and corroborate a receipt against a separate verifier. Reverted
+transactions can be finalized: applications must check execution success and the
+expected payment events before fulfillment.
+
+See [commerce finality](../docs/commerce-finality.md) for the API, local diagnostic,
+reorg handling and trust assumptions. RPC observations do not prove withdrawals.

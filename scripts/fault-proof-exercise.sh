@@ -126,6 +126,8 @@ create_test_dispute() {
     echo "    --private-key \$CHALLENGER_KEY \\"
     echo "    --trace-type cannon"
     echo ""
+    echo "ERROR: No dispute was created. This command is a walkthrough only." >&2
+    return 1
 }
 
 # Monitor a dispute game
@@ -160,7 +162,7 @@ run_exercise() {
     list_disputes
 
     echo -e "${BLUE}=============================================${NC}"
-    echo -e "${BLUE}  Exercise Complete${NC}"
+    echo -e "${BLUE}  Walkthrough Only — Exercise Not Executed${NC}"
     echo -e "${BLUE}=============================================${NC}"
     echo ""
     echo "Next steps to complete the fault proof exercise:"
@@ -179,6 +181,7 @@ run_exercise() {
     echo ""
     echo "5. Document the exercise in docs/fault-proof-exercise.md"
     echo ""
+    return 1
 }
 
 # Generate exercise report

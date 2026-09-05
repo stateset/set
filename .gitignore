@@ -153,3 +153,5 @@ anchor/data/
 .autoresearch/
 .autoresearch-stablecoin/
 .codex
+__pycache__/
+*.pyc

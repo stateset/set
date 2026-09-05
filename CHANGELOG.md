@@ -4,6 +4,53 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-09-05
+
+Commerce verification and local operations hardening release. Full rollup settlement,
+recovery and independent audit remain unverified; Sepolia deployment stays on hold.
+
+### Added
+
+- Whole-operation deadlines and cancellation for SDK finality/payment verification,
+  with typed interruption errors and no automatic finality downgrade
+- Local RPC-to-ledger commerce regressions covering one-time order credit,
+  underpayment rejection and idempotent fulfillment retries across process restarts
+- Durable SQLite merchant-ledger reference with atomic payment consumption, immutable
+  checkout expectations and a leased fulfillment outbox; tested against concurrent
+  credits, rollback and worker restart scenarios
+- ERC-20 payment verification combining canonical finality with exact token, payer,
+  recipient, amount and event checks across multiple RPC sources; provides a stable
+  receipt key for application-level atomic payment consumption
+- Transaction finality observations in the SDK with canonical receipt checks,
+  safe/finalized head validation, reorg detection, and conservative agreement
+  across independently configured RPC sources
+- Read-only loopback diagnostic for transaction finality and JSON evidence output
+- Offline L2 readiness regressions for settlement validation, generated configuration,
+  governance policy, RPC exposure, and fault-proof walkthrough behavior
+
+### Fixed
+
+- Local readiness RPC parsing rejects duplicate JSON fields and non-finite numbers;
+  real loopback HTTP regressions cover redirects, proxy bypass and stalled responses
+- Local startup replaces fixed sleeps with bounded RPC chain/genesis, rollup
+  configuration and canonical-head checks before starting transaction submitters
+- Local start/stop operations use a shared lifecycle lock; startup failures attempt
+  identity-checked rollback and process status no longer trusts bare PID liveness
+- Local OP Stack shutdown verifies recorded process ownership and uses Linux pidfds
+  instead of signaling bare PIDs; stale or untrusted records fail closed
+- Legacy devnet startup no longer loads Sepolia configuration; local chain/origin
+  preflight, loopback RPC binding and stale-PID refusal protect local-only runs
+- Merchant ledger validates evidence structure and permits expired matching retries
+  without rewriting evidence or re-enqueueing completed fulfillment
+- Verification evidence retains the whole-operation start time through slow sources
+  and finality rechecks; payment terms and deadline options are snapshotted at entry
+- Payment verification validates the entire receipt-log sequence before assigning
+  a consumption key, rejecting index gaps, reordering, duplicates and stale metadata
+- Settlement validation rejects wrong-chain, malformed, failed and empty RPC results
+- Shared-network configuration aligns generated artifact/data paths and restricts RPC exposure
+- Production validation requires governance and fault-proof configuration
+- Fault-proof walkthroughs no longer report successful execution of unperformed disputes
+
 ## [0.3.7] - 2026-09-04
 
 ### Fixed

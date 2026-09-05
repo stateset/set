@@ -1,0 +1,26 @@
+name: L2 Readiness
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test offline readiness and transactional payment ledger
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Validate shell syntax
+        run: |
+          for script in scripts/check-l1-settlement.sh scripts/validate-ops-config.sh scripts/fault-proof-exercise.sh scripts/generate-genesis.sh scripts/start-devnet.sh scripts/stop-devnet.sh scripts/local-lifecycle.sh; do
+            bash -n "$script"
+          done
+      - name: Validate Compose structure without credentials
+        run: docker compose -f docker/docker-compose.sepolia.yml config --quiet --no-interpolate

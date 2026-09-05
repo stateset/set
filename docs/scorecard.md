@@ -11,7 +11,15 @@ CI).
 
 ## Current Status
 
-**Engineering baseline: A+ candidate. Production launch readiness: incomplete.**
+**Application release checks: passed for v0.3.7. L2 production readiness: incomplete.**
+
+Current evidence-based assessment: **B overall for commerce; C+ for production L2
+readiness.** The criteria below are targets, not completed certification. The v0.3.8
+hardening release requires its own certification run, and the complete rollup
+lifecycle, recovery and independent audit evidence is still missing.
+
+See [L2 readiness evidence](l2-readiness-gaps.md) for concrete configuration fixes
+and the outstanding settlement, dispute, recovery, governance and audit evidence.
 
 This scorecard treats code, local tests, deployed systems, and independently
 verified systems as distinct states. A checked item must have the evidence it
@@ -21,7 +29,7 @@ and governance verification below are complete.
 
 ## Dimensions and criteria
 
-### Security (9/10)
+### Security (B− assurance; independent audit and deployed governance pending)
 A 10/10 security score requires:
 - [x] Threat model and assumptions documented (`docs/threat-model.md`)
 - [ ] Independent audit completed and published (`docs/audit-report.md`) **← Schedule audit**
@@ -39,13 +47,14 @@ A 10/10 security score requires:
   - OrderEscrow: confirmation-window enforcement and fee-on-transfer insolvency protection
   - FxOracle: full-precision conversion and zero-pair rejection
   - ProofOfReservesV2: checked packed-config bounds; attestor input/readiness hardening
-  - ForcedInclusion: Real inclusion-proof verification against L2OutputOracle
+  - ForcedInclusion: Request/proof/refund logic against L2OutputOracle; this does
+    not enforce canonical rollup execution or establish censorship resistance
   - EncryptedMempool: Decryption proofs bound to encrypted payloads
   - TreasuryVault: Redemption shares burned at request time (NAV manipulation fix)
   - ThresholdKeyRegistry: DKG state cleared per ceremony, duplicate registration prevented
   - SetRegistry: Legacy registerBatchRoot disabled by default
 
-### Decentralization (9/10)
+### Decentralization (unproven runtime guarantees)
 A 10/10 decentralization score requires:
 - [x] Sequencer decentralization plan with milestones (`docs/decentralization.md`)
 - [x] Permissionless node guidance and incentives (`docs/node-operators.md`)
@@ -60,7 +69,7 @@ A 10/10 decentralization score requires:
   - MEV monitoring alerts: `docker/monitoring/alerts.yml`
   - Tests: `contracts/test/SequencerAttestation.t.sol`, `contracts/test/ForcedInclusion.t.sol`
 
-### Reliability and Operations (implementation complete; deployment evidence pending)
+### Reliability and Operations (C+; recovery evidence pending)
 A 10/10 reliability score requires:
 - [x] SLOs and alert thresholds defined (`docs/monitoring.md`)
 - [x] Monitoring and alerting configuration implemented (`docker/docker-compose.monitoring.yml`)
@@ -70,7 +79,7 @@ A 10/10 reliability score requires:
 - [x] CI smoke coverage configured for contracts and anchor service (`.github/workflows`)
 - [ ] Required CI checks green on the release commit
 
-### Developer Experience (A+ baseline)
+### Developer Experience (A− application tooling; full rollup devnet pending)
 A 10/10 devx score requires:
 - [x] One-command local devnet (`scripts/dev.sh`)
 - [x] Documented testing and debugging (`docs/local_testing_guide.md`)
@@ -82,7 +91,7 @@ A 10/10 devx score requires:
 - [x] API reference documentation (`docs/api-reference.md`)
 - [x] Glossary of terms (`docs/glossary.md`)
 
-### Release Engineering (10/10 implementation)
+### Release Engineering (application certification; current changes unreleased)
 A 10/10 release-engineering score requires:
 - [x] Annotated tags matched to package versions (`scripts/check-release-readiness.sh`)
 - [x] Complete contract, invariant, Rust/Anvil, and SDK certification on release tags
@@ -96,7 +105,7 @@ A 10/10 release-engineering score requires:
 - [x] Time-bound, fail-closed dependency exception policy (`docs/security-exceptions.md`)
 - [x] Default-branch enforcement settings documented (`docs/repository-settings.md`)
 
-### Ecosystem and Adoption (9/10)
+### Ecosystem and Adoption (configuration present; adoption evidence pending)
 A 10/10 ecosystem score requires:
 - [x] Block explorer and indexing configuration
   - Docker compose: `docker/docker-compose.explorer.yml`
@@ -209,7 +218,11 @@ A 10/10 ecosystem score requires:
 - [ ] Remediate findings
 - [ ] Publish report to `docs/audit-report.md`
 
-### 2. Deploy to Sepolia
+### 2. Public Testnet Validation — ON HOLD
+
+Do not execute the commands below without new explicit authorization. Complete
+the local rollup lifecycle and recovery prerequisites first. The user's current
+instruction is **do not deploy to Sepolia**.
 ```bash
 # Deploy L1 + L2
 ./scripts/deploy-sepolia.sh all

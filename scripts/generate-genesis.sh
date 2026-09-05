@@ -3,6 +3,7 @@
 # Generates genesis.json and rollup.json from deployment state
 
 set -eo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -127,10 +128,11 @@ init_geth() {
             "$SEQUENCER_DIR/op-geth/genesis.json"
         echo "op-geth initialized"
     else
-        echo "Warning: op-geth not found in PATH"
+        echo "Error: op-geth not found in PATH; initialization is incomplete"
         echo "Run ./scripts/install-op-stack.sh first"
         echo "Then manually initialize:"
         echo "  op-geth init --datadir $geth_data $SEQUENCER_DIR/op-geth/genesis.json"
+        return 1
     fi
 }
 
@@ -204,6 +206,10 @@ main() {
     check_state
     generate_genesis
     generate_rollup
+    python3 "$PROJECT_DIR/scripts/validate-rollup-config.py" \
+        --genesis "$SEQUENCER_DIR/op-geth/genesis.json" \
+        --rollup "$SEQUENCER_DIR/op-node/rollup.json" \
+        --l1-chain-id "$L1_CHAIN_ID" --l2-chain-id "$L2_CHAIN_ID"
     generate_jwt
     generate_p2p_key
     init_geth

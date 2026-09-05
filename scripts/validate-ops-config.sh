@@ -71,6 +71,11 @@ case "$MODE" in
         ;;
 esac
 
+if [ "$MODE" = "production" ]; then
+    REQUIRE_FAULT_PROOFS=true
+    REQUIRE_ADMIN_POLICY=true
+fi
+
 log_ok() { echo "[OK] $1"; }
 log_warn() { echo "[WARN] $1"; }
 log_error() { echo "[ERROR] $1"; }
@@ -131,6 +136,30 @@ require_value() {
         fi
         return
     fi
+
+    case "$key" in
+        *_ADDRESS)
+            if [[ ! "$value" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+                log_error "$label ($key) is not a valid address"
+                errors=$((errors + 1))
+                return
+            fi
+            ;;
+        *_PRIVATE_KEY)
+            if [[ ! "$value" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+                log_error "$label ($key) is not a valid private key encoding"
+                errors=$((errors + 1))
+                return
+            fi
+            ;;
+        JWT_SECRET)
+            if [[ ! "$value" =~ ^[0-9a-fA-F]{64}$ ]]; then
+                log_error "JWT_SECRET must contain 64 hexadecimal characters"
+                errors=$((errors + 1))
+                return
+            fi
+            ;;
+    esac
 
     log_ok "$label ($key) set"
 }
@@ -197,9 +226,17 @@ if [ "$REQUIRE_ADMIN_POLICY" = true ]; then
     timelock_addr="$(get_env_value "UPGRADE_TIMELOCK_ADDRESS")"
     if ! is_placeholder "$admin_addr" && ! is_placeholder "$timelock_addr"; then
         if [ "${admin_addr,,}" != "${timelock_addr,,}" ]; then
-            log_warn "ADMIN_ADDRESS should point at the timelock for production"
-            warnings=$((warnings + 1))
+            log_error "ADMIN_ADDRESS must point at the configured timelock"
+            errors=$((errors + 1))
         fi
+    fi
+    delay="$(get_env_value UPGRADE_TIMELOCK_DELAY_SECS)"
+    minimum_delay=3600
+    if [ "$MODE" = "production" ]; then minimum_delay=86400; fi
+    if [[ ! "$delay" =~ ^[1-9][0-9]{0,6}$ ]] ||
+       [ "$delay" -lt "$minimum_delay" ] || [ "$delay" -gt 2592000 ]; then
+        log_error "Timelock delay must be between $minimum_delay and 2592000 seconds"
+        errors=$((errors + 1))
     fi
 fi
 

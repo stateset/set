@@ -55,6 +55,9 @@ jobs:
       - name: Validate release metadata and CI pins
         run: ./scripts/check-release-readiness.sh '${{ steps.release.outputs.tag }}'
 
+      - name: Validate local readiness and merchant ledger regressions
+        run: python3 -m unittest discover -s scripts/tests -v
+
   contracts:
     name: Contract unit and integration tests
     runs-on: ubuntu-24.04

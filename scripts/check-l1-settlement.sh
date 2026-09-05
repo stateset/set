@@ -110,8 +110,10 @@ rpc_call() {
     local method="$1"
     local params="${2:-[]}";
 
-    curl -sf "$L1_RPC_URL" -X POST -H "Content-Type: application/json" \
-        -d "{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":$params,\"id\":1}"
+    local response
+    response=$(curl --connect-timeout 5 --max-time 20 -sf "$L1_RPC_URL" -X POST -H "Content-Type: application/json" \
+        -d "{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":$params,\"id\":1}") || return 1
+    jq -er 'select(.jsonrpc == "2.0" and .id == 1 and (has("error") | not)) | .result | select(type == "string")' <<< "$response"
 }
 
 L1_RPC_URL="$(get_env_value "L1_RPC_URL")"
@@ -131,14 +133,24 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 log_ok "Using env file: $ENV_FILE"
-log_ok "Checking L1 RPC: $L1_RPC_URL"
+log_ok "Checking configured L1 RPC"
 
 if ! chain_resp="$(rpc_call eth_chainId)"; then
     log_error "L1 RPC not reachable"
     exit 1
 fi
 
-chain_id_hex="$(echo "$chain_resp" | jq -r '.result')"
+chain_id_hex="$chain_resp"
+expected_chain_id="$(get_env_value L1_CHAIN_ID)"
+if [[ ! "$chain_id_hex" =~ ^0x[0-9a-fA-F]{1,13}$ ]] ||
+   [[ ! "$expected_chain_id" =~ ^[1-9][0-9]{0,14}$ ]]; then
+    log_error "Expected decimal L1_CHAIN_ID and valid RPC chain ID are required"
+    exit 1
+fi
+if [ "$((chain_id_hex))" -ne "$expected_chain_id" ]; then
+    log_error "L1 chain ID does not match L1_CHAIN_ID"
+    exit 1
+fi
 log_ok "L1 chain ID: $chain_id_hex"
 
 check_contract() {
@@ -156,10 +168,17 @@ check_contract() {
         return
     fi
 
+    if [[ ! "$address" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+        log_error "$label has an invalid address"
+        return 1
+    fi
     local code
-    code="$(rpc_call eth_getCode "[\"$address\", \"latest\"]" | jq -r '.result')"
-    if [ "$code" = "0x" ]; then
-        log_error "$label not deployed at $address"
+    if ! code="$(rpc_call eth_getCode "[\"$address\", \"latest\"]")"; then
+        log_error "$label bytecode RPC failed"
+        return 1
+    fi
+    if [[ ! "$code" =~ ^0x([0-9a-fA-F]{2})+$ ]]; then
+        log_error "$label bytecode is missing or malformed"
         return 1
     fi
 
@@ -177,4 +196,4 @@ if [ "$errors" -gt 0 ]; then
     exit 1
 fi
 
-log_ok "Settlement contracts look deployed"
+log_ok "Settlement chain ID and contract bytecode presence verified; identity, wiring and withdrawals require integration verification"

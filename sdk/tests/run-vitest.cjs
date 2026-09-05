@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const MIN_NODE_MAJOR = 20;
-const DEFAULT_DOCKER_IMAGE = "node:20-bookworm-slim";
+const DEFAULT_DOCKER_IMAGE = "set-sdk-tests:node20";
 
 function parseMajor(version) {
   const [major] = String(version || "").split(".");
@@ -81,6 +81,15 @@ if (runtime.kind === "binary") {
     stdio: "inherit"
   });
 } else {
+  if (!process.env.SET_SDK_NODE_IMAGE) {
+    const build = spawnSync("docker", [
+      "build", "-t", DEFAULT_DOCKER_IMAGE, "-f", path.join(__dirname, "Dockerfile"), __dirname
+    ], { stdio: "inherit" });
+    if (build.error || build.status !== 0) {
+      console.error(build.error?.message || "Unable to build SDK test runtime.");
+      process.exit(build.status || 1);
+    }
+  }
   console.error(
     `Local Node ${MIN_NODE_MAJOR}+ not found; running Vitest via Docker image ${runtime.image}.`
   );

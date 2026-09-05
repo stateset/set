@@ -1,8 +1,6 @@
 # Set Chain - Sepolia Testnet Docker Compose
 # Connects to real Sepolia L1 (no local L1 node)
 
-version: '3.8'
-
 services:
   # =========================================================================
   # op-geth - L2 Execution Client
@@ -16,14 +14,12 @@ services:
       - --http
       - --http.addr=0.0.0.0
       - --http.port=8547
-      - --http.api=eth,net,web3,debug,txpool,engine
-      - --http.corsdomain=*
-      - --http.vhosts=*
+      - --http.api=eth,net,web3
+      - --http.vhosts=localhost,op-geth
       - --ws
       - --ws.addr=0.0.0.0
       - --ws.port=8548
-      - --ws.api=eth,net,web3,debug,txpool,engine
-      - --ws.origins=*
+      - --ws.api=eth,net,web3
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8551
       - --authrpc.jwtsecret=/config/jwt.txt
@@ -34,12 +30,11 @@ services:
       - --maxpeers=0
       - --verbosity=3
     volumes:
-      - op-geth-data:/data
+      - ../op-stack/sequencer/op-geth/data:/data
       - ../op-stack/sequencer/op-geth:/config:ro
     ports:
-      - "8547:8547"
-      - "8548:8548"
-      - "8551:8551"
+      - "127.0.0.1:8547:8547"
+      - "127.0.0.1:8548:8548"
     networks:
       - set-chain
     restart: unless-stopped
@@ -56,19 +51,19 @@ services:
       - --l1.beacon=${L1_BEACON_URL}
       - --l2=http://op-geth:8551
       - --l2.jwt-secret=/config/jwt.txt
-      - --rollup.config=/config/rollup.json
+      - --rollup.config=/rollup-config/rollup.json
       - --rpc.addr=0.0.0.0
       - --rpc.port=9545
       - --p2p.disable
       - --sequencer.enabled
-      - --sequencer.l1-confs=0
-      - --verifier.l1-confs=0
+      - --sequencer.l1-confs=4
+      - --verifier.l1-confs=4
       - --log.level=info
     volumes:
       - ../op-stack/sequencer/op-geth:/config:ro
       - ../op-stack/sequencer/op-node:/rollup-config:ro
     ports:
-      - "9545:9545"
+      - "127.0.0.1:9545:9545"
     networks:
       - set-chain
     depends_on:
@@ -150,10 +145,6 @@ services:
     depends_on:
       - op-geth
     restart: unless-stopped
-
-volumes:
-  op-geth-data:
-    name: set-op-geth-sepolia-data
 
 networks:
   set-chain:

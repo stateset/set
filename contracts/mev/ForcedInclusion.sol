@@ -11,17 +11,15 @@ interface ITxRootOracle {
 
 /**
  * @title ForcedInclusion
- * @notice L1 contract for censorship-resistant transaction inclusion on Set Chain
- * @dev Deployed on Ethereum L1, provides escape hatch for censored users
+ * @notice Bonded transaction request queue with inclusion tracking
+ * @dev This contract does not enforce rollup derivation or call OptimismPortal.
+ *      Censorship-resistant execution requires the canonical L1 deposit path.
  *
  * Flow:
  * 1. User submits transaction + bond to this contract on L1
- * 2. Sequencer MUST include the transaction within INCLUSION_DEADLINE
+ * 2. Sequencer is expected to include the transaction within INCLUSION_DEADLINE
  * 3. If included: user can claim bond back with inclusion proof
- * 4. If not included: user can reclaim bond + sequencer faces reputation damage
- *
- * This mechanism ensures users always have a path to inclusion, even if
- * the sequencer attempts to censor specific transactions.
+ * 4. If not included: user can reclaim the bond; execution is not guaranteed
  */
 contract ForcedInclusion is Ownable, ReentrancyGuard, Pausable {
     // =========================================================================

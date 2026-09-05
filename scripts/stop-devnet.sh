@@ -1,46 +1,29 @@
 #!/bin/bash
 # Set Chain - Stop Local Devnet
-# Stops all OP Stack components
+# Stops only recorded and identity-verified local OP Stack processes
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROCESS_PYTHON="${LOCAL_ROLLUP_PYTHON:-python3}"
 PID_DIR="$PROJECT_DIR/.pids"
+source "$SCRIPT_DIR/local-lifecycle.sh"
+umask 077
+acquire_local_lifecycle_lock
 
 echo "=== Stopping Set Chain Devnet ==="
 echo ""
 
-# Stop a process by PID file
-stop_process() {
-    local name=$1
-    local pid_file="$PID_DIR/$name.pid"
-
-    if [ -f "$pid_file" ]; then
-        local pid=$(cat "$pid_file")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "Stopping $name (PID: $pid)..."
-            kill "$pid"
-            sleep 1
-            # Force kill if still running
-            if kill -0 "$pid" 2>/dev/null; then
-                kill -9 "$pid" 2>/dev/null || true
-            fi
-            echo "  $name stopped"
-        else
-            echo "  $name already stopped"
-        fi
-        rm "$pid_file"
-    else
-        echo "  $name not running"
-    fi
-}
-
-# Stop all components (reverse order)
-stop_process "op-proposer"
-stop_process "op-batcher"
-stop_process "op-node"
-stop_process "op-geth"
+# Try every component, but never report global success after any refusal.
+errors=0
+for component in op-proposer op-batcher op-node op-geth; do
+    "$PROCESS_PYTHON" "$SCRIPT_DIR/local-process.py" stop "$component" || errors=$((errors + 1))
+done
+if [ "$errors" -ne 0 ]; then
+    echo "Stop incomplete: $errors ownership checks or stops failed; records retained."
+    exit 1
+fi
 
 echo ""
 echo "Devnet stopped"
