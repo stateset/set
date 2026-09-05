@@ -19,8 +19,10 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Validate shell syntax
         run: |
-          for script in scripts/check-l1-settlement.sh scripts/validate-ops-config.sh scripts/fault-proof-exercise.sh scripts/generate-genesis.sh scripts/start-devnet.sh scripts/stop-devnet.sh scripts/local-lifecycle.sh; do
+          for script in scripts/check-l1-settlement.sh scripts/validate-ops-config.sh scripts/fault-proof-exercise.sh scripts/generate-genesis.sh scripts/start-devnet.sh scripts/stop-devnet.sh scripts/local-lifecycle.sh scripts/start-local-anvil.sh scripts/reset-devnet.sh scripts/check-release-readiness.sh; do
             bash -n "$script"
           done
       - name: Validate Compose structure without credentials
-        run: docker compose -f docker/docker-compose.sepolia.yml config --quiet --no-interpolate
+        run: |
+          docker compose -f docker/docker-compose.sepolia.yml config --quiet --no-interpolate
+          docker compose -f docker/docker-compose.local.yml config --quiet --no-interpolate

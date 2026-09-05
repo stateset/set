@@ -4,6 +4,25 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-09-05
+
+Local launch/reset safety and fail-closed release validation. Reset now requires
+the node to be stopped explicitly and archives artifacts instead of deleting them.
+Full rollup lifecycle assurance remains incomplete; Sepolia deployment stays on hold.
+
+### Fixed
+
+- Anvil reset no longer kills port/name-matched processes or removes containers;
+  reserves the idle local RPC port and archives scoped artifacts with a recovery
+  journal instead of recursive deletion, preserving other chains' broadcast records
+- Local Anvil launch binds RPC to loopback and no longer stops existing Docker
+  nodes or removes containers to resolve conflicts; executes the validated host binary
+- Standalone local execution Compose isolates project resources, removes host
+  Engine RPC exposure and unsafe application APIs, and fails on genesis init errors
+- Release checks fail closed on missing tools, scanner errors and malformed or
+  empty dependency locks; reject semver/branch action references, not just major tags
+- Executable regressions cover launch and certification failures
+
 ## [0.3.9] - 2026-09-05
 
 Transaction-flow event integrity patch. Rollup settlement, recovery and independent

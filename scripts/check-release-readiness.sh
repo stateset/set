@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# A skipped scanner must never become a successful certification.
+for dependency in dirname node sed head git rg; do
+    command -v "$dependency" >/dev/null 2>&1 || {
+        echo "release check requires ${dependency}" >&2
+        exit 1
+    }
+done
+
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
 
@@ -26,6 +34,21 @@ if [[ -n "$release_tag" ]]; then
     fi
 fi
 
+locked_dependencies="$(node -e '
+    const fs = require("node:fs");
+    const lock = JSON.parse(fs.readFileSync("./contracts/foundry.lock", "utf8"));
+    if (!lock || typeof lock !== "object" || Array.isArray(lock) || Object.keys(lock).length === 0) {
+        throw new Error("foundry.lock must contain dependency pins");
+    }
+    for (const [dependency, metadata] of Object.entries(lock)) {
+        if (!/^lib\/[a-zA-Z0-9_-]+$/.test(dependency) ||
+            !metadata || !/^[0-9a-f]{40}$/.test(metadata.rev)) {
+            throw new Error("invalid Foundry dependency pin");
+        }
+        process.stdout.write(`${dependency}\t${metadata.rev}\n`);
+    }
+')"
+
 while IFS=$'\t' read -r dependency expected_revision; do
     index_entry="$(git ls-files -s "contracts/${dependency}")"
     read -r file_mode tracked_revision stage tracked_path <<< "$index_entry"
@@ -46,29 +69,31 @@ while IFS=$'\t' read -r dependency expected_revision; do
         echo "contracts/${dependency} is not initialized at ${expected_revision}" >&2
         exit 1
     fi
-done < <(node -e '
-    const fs = require("node:fs");
-    const lock = JSON.parse(fs.readFileSync("./contracts/foundry.lock", "utf8"));
-    for (const [dependency, metadata] of Object.entries(lock)) {
-        process.stdout.write(`${dependency}\t${metadata.rev}\n`);
-    }
-')
+done <<< "$locked_dependencies"
 
-if git ls-files | rg -q '(^|/)(\.env|secrets\.ya?ml)$'; then
-    echo "tracked runtime secret file detected" >&2
-    git ls-files | rg '(^|/)(\.env|secrets\.ya?ml)$' >&2
-    exit 1
-fi
+# rg exit 1 means no matches; exit 2 (or a crashed scanner) is a check failure.
+reject_matches() {
+    local message="$1"
+    shift
+    local result=0
+    rg "$@" || result=$?
+    if [ "$result" -eq 0 ]; then
+        echo "$message" >&2
+        exit 1
+    elif [ "$result" -ne 1 ]; then
+        echo "release scanner failed (exit ${result})" >&2
+        exit 1
+    fi
+}
 
-if rg -n 'uses:\s+[^[:space:]#]+@(v[0-9]+|main|master|stable|latest)(\s|$)' .github/workflows; then
-    echo "GitHub Actions must be pinned to immutable commit SHAs" >&2
-    exit 1
-fi
+tracked_files="$(git ls-files)"
+reject_matches "tracked runtime secret file detected" \
+    '(^|/)(\.env|secrets\.ya?ml)$' <<< "$tracked_files"
 
-if rg -n 'runs-on:\s+[^#]*latest' .github/workflows; then
-    echo "release workflows must pin the runner image" >&2
-    exit 1
-fi
+reject_matches "GitHub Actions must be pinned to immutable commit SHAs" \
+    --pcre2 -n 'uses:\s+[^[:space:]#]+@(?![0-9a-f]{40}(?:["\x27]?\s*(?:#.*)?$))' .github/workflows
+reject_matches "release workflows must pin the runner image" \
+    -n 'runs-on:\s+[^#]*latest' .github/workflows
 
 git diff --check
 printf 'release metadata verified: tag=%s sdk=%s anchor=%s\n' \

@@ -5,6 +5,22 @@ certification of the complete rollup. Sepolia deployment remains on hold.
 
 ## Implemented hardening
 
+- The Anvil application launcher now binds host RPC and Docker-published RPC to
+  loopback, executes the validated host binary, and never stops or removes an
+  existing node/container to claim a port or name. The standalone local execution
+  Compose project has isolated resource names, no host-published Engine RPC and
+  restricted application RPC APIs. Failed genesis initialization fails its service
+  instead of printing a success message. These are local launch safeguards, not a
+  complete rollup; other Compose profiles remain separate.
+- Anvil reset no longer signals processes selected by port/name or removes Docker
+  containers. It requires an idle local RPC port, reserves that port during
+  archival, and moves only build outputs and the configured chain's broadcast
+  artifacts into a recoverable, journaled local archive. Unsafe paths fail closed;
+  partial archival failure prevents restart. This is not a chain-state backup or
+  an atomic snapshot, and artifact writers must be stopped explicitly.
+- Release validation fails when required tools are absent, dependency metadata
+  cannot be parsed, or its scanner errors. Scanner failure is not treated as an
+  empty findings list. Temporary-repository regressions exercise these cases.
 - The legacy `start-devnet.sh` launcher no longer sources Sepolia configuration.
   It requires `config/local-rollup.env`, accepts only numeric loopback execution
   and beacon URLs, and checks the actual L1 chain ID (1337 or 31337) and canonical
@@ -106,7 +122,8 @@ ownership: the new stop helper deliberately refuses to signal them. Inspect the
 actual executable, arguments, start time and workspace manually before dealing
 with an old process or removing its records. No old process has been stopped or
 old record removed by this change. These changes cover the OP Stack launcher, not
-the separate Anvil reset script.
+the separate Anvil reset script, which now requires the node to be stopped first
+and archives artifacts without signaling processes.
 
 For a read-only local RPC check after provisioning matching local artifacts:
 
@@ -138,8 +155,9 @@ package and component revisions, provision sufficient disk/RAM, validate exposur
 of every published port, and include a distinct verifier and challenger. Do not
 use global Docker pruning or Kurtosis's global cleanup modes on a shared host.
 
-At the latest local inspection, this host had roughly 4 GB free, no Kurtosis CLI,
-and no cached OP Stack images. A complete stack was not downloaded or launched.
-Full lifecycle evidence remains blocked on suitable local runtime resources and
-completion of the pinned deployment integration; an independent audit remains a
-separate external requirement for A+ assurance.
+At the 2026-09-05 follow-up inspection, this host had roughly 51 GB disk space and
+16 GiB memory available, but no Kurtosis CLI or cached OP Stack images. Host load
+was elevated; available resources must be rechecked before provisioning. A complete
+stack was not downloaded or launched. Full lifecycle evidence still requires
+completion and execution of the pinned deployment integration; an independent
+audit remains a separate external requirement for A+ assurance.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # reset-devnet.sh
-# Reset local devnet artifacts and restart Anvil
+# Archive local devnet artifacts while idle and optionally restart Anvil
 # =============================================================================
 
 set -euo pipefail
@@ -9,7 +9,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$ROOT_DIR/config/chain-config.toml"
-ANVIL_CONTAINER_NAME="${FOUNDRY_ANVIL_CONTAINER_NAME:-set-local-anvil}"
 
 CHAIN_ID_DEFAULT=84532001
 FORCE=false
@@ -17,6 +16,8 @@ NO_START=false
 
 usage() {
     echo "Usage: $0 [--force] [--no-start]"
+    echo "Stop your local node explicitly first. Artifacts are archived, not deleted."
+    echo "--force skips confirmation only; busy ports and unsafe paths still fail."
 }
 
 while [ $# -gt 0 ]; do
@@ -70,7 +71,10 @@ if [ -z "$CHAIN_ID" ]; then
 fi
 
 if [ "$FORCE" = false ]; then
-    echo "This will stop Anvil on port 8545, remove local artifacts, and restart."
+    echo "This requires an idle port 8545 and archives local artifacts."
+    if [ "$NO_START" = false ]; then
+        echo "Anvil will then be restarted."
+    fi
     read -r -p "Continue? [y/N] " confirm
     if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
         echo "Aborted."
@@ -78,37 +82,8 @@ if [ "$FORCE" = false ]; then
     fi
 fi
 
-PIDS=""
-if command -v lsof >/dev/null 2>&1; then
-    PIDS="$(lsof -ti tcp:8545 || true)"
-elif command -v pgrep >/dev/null 2>&1; then
-    PIDS="$(pgrep -f "anvil.*--port 8545" || true)"
-fi
-
-if [ -n "$PIDS" ]; then
-    echo "Stopping Anvil..."
-    for pid in $PIDS; do
-        kill "$pid" 2>/dev/null || true
-    done
-    sleep 1
-else
-    echo "No Anvil process found on port 8545."
-fi
-
-if command -v docker >/dev/null 2>&1; then
-    docker rm -f "$ANVIL_CONTAINER_NAME" >/dev/null 2>&1 || true
-fi
-
-echo "Removing devnet artifacts..."
-if [ -d "$ROOT_DIR/contracts/broadcast" ]; then
-    find "$ROOT_DIR/contracts/broadcast" -maxdepth 2 -type d -name "$CHAIN_ID" -exec rm -rf {} +
-fi
-rm -rf "$ROOT_DIR/contracts/cache"
-rm -rf "$ROOT_DIR/contracts/out"
-
+args=(--chain-id "$CHAIN_ID")
 if [ "$NO_START" = true ]; then
-    echo "Reset complete. Skipping restart."
-    exit 0
+    args+=(--no-start)
 fi
-
-exec "$SCRIPT_DIR/start-local-anvil.sh"
+exec "${LOCAL_RESET_PYTHON:-python3}" "$SCRIPT_DIR/reset-local-artifacts.py" "${args[@]}"

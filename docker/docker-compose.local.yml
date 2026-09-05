@@ -1,7 +1,8 @@
 # Set Chain - Simple Local Development
-# Runs a standalone L2 execution client for testing
+# Runs a standalone L2 execution client for testing, NOT a complete rollup.
+# Isolated project resources; legacy global volumes are not migrated or deleted.
 
-version: '3.8'
+name: set-local-execution
 
 services:
   # =========================================================================
@@ -9,10 +10,10 @@ services:
   # =========================================================================
   op-geth-init:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
-    container_name: set-op-geth-init
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        set -eu
         if [ ! -f /data/geth/chaindata/CURRENT ]; then
           echo "Initializing op-geth with genesis..."
           geth init --datadir=/data --state.scheme=hash /config/genesis.json
@@ -29,25 +30,23 @@ services:
   # =========================================================================
   op-geth:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101411.2
-    container_name: set-op-geth
     command:
       - --datadir=/data
       - --networkid=${L2_CHAIN_ID:-84532001}
       - --http
       - --http.addr=0.0.0.0
       - --http.port=8547
-      - --http.api=eth,net,web3,debug,txpool,engine
-      - --http.corsdomain=*
-      - --http.vhosts=*
+      - --http.api=eth,net,web3
+      - --http.vhosts=localhost,127.0.0.1,op-geth
       - --ws
       - --ws.addr=0.0.0.0
       - --ws.port=8548
-      - --ws.api=eth,net,web3,debug,txpool,engine
-      - --ws.origins=*
+      - --ws.api=eth,net,web3
+      - --ws.origins=http://localhost,http://127.0.0.1
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8551
       - --authrpc.jwtsecret=/config/jwt.txt
-      - --authrpc.vhosts=*
+      - --authrpc.vhosts=localhost,127.0.0.1,op-geth
       - --nodiscover
       - --maxpeers=0
       - --syncmode=full
@@ -59,9 +58,9 @@ services:
       - op-geth-data:/data
       - ./config:/config:ro
     ports:
-      - "8547:8547"   # HTTP RPC
-      - "8548:8548"   # WebSocket
-      - "8551:8551"   # Engine API
+      - "127.0.0.1:8547:8547"   # Local HTTP RPC
+      - "127.0.0.1:8548:8548"   # Local WebSocket
+      # Authenticated Engine RPC is not published to the host.
     depends_on:
       op-geth-init:
         condition: service_completed_successfully
@@ -74,8 +73,6 @@ services:
 
 volumes:
   op-geth-data:
-    name: set-op-geth-data
 
 networks:
   default:
-    name: set-chain-network

@@ -85,6 +85,7 @@ op-stack/deployer/intent.processed.toml
 logs/
 *.log
 .pids/
+.devnet-reset-archive/
 *.pid
 
 # =============================================================================

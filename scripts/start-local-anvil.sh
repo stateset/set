@@ -89,11 +89,8 @@ echo "  Block Time:   ${BLOCK_TIME}s"
 echo "  Gas Limit:    $GAS_LIMIT"
 echo ""
 
-# Stop any existing Docker L2 to avoid port conflicts
-if command -v docker >/dev/null 2>&1 && docker ps | grep -q "set-op-geth"; then
-    echo -e "${YELLOW}Stopping Docker op-geth to avoid port conflicts...${NC}"
-    cd "$ROOT_DIR/docker" && docker compose -f docker-compose.local.yml down 2>/dev/null || true
-fi
+# Never stop another node to claim a port or container name. The bind/create
+# operation below fails if occupied; the operator must resolve the conflict.
 
 echo "Starting Anvil..."
 echo ""
@@ -119,20 +116,19 @@ echo ""
 # Start Anvil
 case "$(foundry_backend anvil)" in
     host)
-        exec anvil \
+        exec "$(foundry_host_tool anvil)" \
             --chain-id "$CHAIN_ID" \
             --block-time "$BLOCK_TIME" \
             --gas-limit "$GAS_LIMIT" \
             --accounts 10 \
             --balance 10000 \
-            --host 0.0.0.0 \
+            --host 127.0.0.1 \
             --port 8545
         ;;
     docker)
-        docker rm -f "$ANVIL_CONTAINER_NAME" >/dev/null 2>&1 || true
         exec docker run --rm \
             --name "$ANVIL_CONTAINER_NAME" \
-            -p 8545:8545 \
+            -p 127.0.0.1:8545:8545 \
             --entrypoint anvil \
             "$(foundry_image)" \
             --chain-id "$CHAIN_ID" \

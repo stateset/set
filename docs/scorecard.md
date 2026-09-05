@@ -11,12 +11,15 @@ CI).
 
 ## Current Status
 
-**Application release checks: passed for v0.3.7. L2 production readiness: incomplete.**
+**Application release checks: passed for v0.3.9. L2 production readiness: incomplete.**
 
 Current evidence-based assessment: **B overall for commerce; C+ for production L2
-readiness.** The criteria below are targets, not completed certification. The v0.3.8
-hardening release requires its own certification run, and the complete rollup
-lifecycle, recovery and independent audit evidence is still missing.
+readiness.** The criteria below are targets, not completed certification.
+[v0.3.9 release certification](https://github.com/stateset/set/actions/runs/33973310359)
+passed SDK, contract unit/integration, invariant, Rust, metadata and artifact checks.
+Those results apply to release commit `46bbbd832d5d0d9448175cb3a7bc62608280e0e9`,
+not v0.3.10, whose certification is pending. Complete rollup lifecycle, recovery and
+independent audit evidence is still missing.
 
 See [L2 readiness evidence](l2-readiness-gaps.md) for concrete configuration fixes
 and the outstanding settlement, dispute, recovery, governance and audit evidence.
@@ -91,7 +94,7 @@ A 10/10 devx score requires:
 - [x] API reference documentation (`docs/api-reference.md`)
 - [x] Glossary of terms (`docs/glossary.md`)
 
-### Release Engineering (application certification; current changes unreleased)
+### Release Engineering (v0.3.9 certified; v0.3.10 certification pending)
 A 10/10 release-engineering score requires:
 - [x] Annotated tags matched to package versions (`scripts/check-release-readiness.sh`)
 - [x] Complete contract, invariant, Rust/Anvil, and SDK certification on release tags

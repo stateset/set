@@ -1,6 +1,8 @@
 # Set Chain Local Testing Guide
 
-This guide covers how to run and test the Set Chain L2 locally using Anvil (Foundry's local Ethereum node).
+This guide covers Set Chain application testing using Anvil (Foundry's local
+Ethereum node). Anvil is not a multi-node OP Stack deployment and does not provide
+evidence of rollup settlement, disputes or finalized withdrawals.
 
 ## Prerequisites
 
@@ -47,6 +49,25 @@ Start Anvil with Set Chain configuration:
 
 The script reads chain parameters from `config/chain-config.toml` to keep the
 local devnet in sync with the repository defaults.
+
+The launcher binds to `127.0.0.1` on the host. The Docker backend also publishes
+only `127.0.0.1:8545`; its internal listener remains container-wide. These accounts
+have publicly known development keys: never fund them on a public network or
+expose this RPC through a proxy or tunnel.
+
+Starting Anvil never stops another node or removes an existing container to
+claim a name or port. A conflict fails the launch; inspect and explicitly stop
+the intended process yourself. The host backend executes the exact Foundry binary
+it validated, including a binary found through `FOUNDRY_BIN_DIR`.
+
+The separate `docker/docker-compose.local.yml` is also execution-only, not a
+complete rollup. Its default project is `set-local-execution`, with project-scoped
+volumes, networks and container names. HTTP/WebSocket ports bind to loopback;
+Engine RPC is not host-published, and application RPC excludes debug/engine APIs.
+The old global `set-op-geth-data` volume and `set-chain-network` network are not
+reused automatically, migrated or deleted. Existing installations need explicit
+data-migration planning; do not use `down -v` or Docker pruning to resolve this.
+Other Compose profiles are not covered by these launch-safety guarantees.
 
 This starts Anvil with:
 - **Chain ID:** 84532001
@@ -208,7 +229,9 @@ binary when available, or fall back to Docker if `docker` is installed.
 
 ## Resetting the Devnet
 
-To wipe local artifacts and restart Anvil cleanly:
+Stop your intended Anvil process explicitly first (for example, Ctrl+C in its
+foreground terminal), and stop any builds/deployments writing local artifacts.
+Then archive local artifacts and restart Anvil:
 
 ```bash
 ./scripts/dev.sh reset
@@ -225,6 +248,31 @@ To reset without restarting:
 ```bash
 ./scripts/reset-devnet.sh --no-start
 ```
+
+Reset never kills a process or removes a Docker container. It reserves local
+IPv4/IPv6 port 8545 while archiving; an occupied port or reservation error fails
+before artifacts move. `--force` only skips confirmation. If the port remains
+unavailable immediately after shutdown, wait for its existing connections to
+close instead of bypassing the check.
+
+Only `contracts/cache`, `contracts/out`, and
+`contracts/broadcast/<script>/<configured-chain-id>` are moved into a unique
+`.devnet-reset-archive/reset-*` directory. Other chains' broadcast records are
+untouched. The archive is ignored by Git and has a journal written before each
+rename. No repository artifacts are recursively deleted and no volume is pruned.
+
+On partial failure, reset does not restart Anvil: review both the original paths
+and the printed archive's `manifest.jsonl`. An entry records an attempted move,
+not proof it completed. Restore a directory by moving it from the archive back
+to its original relative path only after verifying that the original path is
+absent; never overwrite fresh build or deployment output. Archives consume disk
+space until you explicitly manage them.
+
+This is not an atomic snapshot across all artifact directories, a backup of
+Anvil's in-memory chain, or protection against simultaneous manual filesystem
+changes. Keep artifact writers stopped throughout reset. A competing node can
+win the RPC port after archival; restart then fails without stopping that node.
+Reset requires Python 3; use `LOCAL_RESET_PYTHON=python3.10` to select it explicitly.
 
 ## Environment Variables
 
@@ -310,7 +358,7 @@ FOUNDRY_USE_DOCKER=1 ./scripts/dev.sh test
 ### Reset state
 Restart Anvil to reset all blockchain state:
 ```bash
-# Reset local artifacts and restart the node
+# First stop the intended node and artifact writers; then archive and restart
 ./scripts/dev.sh reset --force
 ```
 
