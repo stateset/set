@@ -5,6 +5,8 @@
 export { AgentClient, AgentError, AgentErrorCode, createAgentClient } from "./AgentClient.js";
 export type { CreateAgentClientOptions } from "./AgentClient.js";
 export { agentPaymentAccountV2Abi } from "./abis.js";
+export { buildMerchantInvoiceTypedData } from "./invoices.js";
+export type { MerchantInvoice } from "./invoices.js";
 
 export {
   // Enums

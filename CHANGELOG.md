@@ -4,6 +4,26 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-05
+
+Signature-required merchant invoices. This is a breaking account API release,
+not a deployment or migration. Sepolia remains on hold. Independent audit,
+deployed governance and full rollup lifecycle assurance remain outstanding.
+
+### Changed
+
+- Breaking: restricted account `pay` requires a merchant invoice signature; the
+  unsigned six-argument entry point is removed. Existing v0.3.12 deployments need
+  explicit migration to a new reviewed account; no deployment was performed
+
+### Added
+
+- Mandatory EIP-712 merchant invoice authentication binding account, chain, vault,
+  recipient, order, amount and deadline, with ERC-1271 merchant verification
+- SDK typed-data builder and adversarial signature/domain regressions; merchant
+  offer authentication remains distinct from user purchase mandates and fulfillment
+- Explicit unverified/template status for audit, governance and fault-proof records
+
 ## [0.3.12] - 2026-09-05
 
 Opt-in restricted agent payment account and SDK ABI. Protection applies only to

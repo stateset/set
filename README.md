@@ -1,6 +1,6 @@
 # Set
 
-[![Release](https://img.shields.io/badge/release-v0.3.12-blue)](https://github.com/stateset/set/tree/v0.3.12)
+[![Release](https://img.shields.io/badge/release-v0.4.0-blue)](https://github.com/stateset/set/tree/v0.4.0)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 Set is commerce infrastructure being developed around the OP Stack: Solidity
@@ -27,8 +27,8 @@ withdrawals, fault proofs or recovery.
 
 ## Current release
 
-**v0.3.12** (`62021b9`) adds an opt-in restricted payment account and its SDK ABI.
-The SDK package is `@setchain/sdk@0.3.12`; the Rust anchor package remains `0.2.5`.
+**v0.4.0** adds mandatory merchant-signed invoices to the restricted payment account.
+The SDK package is `@setchain/sdk@0.4.0`; the Rust anchor package remains `0.2.5`.
 These are repository release versions, not a claim of package-registry publication.
 
 - Merchant-scoped session keys with expiry, revocation epochs and asset budgets.
@@ -36,6 +36,10 @@ These are repository release versions, not a claim of package-registry publicati
 - Account-wide nonces and duplicate-order protection.
 - Fresh-NAV valuation, conservative rounding and collateral-floor checks.
 - No arbitrary execution or token approvals exposed to session keys.
+- EIP-712 invoice binding and ERC-1271 merchant signature verification.
+
+Breaking change: `pay` requires a seventh signature argument. v0.3.12 accounts
+cannot use the new API without an explicit migration to a reviewed new deployment.
 
 The account must hold the funds to enforce these controls. Existing
 `AgentClient.pay()` remains an advisory preflight followed by a normal transfer;
@@ -129,6 +133,11 @@ scripts as implicit local provisioning steps. See [full rollup readiness](#full-
 
 ## Restricted agent payments
 
+**v0.4.0:** the current source now requires merchant-signed invoices. Its
+seven-argument `pay` API and typed-data helper are not compatible with v0.3.12
+accounts. No deployed account was upgraded. See the
+[migration and signing guide](docs/agent-payment-account.md).
+
 The intended custody boundary is a separately controlled owner and an agent that
 has only a merchant-scoped session key. Configure policy for the **account
 address**, grant the account its policy-consumer role, and fund it with vault
@@ -144,7 +153,8 @@ import { agent } from "@setchain/sdk";
 const account = new Contract(accountAddress, agent.agentPaymentAccountV2Abi, sessionSigner);
 const session = await account.sessions(await sessionSigner.getAddress());
 const nonce = await account.nextNonce();
-const tx = await account.pay(orderId, session.epoch, nonce, assets, maxShares, deadline);
+// Obtain merchantSignature from the authenticated merchant checkout service.
+const tx = await account.pay(orderId, session.epoch, nonce, assets, maxShares, deadline, merchantSignature);
 const receipt = await tx.wait();
 if (!receipt || receipt.status !== 1) throw new Error("Payment failed");
 // Apply the merchant's explicit finality requirement before fulfillment.
@@ -152,7 +162,8 @@ if (!receipt || receipt.status !== 1) throw new Error("Payment failed");
 
 Supply bounded slippage and deadlines. A stale nonce or epoch must be reconciled,
 not silently refreshed and resubmitted. Order uniqueness is per account, not global
-merchant deduplication or invoice authentication. Owner recovery is privileged
+merchant deduplication or user approval of specific goods. The merchant signature
+authenticates the invoice's payment terms. Owner recovery is privileged
 and preserves collateral requirements; refunds do not automatically replenish
 purchase budgets. The session signer needs transaction gas.
 
@@ -163,16 +174,18 @@ before adopting these APIs.
 
 ## Testing
 
-Local validation preceding v0.3.12 recorded:
+Local validation for v0.4.0 recorded:
 
 | Check | Result and scope |
 |-------|------------------|
-| SDK | 515 tests across 40 files; typecheck, lint and build passed |
-| Targeted Solidity | 108 tests across eight suites, including 14 account tests and a 256-run account budget fuzz test |
-| ABI consistency | 13 exported account functions and exported events checked against the compiled Solidity ABI |
+| SDK | 539 tests across 40 files passed with one worker; typecheck, lint and build passed |
+| Targeted Solidity | 111 tests across eight suites, including 17 account tests and two 256-run account fuzz tests |
+| ABI consistency | Exported account functions and events checked against the compiled Solidity ABI |
 | Release metadata | Version/tag and dependency-pin checks passed |
 
-The targeted Solidity run used local Foundry and Solc 0.8.24; it was not a full
+The initial parallel SDK run hit the existing RPC-to-ledger test's 20-second
+timeout on the shared host; the full single-worker rerun passed without changing
+that test or its timeout. The targeted Solidity run used local Foundry and Solc 0.8.24; it was not a full
 pinned-toolchain release certification or invariant-suite run. These results are
 application-level evidence, not a deployed-rollup or independent-audit report.
 Check the [CI runs](https://github.com/stateset/set/actions) for commit-specific

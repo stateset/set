@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -14,8 +16,12 @@ import {SSDCPolicyModuleV2} from "./SSDCPolicyModuleV2.sol";
 /// @dev The owner is trusted; session keys have no generic execute/approve path.
 ///      Configure policy for THIS account and grant it POLICY_CONSUMER_ROLE.
 ///      This is not an ERC-4337 account or an escrow/bridge/gas integration.
-contract AgentPaymentAccountV2 is Ownable2Step, ReentrancyGuard {
+contract AgentPaymentAccountV2 is Ownable2Step, ReentrancyGuard, EIP712 {
     using SafeERC20 for IERC20;
+
+    bytes32 public constant INVOICE_TYPEHASH = keccak256(
+        "Invoice(bytes32 orderId,address merchant,address vault,uint256 assets,uint40 deadline)"
+    );
 
     struct Session {
         address merchant;
@@ -36,12 +42,15 @@ contract AgentPaymentAccountV2 is Ownable2Step, ReentrancyGuard {
     error AlreadyPaid();
     error BudgetExceeded();
     error CollateralFloor();
+    error InvalidInvoiceSignature();
 
     event SessionUpdated(address indexed key, address indexed merchant, uint256 epoch, uint40 expiresAt, uint256 budgetAssets);
     event PaymentExecuted(bytes32 indexed orderId, address indexed key, address indexed merchant, uint256 nonce, uint256 assetsCharged, uint256 shares);
     event OwnerWithdrawal(address indexed recipient, uint256 shares);
 
-    constructor(wSSDCVaultV2 vault_, SSDCPolicyModuleV2 policy_, address owner_) Ownable(owner_) {
+    constructor(wSSDCVaultV2 vault_, SSDCPolicyModuleV2 policy_, address owner_)
+        Ownable(owner_) EIP712("AgentPaymentAccountV2", "1")
+    {
         if (address(vault_).code.length == 0 || address(policy_).code.length == 0) revert InvalidConfiguration();
         vault = vault_;
         policy = policy_;
@@ -62,10 +71,17 @@ contract AgentPaymentAccountV2 is Ownable2Step, ReentrancyGuard {
         emit SessionUpdated(key, address(0), epoch, 0, 0);
     }
 
-    /// @notice Caller-authenticated transaction binds order, epoch, nonce, amount,
-    ///         share slippage and deadline. Merchant/token are fixed by configuration.
-    /// @dev Order uniqueness is account-local, not proof of a merchant invoice.
-    function pay(bytes32 orderId, uint256 epoch, uint256 nonce, uint256 assets, uint256 maxShares, uint40 deadline)
+    /// @notice Merchant-signed invoice bound to this account, chain and vault.
+    /// @dev Session authorization is separate; this is not a user-signed purchase mandate.
+    function invoiceDigest(bytes32 orderId, address merchant, uint256 assets, uint40 deadline)
+        public view returns (bytes32)
+    {
+        return _hashTypedDataV4(keccak256(abi.encode(INVOICE_TYPEHASH, orderId, merchant, address(vault), assets, deadline)));
+    }
+
+    /// @notice Merchant authenticates order/amount/deadline. The session transaction
+    ///         additionally binds epoch, nonce and share slippage. No unsigned fallback.
+    function pay(bytes32 orderId, uint256 epoch, uint256 nonce, uint256 assets, uint256 maxShares, uint40 deadline, bytes calldata merchantSignature)
         external nonReentrant returns (uint256 shares)
     {
         Session storage session = sessions[msg.sender];
@@ -74,6 +90,9 @@ contract AgentPaymentAccountV2 is Ownable2Step, ReentrancyGuard {
         if (orderId == bytes32(0) || assets == 0 || nonce != nextNonce || block.timestamp >= deadline)
             revert InvalidPayment();
         if (paidOrders[orderId]) revert AlreadyPaid();
+        if (!SignatureChecker.isValidSignatureNow(
+            session.merchant, invoiceDigest(orderId, session.merchant, assets, deadline), merchantSignature
+        )) revert InvalidInvoiceSignature();
 
         // Fresh NAV is mandatory. Charge rounded-up share value, not merely the
         // requested amount, so repeated tiny transfers cannot evade asset budgets.

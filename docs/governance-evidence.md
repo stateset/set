@@ -1,5 +1,10 @@
 # Governance Evidence
 
+**Status: planned configuration, deployment unverified.** Addresses and transaction
+hashes below are placeholders. Signer thresholds, ownership transfers and admin
+renunciation are intended properties, not verified deployed facts. No public
+deployment is authorized by this document; Sepolia remains on hold.
+
 This document records the governance infrastructure for Set Chain, including
 multisig configuration and timelock deployment.
 

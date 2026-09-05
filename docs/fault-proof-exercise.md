@@ -1,5 +1,10 @@
 # Fault Proof Exercise Log
 
+**Status: template only; no completed exercise is recorded below.** A walkthrough
+or running node is not evidence of a resolved dispute. Replace placeholders with
+verified transactions and results before claiming fault-proof assurance. The
+Sepolia instructions are reference material, not authorization to deploy or run them.
+
 This document records fault proof exercises conducted on Set Chain to validate
 the dispute resolution mechanism.
 

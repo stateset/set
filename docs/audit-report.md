@@ -1,5 +1,10 @@
 # Audit Report
 
+**Status: audit not completed in the recorded evidence.** This is an unfilled
+engagement/report template, not an independent security opinion. No auditor,
+audited commit or signed report is recorded. Empty fields and the findings table
+must not be interpreted as a clean audit or zero vulnerabilities.
+
 This document is the authoritative audit record for Set Chain. Keep it
 up-to-date and link to the final public report once published.
 
@@ -49,11 +54,11 @@ up-to-date and link to the final public report once published.
 ## Findings Summary
 | Severity | Count | Notes |
 |----------|-------|-------|
-| Critical | 0 | |
-| High | 0 | |
-| Medium | 0 | |
-| Low | 0 | |
-| Informational | 0 | |
+| Critical | Not assessed | Independent report pending |
+| High | Not assessed | Independent report pending |
+| Medium | Not assessed | Independent report pending |
+| Low | Not assessed | Independent report pending |
+| Informational | Not assessed | Independent report pending |
 
 ## Findings Detail
 For each finding:
