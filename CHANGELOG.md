@@ -4,6 +4,8 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-27
+
 Protected payments: card-network-style buyer protection for plain stablecoins.
 New contracts only; no deployment was performed and no existing contract or
 API changed. Independent audit remains outstanding.

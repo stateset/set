@@ -1,6 +1,6 @@
 # Set
 
-[![Release](https://img.shields.io/badge/release-v0.4.0-blue)](https://github.com/stateset/set/tree/v0.4.0)
+[![Release](https://img.shields.io/badge/release-v0.4.1-blue)](https://github.com/stateset/set/tree/v0.4.1)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 Set is commerce infrastructure being developed around the OP Stack: Solidity
@@ -27,26 +27,27 @@ withdrawals, fault proofs or recovery.
 
 ## Current release
 
-**v0.4.0** adds mandatory merchant-signed invoices to the restricted payment account.
-The SDK package is `@setchain/sdk@0.4.0`; the Rust anchor package remains `0.2.5`.
+**v0.4.1** adds protected payments: card-network-style buyer protection for
+stablecoin payments, as new contracts beside the existing escrows. The SDK
+package is `@setchain/sdk@0.4.1`; the Rust anchor package remains `0.2.5`.
 These are repository release versions, not a claim of package-registry publication.
 
-- Merchant-scoped session keys with expiry, revocation epochs and asset budgets.
-- Atomic session/policy budget consumption and vault-share transfer.
-- Account-wide nonces and duplicate-order protection.
-- Fresh-NAV valuation, conservative rounding and collateral-floor checks.
-- No arbitrary execution or token approvals exposed to session keys.
-- EIP-712 invoice binding and ERC-1271 merchant signature verification.
+- Merchant-signed payment terms (EIP-712 / ERC-1271) and buyer disputes with reason codes.
+- Merchant accept/contest stage; silence defaults to the buyer.
+- Negotiated and arbitrated partial refunds through bonded, slashable arbiters.
+- Reserve-backed instant settlement with chargebacks after the merchant is paid.
+- Automatic dispute-ratio monitoring that revokes instant settlement.
+- SDK `protection` module with a client and a pure next-action helper.
 
-Breaking change: `pay` requires a seventh signature argument. v0.3.12 accounts
-cannot use the new API without an explicit migration to a reviewed new deployment.
+No existing contract or API changed and no contracts were deployed. The v0.4.0
+breaking change still applies: the restricted payment account's `pay` requires a
+merchant invoice signature, and v0.3.12 accounts need an explicit migration.
+Restricted-account controls apply only to funds the account holds; existing
+`AgentClient.pay()` remains an advisory preflight followed by a normal transfer
+and does **not** atomically consume the on-chain policy budget.
 
-The account must hold the funds to enforce these controls. Existing
-`AgentClient.pay()` remains an advisory preflight followed by a normal transfer;
-it does **not** atomically consume the on-chain policy budget. This release does
-not deploy contracts or migrate existing balances.
-
-See the [changelog](CHANGELOG.md), [account integration guide](docs/agent-payment-account.md)
+See the [changelog](CHANGELOG.md), [protected payments](docs/protected-payments.md),
+[account integration guide](docs/agent-payment-account.md)
 and [agent spending security](docs/agent-spending-security.md).
 
 ## Commerce capabilities
@@ -55,6 +56,7 @@ and [agent spending security](docs/agent-spending-security.md).
 |-----------|-------------------|--------------------|
 | `AgentPaymentAccountV2` | Restricted direct payments from account-held wSSDC shares | Trusted owner; not an ERC-4337 account or an escrow/bridge adapter |
 | `SSDCPolicyModuleV2` | Merchant allowlists, spending limits, revocation and commitment accounting | Only trusted policy consumers enforce accounting; ordinary token transfers bypass it |
+| `ProtectedPayments` / `ArbiterRegistry` | Disputes, merchant responses, partial refunds, reserve-backed chargebacks, bonded arbiters | Arbiters and underwriters are trusted; refunds after payout are limited by reserve and pool liquidity |
 | `YieldEscrowV2` | Fund, fulfill, release, dispute and refund workflows | Contract state is not proof of external fulfillment |
 | `wSSDCVaultV2` and NAV modules | Vault shares, asset conversion and collateral-related checks | NAV, reserves and administrative controls remain trust dependencies |
 | `SetRegistry` | Tenant/store-scoped batch commitments and Merkle inclusion verification | Event inclusion is not proof of event truth or rollup settlement |
@@ -174,19 +176,22 @@ before adopting these APIs.
 
 ## Testing
 
-Local validation for v0.4.0 recorded:
+Local validation for v0.4.1 recorded:
 
 | Check | Result and scope |
 |-------|------------------|
-| SDK | 539 tests across 40 files passed with one worker; typecheck, lint and build passed |
-| Targeted Solidity | 111 tests across eight suites, including 17 account tests and two 256-run account fuzz tests |
-| ABI consistency | Exported account functions and events checked against the compiled Solidity ABI |
+| SDK | 577 tests across 42 files; typecheck, lint and build passed |
+| Protected payments Solidity | 56 tests across four suites: unit, fuzz, deploy-script and three invariants (256 runs x 50 depth; a 256 x 500 campaign also passed) |
+| Contract size | `ProtectedPayments` 22,017 bytes under via_ir with release optimizer settings |
+| End to end | SDK example on Anvil: instant-settlement chargeback, arbitrated partial refund, merchant default |
 | Release metadata | Version/tag and dependency-pin checks passed |
 
-The initial parallel SDK run hit the existing RPC-to-ledger test's 20-second
-timeout on the shared host; the full single-worker rerun passed without changing
-that test or its timeout. The targeted Solidity run used local Foundry and Solc 0.8.24; it was not a full
-pinned-toolchain release certification or invariant-suite run. These results are
+The protected-payments suites ran on the legacy (non-via_ir) pipeline because
+via_ir test compilation did not finish on the overloaded shared host; the
+example deployed via_ir artifacts. Two RPC-to-ledger SDK tests timed out under
+host load and passed on isolated reruns. Existing contract suites were not
+rerun for this release because no existing contract changed. This was not a
+full pinned-toolchain release certification. These results are
 application-level evidence, not a deployed-rollup or independent-audit report.
 Check the [CI runs](https://github.com/stateset/set/actions) for commit-specific
 workflow results rather than assuming every tagged release is fully certified.

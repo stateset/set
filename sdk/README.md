@@ -10,6 +10,9 @@ Notes:
 - V2 agent clients accept a provider-connected external signer. See
   [agent spending security](../docs/agent-spending-security.md) for policy revocation,
   deployment compatibility and why raw transfers are not policy-enforced spending.
+- v0.4.1 adds the `protection` module for ProtectedPayments: `buildProtectedPaymentTypedData`,
+  `ProtectedPaymentsClient` and the pure `derivePaymentActions` helper. See
+  [protected payments](../docs/protected-payments.md) and `examples/protected-payments-e2e.mjs`.
 - v0.4.0 changes the restricted account's `pay` API to require a merchant signature.
   Use `agent.buildMerchantInvoiceTypedData` and the matching account ABI with a new
   reviewed deployment; v0.3.12 accounts do not verify invoices. See the
