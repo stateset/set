@@ -90,3 +90,4 @@ export {
 // Re-export stablecoin modules
 export * as stablecoin from "./stablecoin/index.js";
 export * as agent from "./stablecoin/v2/index.js";
+export * as protection from "./protection/index.js";

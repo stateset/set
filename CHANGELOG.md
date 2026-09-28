@@ -4,6 +4,26 @@ All notable changes to Set will be documented in this file.
 
 ## [Unreleased]
 
+Protected payments: card-network-style buyer protection for plain stablecoins.
+New contracts only; no deployment was performed and no existing contract or
+API changed. Independent audit remains outstanding.
+
+### Added
+
+- `ProtectedPayments`: merchant-signed (EIP-712 / ERC-1271) payment terms, buyer
+  disputes with reason codes and bonds, merchant accept/contest stage with
+  default-to-buyer on silence, negotiated partial settlements, partial arbiter
+  rulings, voluntary merchant refunds and unfulfilled-order cancellation
+- Reserve-backed instant settlement with chargebacks after the merchant was
+  paid, funded from locked reserve, free reserve, a fee-funded protection pool
+  (as merchant debt) and pending buyer claims
+- `ArbiterRegistry`: governance-approved, bonded arbiters with case accounting,
+  deadline slashing, single fallback reassignment and unbonding exit
+- Anchored VES events as dispute evidence via `SetRegistry.verifyInclusion`
+- Pull-based settlement credits, so a blocked recipient cannot freeze a dispute
+- Unit, fuzz and invariant suites; SDK typed-data builder and ABI fragments;
+  `DeployProtectedPayments` script; `docs/protected-payments.md`
+
 ## [0.4.0] - 2026-09-05
 
 Signature-required merchant invoices. This is a breaking account API release,
