@@ -46,7 +46,10 @@ contract DeployProtectedPayments is Script {
                 minProtectionWindow: 1 days,
                 maxProtectionWindow: 120 days,
                 merchantResponseWindow: 3 days,
-                arbitrationWindow: 7 days
+                arbitrationWindow: 7 days,
+                // Mirrors card-network dispute monitoring: 0.9% after 100 payments.
+                maxDisputeRatioBps: 90,
+                minPaymentsForRatio: 100
             })
         );
 

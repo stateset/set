@@ -136,6 +136,20 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
         uint32 maxProtectionWindow;
         uint32 merchantResponseWindow;
         uint32 arbitrationWindow;
+        // Dispute monitoring: merchants whose disputes/payments ratio exceeds
+        // maxDisputeRatioBps (after minPaymentsForRatio payments) lose instant
+        // settlement until the ratio recovers. Zero disables the check.
+        uint16 maxDisputeRatioBps;
+        uint32 minPaymentsForRatio;
+    }
+
+    /// @notice Public dispute record, per merchant and per buyer. For merchants
+    ///         `lost` counts disputes closed with any refund other than a
+    ///         negotiated settlement; for buyers it counts outright arbitration losses.
+    struct PartyStats {
+        uint32 payments;
+        uint32 disputes;
+        uint32 lost;
     }
 
     struct MerchantRisk {
@@ -169,6 +183,8 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
     mapping(address => uint256) public protocolFeesAccrued; // token
     mapping(uint256 => uint128) public pendingClaims; // paymentId => unpaid buyer refund
     mapping(address => mapping(address => uint256)) public credits; // token => account
+    mapping(address => PartyStats) public merchantStats;
+    mapping(address => PartyStats) public buyerStats;
 
     error ZeroAddress();
     error Paused();
@@ -330,9 +346,12 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
         p.status = Status.OPEN;
         p.orderRef = terms.orderRef;
 
+        // Gate on the merchant's record before this payment, then count it.
         if (!_tryInstantSettle(p)) {
             p.held = terms.amount;
         }
+        merchantStats[terms.merchant].payments += 1;
+        buyerStats[msg.sender].payments += 1;
 
         emit PaymentCreated(
             paymentId,
@@ -428,6 +447,8 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
         if (bond > 0) _pull(p.token, msg.sender, bond);
 
         p.status = Status.DISPUTED;
+        merchantStats[p.merchant].disputes += 1;
+        buyerStats[msg.sender].disputes += 1;
         Dispute storage d = _disputes[paymentId];
         d.stage = Stage.AWAITING_MERCHANT;
         d.reason = reason;
@@ -684,9 +705,25 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
     function instantCapacity(address merchant, address token) external view returns (uint256) {
         MerchantRisk memory risk = merchantRisk[merchant];
         Reserve memory r = reserves[merchant][token];
-        if (!risk.instantSettlement || r.debt != 0) return 0;
+        if (!risk.instantSettlement || r.debt != 0 || disputeRatioExceeded(merchant)) return 0;
         if (risk.reserveRatioBps == 0) return type(uint256).max;
         return (uint256(r.free) * 10_000) / risk.reserveRatioBps;
+    }
+
+    /// @notice Merchant disputes per payment, in basis points.
+    function disputeRatioBps(address merchant) public view returns (uint256) {
+        PartyStats memory st = merchantStats[merchant];
+        if (st.payments == 0) return 0;
+        return (uint256(st.disputes) * 10_000) / st.payments;
+    }
+
+    /// @notice True when dispute monitoring has revoked instant settlement.
+    function disputeRatioExceeded(address merchant) public view returns (bool) {
+        Params memory pr = params;
+        if (pr.maxDisputeRatioBps == 0) return false;
+        PartyStats memory st = merchantStats[merchant];
+        if (st.payments < pr.minPaymentsForRatio || st.payments == 0) return false;
+        return uint256(st.disputes) * 10_000 > uint256(st.payments) * pr.maxDisputeRatioBps;
     }
 
     // ═══ internals ══════════════════════════════════════════════════════════
@@ -709,7 +746,7 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
 
     function _tryInstantSettle(Payment storage p) internal returns (bool) {
         MerchantRisk memory risk = merchantRisk[p.merchant];
-        if (!risk.instantSettlement) return false;
+        if (!risk.instantSettlement || disputeRatioExceeded(p.merchant)) return false;
         Reserve storage r = reserves[p.merchant][p.token];
         if (r.debt != 0) return false;
         uint256 lock = (uint256(p.amount) * risk.reserveRatioBps + 9999) / 10_000;
@@ -750,10 +787,16 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
         d.outcome = outcome;
         d.refundAwarded = refundAmount;
 
+        bool buyerLost = outcome == Outcome.ARBITRATED && refundAmount == 0;
+        if (buyerLost) {
+            buyerStats[p.buyer].lost += 1;
+        } else if (refundAmount > 0 && outcome != Outcome.SETTLED) {
+            merchantStats[p.merchant].lost += 1;
+        }
+
         uint128 bond = d.buyerBond;
         if (bond > 0) {
             // The bond is forfeited to the merchant only when an arbiter awards nothing.
-            bool buyerLost = outcome == Outcome.ARBITRATED && refundAmount == 0;
             _credit(p.token, buyerLost ? p.merchant : p.buyer, bond);
             d.buyerBond = 0;
         }
@@ -866,6 +909,7 @@ contract ProtectedPayments is AccessControl, ReentrancyGuard, EIP712 {
         if (
             p.minProtectionWindow == 0 || p.minProtectionWindow > p.maxProtectionWindow
                 || p.maxProtectionWindow > MAX_WINDOW || p.merchantResponseWindow == 0 || p.arbitrationWindow == 0
+                || p.maxDisputeRatioBps > 10_000
         ) revert InvalidConfig();
         params = p;
         emit ParamsUpdated(p);

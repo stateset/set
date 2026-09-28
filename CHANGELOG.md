@@ -23,6 +23,10 @@ API changed. Independent audit remains outstanding.
 - Pull-based settlement credits, so a blocked recipient cannot freeze a dispute
 - Unit, fuzz and invariant suites; SDK typed-data builder and ABI fragments;
   `DeployProtectedPayments` script; `docs/protected-payments.md`
+- Dispute monitoring: on-chain merchant and buyer dispute records, and automatic
+  revocation of instant settlement above a governance dispute-ratio threshold
+- SDK `ProtectedPaymentsClient` and pure `derivePaymentActions`, plus an Anvil
+  end-to-end example covering chargeback, arbitration and merchant default
 
 ## [0.4.0] - 2026-09-05
 

@@ -289,7 +289,9 @@ contract ProtectedPaymentsTest is ProtectionTestBase {
                 minProtectionWindow: 10 days,
                 maxProtectionWindow: 1 days,
                 merchantResponseWindow: 1,
-                arbitrationWindow: 1
+                arbitrationWindow: 1,
+                maxDisputeRatioBps: 0,
+                minPaymentsForRatio: 0
             })
         );
         vm.expectRevert(ProtectedPayments.InvalidConfig.selector);
@@ -685,6 +687,99 @@ contract ProtectedPaymentsTest is ProtectionTestBase {
         pp.withdrawReserve(address(token), 801e6);
         pp.withdrawReserve(address(token), 800e6);
         vm.stopPrank();
+    }
+
+    // ═══ dispute monitoring ═════════════════════════════════════════════════
+
+    function _setMonitoring(uint16 maxRatioBps, uint32 minPayments) internal {
+        vm.prank(admin);
+        pp.setParams(
+            ProtectedPayments.Params({
+                minProtectionWindow: 1 days,
+                maxProtectionWindow: 120 days,
+                merchantResponseWindow: 3 days,
+                arbitrationWindow: 7 days,
+                maxDisputeRatioBps: maxRatioBps,
+                minPaymentsForRatio: minPayments
+            })
+        );
+    }
+
+    function test_stats_track_payments_disputes_and_losses() public {
+        uint256 a = _payDefault();
+        uint256 b = _payDefault();
+        uint256 c = _payDefault();
+        _payDefault();
+
+        _dispute(a, 100e6);
+        vm.prank(merchant);
+        pp.acceptDispute(a); // merchant loss
+
+        _dispute(b, 100e6);
+        _contest(b);
+        vm.prank(arbiter);
+        pp.resolve(b, 0, keccak256("ruling")); // buyer loss
+
+        _dispute(c, 100e6);
+        vm.prank(buyer);
+        pp.proposeSettlement(c, 50e6);
+        vm.prank(merchant);
+        pp.proposeSettlement(c, 50e6); // settlement: nobody's loss
+
+        (uint32 mp, uint32 md, uint32 ml) = pp.merchantStats(merchant);
+        (uint32 bp, uint32 bd, uint32 bl) = pp.buyerStats(buyer);
+        assertEq(mp, 4);
+        assertEq(md, 3);
+        assertEq(ml, 1);
+        assertEq(bp, 4);
+        assertEq(bd, 3);
+        assertEq(bl, 1);
+        assertEq(pp.disputeRatioBps(merchant), 7500);
+    }
+
+    function test_high_dispute_ratio_revokes_instant_settlement() public {
+        _enableInstant(1000, 10_000e6);
+        _setMonitoring(2000, 4); // 20% after 4 payments
+
+        uint256 first = _payDefault();
+        assertTrue(pp.getPayment(first).instant);
+        _dispute(first, 1e6);
+        // 1 dispute / 1 payment, but below the minimum sample: still instant.
+        assertFalse(pp.disputeRatioExceeded(merchant));
+        for (uint256 i = 0; i < 3; i++) {
+            assertTrue(pp.getPayment(_payDefault()).instant);
+        }
+        // 1/4 = 25% > 20%: monitoring trips.
+        assertTrue(pp.disputeRatioExceeded(merchant));
+        assertEq(pp.instantCapacity(merchant, address(token)), 0);
+        uint256 held = _payDefault();
+        assertFalse(pp.getPayment(held).instant);
+        assertEq(pp.getPayment(held).held, AMOUNT);
+
+        // Clean volume brings the ratio back under the threshold (1/5 = 20%).
+        assertFalse(pp.disputeRatioExceeded(merchant));
+        assertTrue(pp.getPayment(_payDefault()).instant);
+    }
+
+    function test_monitoring_disabled_by_default_and_bounded() public {
+        _enableInstant(1000, 10_000e6);
+        uint256 id = _payDefault();
+        _dispute(id, 1e6);
+        assertFalse(pp.disputeRatioExceeded(merchant));
+        assertTrue(pp.getPayment(_payDefault()).instant);
+
+        vm.prank(admin);
+        vm.expectRevert(ProtectedPayments.InvalidConfig.selector);
+        pp.setParams(
+            ProtectedPayments.Params({
+                minProtectionWindow: 1 days,
+                maxProtectionWindow: 120 days,
+                merchantResponseWindow: 3 days,
+                arbitrationWindow: 7 days,
+                maxDisputeRatioBps: 10_001,
+                minPaymentsForRatio: 0
+            })
+        );
     }
 
     // ═══ verified evidence ══════════════════════════════════════════════════

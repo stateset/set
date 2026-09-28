@@ -99,6 +99,39 @@ recipient and reassigns the case once to the default arbiter. A second miss
 refunds the buyer. Bond withdrawal needs zero open cases; a full exit waits out
 `unbondingPeriod`.
 
+## Dispute monitoring
+
+Every payment and dispute is counted on-chain per merchant and per buyer
+(`merchantStats`, `buyerStats`). For merchants, `lost` counts disputes that
+closed with a refund other than a negotiated settlement. For buyers, it counts
+arbitration losses with a zero award, which signals friendly fraud.
+
+Governance sets `maxDisputeRatioBps` and `minPaymentsForRatio`. Once a merchant
+has at least that many payments and its disputes-to-payments ratio exceeds the
+threshold, instant settlement is revoked automatically. New payments are held
+instead, and `instantCapacity` reports zero. Clean volume brings the ratio back
+under the threshold and restores instant settlement with no underwriter action.
+The deploy script uses 0.9% after 100 payments, mirroring card-network dispute
+monitoring. Zero disables the check. The ratio is judged on the merchant's
+record *before* the incoming payment, so a payment cannot dilute its own gate.
+
+## SDK
+
+`@setchain/sdk` exports `protection`:
+
+- `buildProtectedPaymentTypedData` builds the EIP-712 terms a merchant signs.
+- `ProtectedPaymentsClient` provides typed reads (payment, dispute, stats,
+  reserve, credits) and writes that approve exact shortfalls, never unlimited
+  allowances.
+- `derivePaymentActions` is a pure function listing what an account can do at a
+  given timestamp. It mirrors the contract's timing and authorization guards so
+  agents only offer transactions that will not revert on those grounds.
+  `client.actionsFor(id, account)` evaluates it at the latest block.
+
+`sdk/examples/protected-payments-e2e.mjs` deploys the contracts on a throwaway
+Anvil chain and runs an instant-settlement chargeback, an arbitrated partial
+refund and a merchant default.
+
 ## Evidence
 
 Parties commit evidence hashes when they file and respond. Either party or the
@@ -126,5 +159,6 @@ interpret the event; the arbiter decides what it shows.
 ## Not yet covered
 
 Multi-round appeals, arbiter juries, reason-code-specific evidence rules, and a
-pool yield strategy. No deployment has been performed and the contracts have not
+pool yield strategy. `ProtectedPayments` is 22.0 KB under via_ir, so appeals
+should live in a separate contract. No deployment has been performed and the contracts have not
 been independently audited.

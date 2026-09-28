@@ -162,6 +162,10 @@ contract ProtectedPaymentsHandler is Test {
     }
 }
 
+/// Pinned so CI cost stays bounded regardless of profile; a 256 x 500 campaign
+/// also passes (run with FOUNDRY_INVARIANT_DEPTH=500 for a deep search).
+/// forge-config: default.invariant.runs = 256
+/// forge-config: default.invariant.depth = 50
 contract ProtectedPaymentsInvariantTest is ProtectionTestBase {
     ProtectedPaymentsHandler handler;
 

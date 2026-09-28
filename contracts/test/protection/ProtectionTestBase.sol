@@ -57,7 +57,9 @@ abstract contract ProtectionTestBase is Test {
                 minProtectionWindow: 1 days,
                 maxProtectionWindow: 120 days,
                 merchantResponseWindow: 3 days,
-                arbitrationWindow: 7 days
+                arbitrationWindow: 7 days,
+                maxDisputeRatioBps: 0,
+                minPaymentsForRatio: 0
             })
         );
 
